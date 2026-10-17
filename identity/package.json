@@ -1,0 +1,45 @@
+{
+  "name": "@concordium/wdk-identity-concordium",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Concordium identity companion for the WDK wallet module: identity verification with an identity provider, encrypted identity storage, and account creation from a wallet seed.",
+  "type": "module",
+  "main": "index.js",
+  "types": "types/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./types/index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "types",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node --test test/unit/*.test.mjs"
+  },
+  "keywords": [
+    "wdk",
+    "wallet",
+    "concordium",
+    "identity",
+    "tether"
+  ],
+  "author": "Concordium",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Concordium/tether-wdk-concordium.git",
+    "directory": "identity"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}
