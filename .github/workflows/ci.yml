@@ -26,3 +26,24 @@ jobs:
       - name: Verify unit tests without external networking
         run: sudo unshare --net -- "$(command -v node)" --test test/unit/*.test.mjs
       - run: npx --no-install tsc --noEmit types/index.d.ts
+
+  validate-identity:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [18, 22, 24]
+    defaults:
+      run:
+        working-directory: identity
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+          cache-dependency-path: identity/package-lock.json
+      - run: npm ci
+      - run: npm test
+      - name: Verify unit tests without external networking
+        run: sudo unshare --net -- "$(command -v node)" --test test/unit/*.test.mjs
+      - run: npx --no-install tsc --noEmit types/index.d.ts
