@@ -14,13 +14,15 @@
   },
   "files": [
     "index.js",
+    "src",
     "types",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/unit/*.test.mjs"
+    "test": "node --test test/unit/*.test.mjs",
+    "fixtures": "node test/fixtures/capture.mjs"
   },
   "keywords": [
     "wdk",
