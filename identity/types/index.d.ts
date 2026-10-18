@@ -5,7 +5,12 @@
 
 /** Configuration for the identity package. */
 export interface IdentityConfig {
-  /** Absolute HTTP(S) URL of a Concordium wallet-proxy; it publishes the identity providers. */
+  /**
+   * Derive keys as on mainnet (true) or testnet (false). Same meaning as in
+   * @concordium/wdk-wallet-concordium; use the same value for both packages.
+   */
+  useMainnetKeyDerivation: boolean;
+  /** Absolute HTTP(S) URL of a Concordium wallet-proxy; it publishes the identity providers and cryptographic parameters. */
   walletProxyUrl: string;
 }
 

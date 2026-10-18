@@ -89,7 +89,8 @@ test('an address a provider does not publish is reported as null, never invented
 
 test('a wallet-proxy base path is kept when building the request URL', async () => {
   const { fetch, requests } = walletProxyFetch('testnet');
-  const providers = new IdentityProviders({ walletProxyUrl: 'https://proxy.example/concordium/' }, { fetch });
+  const providers = new IdentityProviders(
+    { useMainnetKeyDerivation: false, walletProxyUrl: 'https://proxy.example/concordium/' }, { fetch });
   await providers.list();
   assert.deepEqual(requests, ['https://proxy.example/concordium/v1/ip_info']);
 });
@@ -116,6 +117,6 @@ test('a network failure passes through unchanged, so it is not mistaken for a pr
 
 test('an invalid configuration is rejected before any request', () => {
   const { fetch, requests } = walletProxyFetch('testnet');
-  assert.throws(() => new IdentityProviders({ walletProxyUrl: 'not a url' }, { fetch }), /walletProxyUrl/);
+  assert.throws(() => new IdentityProviders({ useMainnetKeyDerivation: false, walletProxyUrl: 'not a url' }, { fetch }), /walletProxyUrl/);
   assert.deepEqual(requests, []);
 });
