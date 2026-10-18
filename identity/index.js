@@ -9,4 +9,6 @@
  * capability lands.
  */
 
-export {};
+export { CONCORDIUM_MAINNET_IDENTITY_CONFIG, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from './src/config.js';
+export { default as IdentityProviders } from './src/IdentityProviders.js';
+export { IdentityProviderError } from './src/errors.js';
