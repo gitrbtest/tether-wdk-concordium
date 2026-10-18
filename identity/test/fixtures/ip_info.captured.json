@@ -1,7 +1,9 @@
 {
-  "capturedAt": "2026-10-17",
+  "capturedAt": "2026-10-18",
   "sources": {
     "ip_info.testnet.v1.json": "https://wallet-proxy.testnet.concordium.com/v1/ip_info",
-    "ip_info.mainnet.v1.json": "https://wallet-proxy.mainnet.concordium.software/v1/ip_info"
+    "global.testnet.json": "https://wallet-proxy.testnet.concordium.com/v0/global",
+    "ip_info.mainnet.v1.json": "https://wallet-proxy.mainnet.concordium.software/v1/ip_info",
+    "global.mainnet.json": "https://wallet-proxy.mainnet.concordium.software/v0/global"
   }
 }

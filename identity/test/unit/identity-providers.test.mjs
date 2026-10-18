@@ -7,13 +7,13 @@ import {
   CONCORDIUM_MAINNET_IDENTITY_CONFIG,
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
-import { ipInfoFixture, ipInfoFetch } from '../helpers.mjs';
+import { ipInfoFixture, walletProxyFetch } from '../helpers.mjs';
 
 const CONFIG = { testnet: CONCORDIUM_TESTNET_IDENTITY_CONFIG, mainnet: CONCORDIUM_MAINNET_IDENTITY_CONFIG };
 
 /** Providers that read one network's recorded list; `requests` records every URL asked for. */
-function recorded(network, body) {
-  const { fetch, requests } = ipInfoFetch(network, body);
+function recorded(network, ipInfo) {
+  const { fetch, requests } = walletProxyFetch(network, { ipInfo });
   return { providers: new IdentityProviders(CONFIG[network], { fetch }), requests };
 }
 
@@ -88,7 +88,7 @@ test('an address a provider does not publish is reported as null, never invented
 });
 
 test('a wallet-proxy base path is kept when building the request URL', async () => {
-  const { fetch, requests } = ipInfoFetch('testnet');
+  const { fetch, requests } = walletProxyFetch('testnet');
   const providers = new IdentityProviders({ walletProxyUrl: 'https://proxy.example/concordium/' }, { fetch });
   await providers.list();
   assert.deepEqual(requests, ['https://proxy.example/concordium/v1/ip_info']);
@@ -115,7 +115,7 @@ test('a network failure passes through unchanged, so it is not mistaken for a pr
 });
 
 test('an invalid configuration is rejected before any request', () => {
-  const { fetch, requests } = ipInfoFetch('testnet');
+  const { fetch, requests } = walletProxyFetch('testnet');
   assert.throws(() => new IdentityProviders({ walletProxyUrl: 'not a url' }, { fetch }), /walletProxyUrl/);
   assert.deepEqual(requests, []);
 });
