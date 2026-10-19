@@ -52,3 +52,34 @@ export class IdentityProviders {
    */
   get(index: number): Promise<IdentityProvider>;
 }
+
+/** Options for starting identity verification with a provider. */
+export interface CreateIdentityRequestOptions {
+  /** The provider's index on this network (see IdentityProviders). */
+  providerIndex: number;
+  /** Which of the wallet's identities with this provider. Defaults to 0. */
+  identityIndex?: number;
+  /** Absolute URL the provider sends the browser to when verification finishes; passed on exactly as given. */
+  redirectUri: string;
+}
+
+/** The link that opens the provider's verification page, and the identity it is for. */
+export interface IdentityRequest {
+  issuanceUrl: string;
+  providerIndex: number;
+  identityIndex: number;
+}
+
+/** A wallet's Concordium identity, derived from the wallet's own seed. */
+export class ConcordiumIdentity {
+  /**
+   * @param seed The wallet's BIP-39 seed phrase, or its 64-byte seed.
+   * @param config e.g. CONCORDIUM_TESTNET_IDENTITY_CONFIG; use the same key derivation as the wallet package.
+   */
+  constructor(seed: string | Uint8Array, config: IdentityConfig, options?: { fetch?: typeof fetch });
+  /**
+   * Start identity verification: build the identity request for a provider and the link to its verification page.
+   * @throws {IdentityProviderError} If the provider is not published, or publishes no issuance address.
+   */
+  createIdentityRequest(options: CreateIdentityRequestOptions): Promise<IdentityRequest>;
+}
