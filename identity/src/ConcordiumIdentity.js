@@ -68,8 +68,24 @@ export default class ConcordiumIdentity {
     this._seed = toSeedBytes(seed);
   }
 
+  /** True once dispose() has been called. */
+  get disposed() {
+    return this._seed === undefined;
+  }
+
+  /** Zero the seed bytes and drop them. Later calls that need the seed throw. A second call does nothing. */
+  dispose() {
+    if (this._seed) this._seed.fill(0);
+    this._seed = undefined;
+  }
+
+  _requireNotDisposed() {
+    if (this.disposed) throw new Error('This identity has been disposed.');
+  }
+
   /** Key derivation for this identity's seed and network (the same tree as the wallet package). */
   get _hdWallet() {
+    this._requireNotDisposed();
     return sdk.ConcordiumHdWallet.fromHex(Buffer.from(this._seed).toString('hex'), this._config.derivationNetwork);
   }
 
@@ -98,8 +114,10 @@ export default class ConcordiumIdentity {
    * @param {string} options.redirectUri  where the provider sends the browser afterwards
    * @returns {Promise<{ issuanceUrl: string, providerIndex: number, identityIndex: number }>}
    * @throws {IdentityProviderError} If the provider is not published, or publishes no issuance address.
+   * @throws {Error} If the identity has been disposed.
    */
   async createIdentityRequest({ providerIndex, identityIndex = 0, redirectUri } = {}) {
+    this._requireNotDisposed();
     requireIndex(providerIndex, 'providerIndex');
     requireIndex(identityIndex, 'identityIndex');
     const returnUrl = requireRedirectUri(redirectUri);

@@ -80,6 +80,11 @@ export class ConcordiumIdentity {
   /**
    * Start identity verification: build the identity request for a provider and the link to its verification page.
    * @throws {IdentityProviderError} If the provider is not published, or publishes no issuance address.
+   * @throws {Error} If the identity has been disposed.
    */
   createIdentityRequest(options: CreateIdentityRequestOptions): Promise<IdentityRequest>;
+  /** True once dispose() has been called. */
+  get disposed(): boolean;
+  /** Zero the seed bytes and drop them; later calls that need the seed throw. */
+  dispose(): void;
 }
