@@ -18,16 +18,17 @@ function sleep(ms, signal) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(done, ms);
     function done() { signal?.removeEventListener('abort', abort); resolve(); }
-    function abort() { clearTimeout(timer); reject(cancelled()); }
+    function abort() { clearTimeout(timer); reject(cancelledError()); }
     signal?.addEventListener('abort', abort, { once: true });
   });
 }
 
-function cancelled() {
+function cancelledError() {
   return new IdentityIssuanceError('Waiting for the identity was cancelled.', { reason: 'cancelled' });
 }
 
-const identityKey = (providerIndex, identityIndex) => `${providerIndex}/${identityIndex}`;
+/** The label an issued identity is held under in _identities, e.g. "0/334563111" (provider 0, identity index 334563111). */
+const providerIdentityLabel =(providerIndex, identityIndex) => `${providerIndex}/${identityIndex}`;
 
 /** Same rule and wording as the wallet package's identity coordinates. */
 function requireIndex(value, name) {
@@ -46,7 +47,6 @@ function requireRedirectUri(value) {
   try {
     if (typeof value !== 'string' || value !== value.trim() || !value) throw new Error();
     new URL(value); // throws unless absolute
-    return value;
   } catch {
     throw new Error('redirectUri is required and must be an absolute URL.');
   }
@@ -179,7 +179,7 @@ export default class ConcordiumIdentity {
     this._requireNotDisposed();
     requireIndex(providerIndex, 'providerIndex');
     requireIndex(identityIndex, 'identityIndex');
-    const returnUrl = requireRedirectUri(redirectUri);
+    requireRedirectUri(redirectUri);
 
     const provider = await this._providers.get(providerIndex);
     if (!provider.issuanceStart) {
@@ -189,7 +189,7 @@ export default class ConcordiumIdentity {
 
     const globalContext = await this._globalContext();
     // Keys are derived with the provider's own index, so the request and the keys always agree.
-    const ipIndex = provider.ipInfo.ipIdentity;
+    const ipIdentity = provider.ipInfo.ipIdentity;
     const hdWallet = this._hdWallet;
     const idObjectRequest = sdk.createIdentityRequestWithKeys({
       ipInfo: provider.ipInfo,
@@ -197,16 +197,16 @@ export default class ConcordiumIdentity {
       // Any arThreshold of the provider's anonymity revokers together can reveal the identity; fewer cannot.
       arThreshold: Math.max(1, Object.keys(provider.arsInfos).length - 1),
       globalContext,
-      idCredSec: hdWallet.getIdCredSec(ipIndex, identityIndex).toString('hex'),
-      prfKey: hdWallet.getPrfKey(ipIndex, identityIndex).toString('hex'),
-      blindingRandomness: hdWallet.getSignatureBlindingRandomness(ipIndex, identityIndex).toString('hex'),
+      idCredSec: hdWallet.getIdCredSec(ipIdentity, identityIndex).toString('hex'),
+      prfKey: hdWallet.getPrfKey(ipIdentity, identityIndex).toString('hex'),
+      blindingRandomness: hdWallet.getSignatureBlindingRandomness(ipIdentity, identityIndex).toString('hex'),
     });
 
     const query = new URLSearchParams({
       state: JSON.stringify({ idObjectRequest }),
       response_type: 'code',
       scope: 'identity',
-      redirect_uri: returnUrl,
+      redirect_uri: redirectUri,
     });
     this._requestAwaitingIdentity = { providerIndex, identityIndex };
     return { issuanceUrl: `${provider.issuanceStart}?${query}`, providerIndex, identityIndex };
@@ -273,34 +273,34 @@ export default class ConcordiumIdentity {
   async waitForIdentity(codeUri, options = {}) {
     const { timeoutMs = DEFAULT_TIMEOUT_MS, intervalMs = DEFAULT_INTERVAL_MS, signal } = options;
     this._requireNotDisposed();
-    const url = httpUrlOrNull(codeUri);
-    if (!url) throw new Error('codeUri must be an absolute HTTP(S) URL.');
-    const { providerIndex, identityIndex } = this._requestFor(options);
+    const pollUrl = httpUrlOrNull(codeUri);
+    if (!pollUrl) throw new Error('codeUri must be an absolute HTTP(S) URL.');
+    const { providerIndex, identityIndex } = this._identityToCollect(options);
     requireIndex(providerIndex, 'providerIndex');
     requireIndex(identityIndex, 'identityIndex');
     requirePositive(timeoutMs, 'timeoutMs');
     requirePositive(intervalMs, 'intervalMs');
-    if (signal?.aborted) throw cancelled();
+    if (signal?.aborted) throw cancelledError();
 
     const expectedIdCredPub = await this._expectedIdCredPub(providerIndex, identityIndex);
     const deadline = Date.now() + timeoutMs;
-    let pollErrors = 0;
+    let failedPollsInARow = 0;
 
     while (true) {
-      if (signal?.aborted) throw cancelled();
+      if (signal?.aborted) throw cancelledError();
       let reply;
       try {
-        const response = await this._fetch(url, { signal });
+        const response = await this._fetch(pollUrl, { signal });
         if (!response.ok) throw new Error(`The identity provider answered HTTP ${response.status}.`);
         reply = await response.json();
-        pollErrors = 0;
+        failedPollsInARow = 0;
       } catch (e) {
-        if (signal?.aborted) throw cancelled();
-        if (++pollErrors >= MAX_POLL_ERRORS) throw e;
+        if (signal?.aborted) throw cancelledError();
+        if (++failedPollsInARow >= MAX_POLL_ERRORS) throw e;
       }
 
       if (reply?.status === 'done') {
-        return this._keepIdentity(reply.token?.identityObject, { providerIndex, identityIndex, expectedIdCredPub });
+        return this._checkAndKeepIdentity(reply.token?.identityObject, { providerIndex, identityIndex, expectedIdCredPub });
       }
       if (reply?.status === 'error') {
         throw new IdentityIssuanceError(
@@ -321,7 +321,7 @@ export default class ConcordiumIdentity {
   }
 
   /** The provider and identity index to collect for: as given, or those of the request awaiting its identity. */
-  _requestFor({ providerIndex, identityIndex } = {}) {
+  _identityToCollect({ providerIndex, identityIndex } = {}) {
     if (providerIndex !== undefined) return { providerIndex, identityIndex: identityIndex ?? 0 };
     if (identityIndex === undefined && this._requestAwaitingIdentity) return { ...this._requestAwaitingIdentity };
     throw new Error('No identity request was started on this object: pass providerIndex '
@@ -329,21 +329,21 @@ export default class ConcordiumIdentity {
   }
 
   /** Check an issued identity is this wallet's, keep it as bytes, and return its summary. */
-  _keepIdentity(identityObject, { providerIndex, identityIndex, expectedIdCredPub }) {
-    const value = identityObject?.value ?? identityObject;
-    if (!value?.preIdentityObject || !value?.attributeList || !value?.signature) {
+  _checkAndKeepIdentity(identityObject, { providerIndex, identityIndex, expectedIdCredPub }) {
+    const content = identityObject?.value ?? identityObject;
+    if (!content?.preIdentityObject || !content?.attributeList || !content?.signature) {
       throw new Error('The identity provider returned an identity in an unexpected format.');
     }
-    if (value.preIdentityObject.idCredPub !== expectedIdCredPub) {
+    if (content.preIdentityObject.idCredPub !== expectedIdCredPub) {
       throw new Error(
         `The issued identity does not belong to this wallet for provider ${providerIndex}, identity ${identityIndex}.`);
     }
-    const key = identityKey(providerIndex, identityIndex);
-    this._identities.get(key)?.fill(0);
-    this._identities.set(key, new TextEncoder().encode(JSON.stringify(identityObject)));
+    const label = providerIdentityLabel(providerIndex, identityIndex);
+    this._identities.get(label)?.fill(0);
+    this._identities.set(label, new TextEncoder().encode(JSON.stringify(identityObject)));
     const awaiting = this._requestAwaitingIdentity;
     if (awaiting?.providerIndex === providerIndex && awaiting?.identityIndex === identityIndex) this._requestAwaitingIdentity = null;
-    const { createdAt, validTo, maxAccounts } = value.attributeList;
+    const { createdAt, validTo, maxAccounts } = content.attributeList;
     return { providerIndex, identityIndex, createdAt, validTo, maxAccounts };
   }
 
