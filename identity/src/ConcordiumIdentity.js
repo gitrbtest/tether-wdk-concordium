@@ -119,6 +119,9 @@ export default class ConcordiumIdentity {
     this._seed = toSeedBytes(seed);
     // Issued identities collected by waitForIdentity, held as UTF-8 JSON bytes so dispose() can zero them.
     this._identities = new Map();
+    // The provider and identity index of the last request started here, so the
+    // wallet can hand back just the callback address (see retrieveIdentity).
+    this._requestAwaitingIdentity = null;
   }
 
   /** True once dispose() has been called. */
@@ -132,6 +135,7 @@ export default class ConcordiumIdentity {
     this._seed = undefined;
     for (const bytes of this._identities.values()) bytes.fill(0);
     this._identities.clear();
+    this._requestAwaitingIdentity = null;
   }
 
   _requireNotDisposed() {
@@ -204,6 +208,7 @@ export default class ConcordiumIdentity {
       scope: 'identity',
       redirect_uri: returnUrl,
     });
+    this._requestAwaitingIdentity = { providerIndex, identityIndex };
     return { issuanceUrl: `${provider.issuanceStart}?${query}`, providerIndex, identityIndex };
   }
 
@@ -251,9 +256,13 @@ export default class ConcordiumIdentity {
    * be this wallet's (same seed, provider and identity index) and kept inside
    * this object for storage and account creation; only a summary is returned.
    *
+   * The provider and identity index default to those of the last
+   * createIdentityRequest on this object. Pass them when resuming in a new
+   * object, e.g. after an app restart.
+   *
    * @param {string} codeUri  from parseIdentityCallback
-   * @param {object} options
-   * @param {number} options.providerIndex  the provider the request was made to
+   * @param {object} [options]
+   * @param {number} [options.providerIndex]  the provider the request was made to
    * @param {number} [options.identityIndex=0]  the identity index the request was made for
    * @param {number} [options.timeoutMs=900000]  give up after this long (default 15 minutes)
    * @param {number} [options.intervalMs=3000]  wait this long between polls
@@ -261,12 +270,12 @@ export default class ConcordiumIdentity {
    * @returns {Promise<{ providerIndex: number, identityIndex: number, createdAt: string, validTo: string, maxAccounts: number }>}
    * @throws {IdentityIssuanceError} reason 'rejected', 'timeout' or 'cancelled'.
    */
-  async waitForIdentity(codeUri, {
-    providerIndex, identityIndex = 0, timeoutMs = DEFAULT_TIMEOUT_MS, intervalMs = DEFAULT_INTERVAL_MS, signal,
-  } = {}) {
+  async waitForIdentity(codeUri, options = {}) {
+    const { timeoutMs = DEFAULT_TIMEOUT_MS, intervalMs = DEFAULT_INTERVAL_MS, signal } = options;
     this._requireNotDisposed();
     const url = httpUrlOrNull(codeUri);
     if (!url) throw new Error('codeUri must be an absolute HTTP(S) URL.');
+    const { providerIndex, identityIndex } = this._requestFor(options);
     requireIndex(providerIndex, 'providerIndex');
     requireIndex(identityIndex, 'identityIndex');
     requirePositive(timeoutMs, 'timeoutMs');
@@ -311,6 +320,14 @@ export default class ConcordiumIdentity {
     }
   }
 
+  /** The provider and identity index to collect for: as given, or those of the request awaiting its identity. */
+  _requestFor({ providerIndex, identityIndex } = {}) {
+    if (providerIndex !== undefined) return { providerIndex, identityIndex: identityIndex ?? 0 };
+    if (identityIndex === undefined && this._requestAwaitingIdentity) return { ...this._requestAwaitingIdentity };
+    throw new Error('No identity request was started on this object: pass providerIndex '
+      + '(and identityIndex, if not 0) to collect, e.g. when resuming after a restart.');
+  }
+
   /** Check an issued identity is this wallet's, keep it as bytes, and return its summary. */
   _keepIdentity(identityObject, { providerIndex, identityIndex, expectedIdCredPub }) {
     const value = identityObject?.value ?? identityObject;
@@ -324,19 +341,22 @@ export default class ConcordiumIdentity {
     const key = identityKey(providerIndex, identityIndex);
     this._identities.get(key)?.fill(0);
     this._identities.set(key, new TextEncoder().encode(JSON.stringify(identityObject)));
+    const awaiting = this._requestAwaitingIdentity;
+    if (awaiting?.providerIndex === providerIndex && awaiting?.identityIndex === identityIndex) this._requestAwaitingIdentity = null;
     const { createdAt, validTo, maxAccounts } = value.attributeList;
     return { providerIndex, identityIndex, createdAt, validTo, maxAccounts };
   }
 
   /**
    * Read the provider's callback and collect the issued identity: parseIdentityCallback
-   * then waitForIdentity. To survive an app restart while waiting, call the two
-   * separately and save the code_uri in between.
+   * then waitForIdentity. After createIdentityRequest on this object, the callback
+   * address is all that is needed. To survive an app restart while waiting, call
+   * the two separately and save the code_uri in between.
    *
    * @param {string} callbackUrl  the full URL the provider sent the browser to
-   * @param {object} options  as for waitForIdentity: providerIndex (required), identityIndex, timeoutMs, intervalMs, signal
+   * @param {object} [options]  as for waitForIdentity: providerIndex, identityIndex, timeoutMs, intervalMs, signal
    */
-  async retrieveIdentity(callbackUrl, options) {
+  async retrieveIdentity(callbackUrl, options = {}) {
     const { codeUri } = this.parseIdentityCallback(callbackUrl);
     return this.waitForIdentity(codeUri, options);
   }

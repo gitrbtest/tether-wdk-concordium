@@ -81,8 +81,8 @@ export interface IdentityRequest {
 
 /** Options for collecting an issued identity. */
 export interface WaitForIdentityOptions {
-  /** The provider the identity request was made to. */
-  providerIndex: number;
+  /** The provider the identity request was made to. Defaults to that of the last createIdentityRequest on this object. */
+  providerIndex?: number;
   /** The identity index the request was made for. Defaults to 0. */
   identityIndex?: number;
   /** Give up after this many milliseconds. Defaults to 15 minutes. */
@@ -129,12 +129,12 @@ export class ConcordiumIdentity {
    * this wallet's and kept inside this object; only a summary is returned.
    * @throws {IdentityIssuanceError} reason 'rejected', 'timeout' or 'cancelled'.
    */
-  waitForIdentity(codeUri: string, options: WaitForIdentityOptions): Promise<IdentitySummary>;
+  waitForIdentity(codeUri: string, options?: WaitForIdentityOptions): Promise<IdentitySummary>;
   /**
    * parseIdentityCallback followed by waitForIdentity.
    * @throws {IdentityIssuanceError} reason 'provider-error', 'rejected', 'timeout' or 'cancelled'.
    */
-  retrieveIdentity(callbackUrl: string, options: WaitForIdentityOptions): Promise<IdentitySummary>;
+  retrieveIdentity(callbackUrl: string, options?: WaitForIdentityOptions): Promise<IdentitySummary>;
   /** True once dispose() has been called. */
   get disposed(): boolean;
   /** Zero the seed and any collected identities, and drop them; later calls that need the seed throw. */

@@ -114,7 +114,8 @@ test('an unexpected status from the provider is reported', async () => {
 test('invalid inputs are rejected before any request', async () => {
   const cases = [
     ['/api/v1/identity/abc', ISSUED, /codeUri must be an absolute HTTP\(S\) URL/],
-    [CODE_URI, { identityIndex: 0 }, /providerIndex is required/],
+    [CODE_URI, { identityIndex: 0 }, /No identity request was started on this object: pass providerIndex/],
+    [CODE_URI, { providerIndex: -1 }, /providerIndex is required/],
     [CODE_URI, { ...ISSUED, timeoutMs: 0 }, /timeoutMs must be a positive number/],
     [CODE_URI, { ...ISSUED, intervalMs: -1 }, /intervalMs must be a positive number/],
   ];
@@ -147,4 +148,27 @@ test('dispose zeroes the identities held inside, and a disposed identity cannot 
   assert.ok(held.every((byte) => byte === 0));
   assert.equal(identity._identities.size, 0);
   await assert.rejects(() => identity.waitForIdentity(CODE_URI, ISSUED), /This identity has been disposed/);
+});
+
+test('after createIdentityRequest, the callback address is all retrieveIdentity needs', async () => {
+  const { identity } = polling([PENDING, DONE()]);
+  await identity.createIdentityRequest({ ...ISSUED, redirectUri: 'http://localhost:4000/callback' });
+  const callback = `http://localhost:4000/callback#code_uri=${encodeURIComponent(CODE_URI)}`;
+  const summary = await identity.retrieveIdentity(callback, FAST);
+  assert.deepEqual({ providerIndex: summary.providerIndex, identityIndex: summary.identityIndex }, ISSUED);
+  assert.equal(identity._requestAwaitingIdentity, null, 'the request no longer awaits its identity');
+});
+
+test('without a request started on the object, the numbers must be given', async () => {
+  const { identity, polls } = polling([DONE()]);
+  await assert.rejects(() => identity.waitForIdentity(CODE_URI, FAST), /No identity request was started on this object/);
+  assert.equal(polls.length, 0);
+});
+
+test('numbers given explicitly take precedence over the request awaiting its identity', async () => {
+  const { identity } = polling([DONE()]);
+  await identity.createIdentityRequest({ providerIndex: 0, identityIndex: 7, redirectUri: 'http://localhost:4000/callback' });
+  // the recorded identity is for identity index 334563111, not the awaiting 7
+  assert.equal((await identity.waitForIdentity(CODE_URI, { ...ISSUED, ...FAST })).identityIndex, ISSUED.identityIndex);
+  await assert.rejects(() => identity.waitForIdentity(CODE_URI, FAST), /does not belong to this wallet for provider 0, identity 7/);
 });
