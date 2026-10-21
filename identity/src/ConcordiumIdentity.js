@@ -5,6 +5,29 @@ import IdentityProviders from './IdentityProviders.js';
 
 const SEED_BYTES = 64;
 const GLOBAL_PATH = '/v0/global';
+const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
+const DEFAULT_INTERVAL_MS = 3000;
+const MAX_POLL_ERRORS = 3; // consecutive network/HTTP failures tolerated while polling
+
+function requirePositive(value, name) {
+  if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number of milliseconds.`);
+}
+
+/** Wait `ms`, or reject early with a 'cancelled' error if `signal` aborts. */
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(done, ms);
+    function done() { signal?.removeEventListener('abort', abort); resolve(); }
+    function abort() { clearTimeout(timer); reject(cancelled()); }
+    signal?.addEventListener('abort', abort, { once: true });
+  });
+}
+
+function cancelled() {
+  return new IdentityIssuanceError('Waiting for the identity was cancelled.', { reason: 'cancelled' });
+}
+
+const identityKey = (providerIndex, identityIndex) => `${providerIndex}/${identityIndex}`;
 
 /** Same rule and wording as the wallet package's identity coordinates. */
 function requireIndex(value, name) {
@@ -94,6 +117,8 @@ export default class ConcordiumIdentity {
     this._fetch = fetchFn;
     this._providers = new IdentityProviders(this._config, { fetch: (url, options) => this._fetch(url, options) });
     this._seed = toSeedBytes(seed);
+    // Issued identities collected by waitForIdentity, held as UTF-8 JSON bytes so dispose() can zero them.
+    this._identities = new Map();
   }
 
   /** True once dispose() has been called. */
@@ -101,10 +126,12 @@ export default class ConcordiumIdentity {
     return this._seed === undefined;
   }
 
-  /** Zero the seed bytes and drop them. Later calls that need the seed throw. A second call does nothing. */
+  /** Zero the seed and any collected identities, and drop them. Later calls that need the seed throw. A second call does nothing. */
   dispose() {
     if (this._seed) this._seed.fill(0);
     this._seed = undefined;
+    for (const bytes of this._identities.values()) bytes.fill(0);
+    this._identities.clear();
   }
 
   _requireNotDisposed() {
@@ -206,5 +233,111 @@ export default class ConcordiumIdentity {
     const codeUri = httpUrlOrNull(reply.get('code_uri'));
     if (!codeUri) throw new Error("The callback's code_uri is not an absolute HTTP(S) URL.");
     return { codeUri };
+  }
+
+  /** The idCredPub an identity for this seed, provider and identity index must carry. */
+  async _expectedIdCredPub(providerIndex, identityIndex) {
+    const provider = await this._providers.get(providerIndex);
+    const globalContext = await this._globalContext();
+    const idCredSec = this._hdWallet.getIdCredSec(provider.ipInfo.ipIdentity, identityIndex).toString('hex');
+    return sdk.createIdentityRecoveryRequestWithKeys({
+      ipInfo: provider.ipInfo, globalContext, idCredSec, timestamp: 0,
+    }).value.idCredPub;
+  }
+
+  /**
+   * Collect the identity the provider issued: poll the code_uri from the callback
+   * until the provider reports it issued or rejected. The identity is checked to
+   * be this wallet's (same seed, provider and identity index) and kept inside
+   * this object for storage and account creation; only a summary is returned.
+   *
+   * @param {string} codeUri  from parseIdentityCallback
+   * @param {object} options
+   * @param {number} options.providerIndex  the provider the request was made to
+   * @param {number} [options.identityIndex=0]  the identity index the request was made for
+   * @param {number} [options.timeoutMs=900000]  give up after this long (default 15 minutes)
+   * @param {number} [options.intervalMs=3000]  wait this long between polls
+   * @param {AbortSignal} [options.signal]  cancels the wait
+   * @returns {Promise<{ providerIndex: number, identityIndex: number, createdAt: string, validTo: string, maxAccounts: number }>}
+   * @throws {IdentityIssuanceError} reason 'rejected', 'timeout' or 'cancelled'.
+   */
+  async waitForIdentity(codeUri, {
+    providerIndex, identityIndex = 0, timeoutMs = DEFAULT_TIMEOUT_MS, intervalMs = DEFAULT_INTERVAL_MS, signal,
+  } = {}) {
+    this._requireNotDisposed();
+    const url = httpUrlOrNull(codeUri);
+    if (!url) throw new Error('codeUri must be an absolute HTTP(S) URL.');
+    requireIndex(providerIndex, 'providerIndex');
+    requireIndex(identityIndex, 'identityIndex');
+    requirePositive(timeoutMs, 'timeoutMs');
+    requirePositive(intervalMs, 'intervalMs');
+    if (signal?.aborted) throw cancelled();
+
+    const expectedIdCredPub = await this._expectedIdCredPub(providerIndex, identityIndex);
+    const deadline = Date.now() + timeoutMs;
+    let pollErrors = 0;
+
+    while (true) {
+      if (signal?.aborted) throw cancelled();
+      let reply;
+      try {
+        const response = await this._fetch(url, { signal });
+        if (!response.ok) throw new Error(`The identity provider answered HTTP ${response.status}.`);
+        reply = await response.json();
+        pollErrors = 0;
+      } catch (e) {
+        if (signal?.aborted) throw cancelled();
+        if (++pollErrors >= MAX_POLL_ERRORS) throw e;
+      }
+
+      if (reply?.status === 'done') {
+        return this._keepIdentity(reply.token?.identityObject, { providerIndex, identityIndex, expectedIdCredPub });
+      }
+      if (reply?.status === 'error') {
+        throw new IdentityIssuanceError(
+          `The identity provider did not issue the identity${reply.detail ? `: ${reply.detail}` : '.'}`,
+          { reason: 'rejected', detail: reply.detail || undefined });
+      }
+      if (reply && reply.status !== 'pending') {
+        throw new Error(`The identity provider answered with an unexpected status: ${JSON.stringify(reply.status)}.`);
+      }
+
+      if (Date.now() + intervalMs > deadline) {
+        throw new IdentityIssuanceError(
+          `The identity was not issued within ${timeoutMs} ms; the provider may still be verifying. ` +
+          'Wait again with the same code_uri later.', { reason: 'timeout' });
+      }
+      await sleep(intervalMs, signal);
+    }
+  }
+
+  /** Check an issued identity is this wallet's, keep it as bytes, and return its summary. */
+  _keepIdentity(identityObject, { providerIndex, identityIndex, expectedIdCredPub }) {
+    const value = identityObject?.value ?? identityObject;
+    if (!value?.preIdentityObject || !value?.attributeList || !value?.signature) {
+      throw new Error('The identity provider returned an identity in an unexpected format.');
+    }
+    if (value.preIdentityObject.idCredPub !== expectedIdCredPub) {
+      throw new Error(
+        `The issued identity does not belong to this wallet for provider ${providerIndex}, identity ${identityIndex}.`);
+    }
+    const key = identityKey(providerIndex, identityIndex);
+    this._identities.get(key)?.fill(0);
+    this._identities.set(key, new TextEncoder().encode(JSON.stringify(identityObject)));
+    const { createdAt, validTo, maxAccounts } = value.attributeList;
+    return { providerIndex, identityIndex, createdAt, validTo, maxAccounts };
+  }
+
+  /**
+   * Read the provider's callback and collect the issued identity: parseIdentityCallback
+   * then waitForIdentity. To survive an app restart while waiting, call the two
+   * separately and save the code_uri in between.
+   *
+   * @param {string} callbackUrl  the full URL the provider sent the browser to
+   * @param {object} options  as for waitForIdentity: providerIndex (required), identityIndex, timeoutMs, intervalMs, signal
+   */
+  async retrieveIdentity(callbackUrl, options) {
+    const { codeUri } = this.parseIdentityCallback(callbackUrl);
+    return this.waitForIdentity(codeUri, options);
   }
 }

@@ -41,5 +41,16 @@ for (const [network, proxy] of Object.entries(NETWORKS)) {
   console.log(`global.${network}.json: ${global.value?.genesisString}`);
 }
 
+// A real identity issued by the testnet identity provider (provider 0) for the public
+// "abandon … about" test seed at identity index 334563111, with the test form's made-up
+// attributes. Collected from its code_uri, the reference the provider returned after issuance.
+export const ISSUED_TESTNET_IDENTITY = {
+  providerIndex: 0,
+  identityIndex: 334563111,
+  codeUri: 'https://id-service.testnet.concordium.com/api/v1/identity/51cf6074722e6685934b4d06fba5baf0045d1d8130ead5ba7fac04dabff9ba3a',
+};
+await capture(ISSUED_TESTNET_IDENTITY.codeUri, 'identity-done.testnet.json');
+console.log('identity-done.testnet.json: issued identity collected from its code_uri');
+
 await writeFile(new URL('ip_info.captured.json', here),
   JSON.stringify({ capturedAt: new Date().toISOString().slice(0, 10), sources }, null, 2) + '\n');

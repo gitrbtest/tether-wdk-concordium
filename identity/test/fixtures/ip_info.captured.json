@@ -1,9 +1,10 @@
 {
-  "capturedAt": "2026-10-18",
+  "capturedAt": "2026-10-21",
   "sources": {
     "ip_info.testnet.v1.json": "https://wallet-proxy.testnet.concordium.com/v1/ip_info",
     "global.testnet.json": "https://wallet-proxy.testnet.concordium.com/v0/global",
     "ip_info.mainnet.v1.json": "https://wallet-proxy.mainnet.concordium.software/v1/ip_info",
-    "global.mainnet.json": "https://wallet-proxy.mainnet.concordium.software/v0/global"
+    "global.mainnet.json": "https://wallet-proxy.mainnet.concordium.software/v0/global",
+    "identity-done.testnet.json": "https://id-service.testnet.concordium.com/api/v1/identity/51cf6074722e6685934b4d06fba5baf0045d1d8130ead5ba7fac04dabff9ba3a"
   }
 }

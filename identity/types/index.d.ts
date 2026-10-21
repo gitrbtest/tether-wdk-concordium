@@ -79,6 +79,32 @@ export interface IdentityRequest {
   identityIndex: number;
 }
 
+/** Options for collecting an issued identity. */
+export interface WaitForIdentityOptions {
+  /** The provider the identity request was made to. */
+  providerIndex: number;
+  /** The identity index the request was made for. Defaults to 0. */
+  identityIndex?: number;
+  /** Give up after this many milliseconds. Defaults to 15 minutes. */
+  timeoutMs?: number;
+  /** Milliseconds between polls of the provider. Defaults to 3000. */
+  intervalMs?: number;
+  /** Cancels the wait. */
+  signal?: AbortSignal;
+}
+
+/** What is returned about a collected identity: no personal data. */
+export interface IdentitySummary {
+  providerIndex: number;
+  identityIndex: number;
+  /** When the provider issued the identity (YYYYMM). */
+  createdAt: string;
+  /** When the identity expires (YYYYMM). */
+  validTo: string;
+  /** How many accounts may be created from this identity. */
+  maxAccounts: number;
+}
+
 /** A wallet's Concordium identity, derived from the wallet's own seed. */
 export class ConcordiumIdentity {
   /**
@@ -98,8 +124,19 @@ export class ConcordiumIdentity {
    * @throws {IdentityIssuanceError} If the provider reported an error.
    */
   parseIdentityCallback(callbackUrl: string): { codeUri: string };
+  /**
+   * Collect the identity the provider issued, by polling the code_uri. The identity is checked to be
+   * this wallet's and kept inside this object; only a summary is returned.
+   * @throws {IdentityIssuanceError} reason 'rejected', 'timeout' or 'cancelled'.
+   */
+  waitForIdentity(codeUri: string, options: WaitForIdentityOptions): Promise<IdentitySummary>;
+  /**
+   * parseIdentityCallback followed by waitForIdentity.
+   * @throws {IdentityIssuanceError} reason 'provider-error', 'rejected', 'timeout' or 'cancelled'.
+   */
+  retrieveIdentity(callbackUrl: string, options: WaitForIdentityOptions): Promise<IdentitySummary>;
   /** True once dispose() has been called. */
   get disposed(): boolean;
-  /** Zero the seed bytes and drop them; later calls that need the seed throw. */
+  /** Zero the seed and any collected identities, and drop them; later calls that need the seed throw. */
   dispose(): void;
 }
