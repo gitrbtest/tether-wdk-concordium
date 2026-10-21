@@ -41,6 +41,15 @@ export class IdentityProviderError extends Error {
   providerIndex?: number;
 }
 
+/** Thrown when an identity is not issued: the provider reported an error, rejected it, or the wait timed out or was cancelled. */
+export class IdentityIssuanceError extends Error {
+  reason: 'provider-error' | 'rejected' | 'timeout' | 'cancelled';
+  /** The provider's error code, if it gave one. */
+  code?: string;
+  /** The provider's explanation, if it gave one. */
+  detail?: string;
+}
+
 /** The identity providers published by a Concordium wallet-proxy. */
 export class IdentityProviders {
   constructor(config: IdentityConfig, options?: { fetch?: typeof fetch });
@@ -83,6 +92,12 @@ export class ConcordiumIdentity {
    * @throws {Error} If the identity has been disposed.
    */
   createIdentityRequest(options: CreateIdentityRequestOptions): Promise<IdentityRequest>;
+  /**
+   * Read the address the provider sent the browser back to. No network call.
+   * @returns The code_uri where the issued identity can be collected.
+   * @throws {IdentityIssuanceError} If the provider reported an error.
+   */
+  parseIdentityCallback(callbackUrl: string): { codeUri: string };
   /** True once dispose() has been called. */
   get disposed(): boolean;
   /** Zero the seed bytes and drop them; later calls that need the seed throw. */

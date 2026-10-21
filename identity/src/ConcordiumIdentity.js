@@ -1,6 +1,6 @@
 import * as sdk from '@concordium/web-sdk';
 import { parseIdentityConfig } from './config.js';
-import { IdentityProviderError } from './errors.js';
+import { IdentityIssuanceError, IdentityProviderError } from './errors.js';
 import IdentityProviders from './IdentityProviders.js';
 
 const SEED_BYTES = 64;
@@ -48,6 +48,34 @@ function toSeedBytes(seed) {
     return Uint8Array.from(seed);
   }
   throw new Error('The seed must be a BIP-39 seed phrase or a 64-byte seed.');
+}
+
+/** An absolute http(s) URL, or null. */
+function httpUrlOrNull(value) {
+  try {
+    const url = new URL(value);
+    return ['http:', 'https:'].includes(url.protocol) ? url.href : null;
+  } catch {
+    return null;
+  }
+}
+
+/** The provider's error from the callback: JSON {"error":{"code","detail"}}, or plain text. */
+function providerError(raw) {
+  let code;
+  let detail = raw;
+  try {
+    const parsed = JSON.parse(raw);
+    const error = parsed?.error ?? parsed;
+    code = typeof error?.code === 'string' ? error.code : undefined;
+    detail = typeof error?.detail === 'string' ? error.detail : raw;
+  } catch {
+    // not JSON: keep the raw text as the detail
+  }
+  return new IdentityIssuanceError(
+    `The identity provider reported an error${code ? ` (${code})` : ''}; no identity was issued.`,
+    { reason: 'provider-error', code, detail },
+  );
 }
 
 /**
@@ -150,5 +178,33 @@ export default class ConcordiumIdentity {
       redirect_uri: returnUrl,
     });
     return { issuanceUrl: `${provider.issuanceStart}?${query}`, providerIndex, identityIndex };
+  }
+
+  /**
+   * Read the address the provider sent the browser back to, after verification.
+   * No network call: the provider's reply is in the URL itself, after `#` (or `?`).
+   * On success it holds a `code_uri`, where the issued identity can be collected
+   * (see waitForIdentity); save it to resume collecting after an app restart.
+   *
+   * @param {string} callbackUrl  the full URL the browser arrived at (the redirectUri plus the provider's reply)
+   * @returns {{ codeUri: string }}
+   * @throws {IdentityIssuanceError} With reason 'provider-error' if the provider reported an error.
+   * @throws {Error} If the URL holds neither a code_uri nor a provider error.
+   */
+  parseIdentityCallback(callbackUrl) {
+    let url;
+    try {
+      url = new URL(callbackUrl);
+    } catch {
+      throw new Error('callbackUrl must be the absolute URL the provider sent the browser to.');
+    }
+    const reply = new URLSearchParams(url.hash.slice(1) || url.search.slice(1));
+    if (reply.has('error')) throw providerError(reply.get('error'));
+    if (!reply.has('code_uri')) {
+      throw new Error('The callback holds neither a code_uri nor an error from the identity provider.');
+    }
+    const codeUri = httpUrlOrNull(reply.get('code_uri'));
+    if (!codeUri) throw new Error("The callback's code_uri is not an absolute HTTP(S) URL.");
+    return { codeUri };
   }
 }
