@@ -165,6 +165,17 @@ test('without a request started on the object, the numbers must be given', async
   assert.equal(polls.length, 0);
 });
 
+test('after a rejection, the request no longer awaits its identity', async () => {
+  // the testnet provider's reply when verification fails
+  const { identity } = polling([PENDING, { status: 'error', token: null, detail: 'Identity object has failed' }]);
+  await identity.createIdentityRequest({ ...ISSUED, redirectUri: 'http://localhost:4000/callback' });
+  const callback = `http://localhost:4000/callback#code_uri=${encodeURIComponent(CODE_URI)}`;
+  await assert.rejects(() => identity.retrieveIdentity(callback, FAST),
+    (e) => e instanceof IdentityIssuanceError && e.reason === 'rejected' && e.detail === 'Identity object has failed');
+  assert.equal(identity._requestAwaitingIdentity, null);
+  await assert.rejects(() => identity.retrieveIdentity(callback, FAST), /No identity request was started on this object/);
+});
+
 test('numbers given explicitly take precedence over the request awaiting its identity', async () => {
   const { identity } = polling([DONE()]);
   await identity.createIdentityRequest({ providerIndex: 0, identityIndex: 7, redirectUri: 'http://localhost:4000/callback' });

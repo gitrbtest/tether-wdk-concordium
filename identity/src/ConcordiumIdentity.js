@@ -303,6 +303,7 @@ export default class ConcordiumIdentity {
         return this._checkAndKeepIdentity(reply.token?.identityObject, { providerIndex, identityIndex, expectedIdCredPub });
       }
       if (reply?.status === 'error') {
+        this._finishRequest(providerIndex, identityIndex); // a rejected request can never succeed
         throw new IdentityIssuanceError(
           `The identity provider did not issue the identity${reply.detail ? `: ${reply.detail}` : '.'}`,
           { reason: 'rejected', detail: reply.detail || undefined });
@@ -341,10 +342,15 @@ export default class ConcordiumIdentity {
     const label = providerIdentityLabel(providerIndex, identityIndex);
     this._identities.get(label)?.fill(0);
     this._identities.set(label, new TextEncoder().encode(JSON.stringify(identityObject)));
-    const awaiting = this._requestAwaitingIdentity;
-    if (awaiting?.providerIndex === providerIndex && awaiting?.identityIndex === identityIndex) this._requestAwaitingIdentity = null;
+    this._finishRequest(providerIndex, identityIndex);
     const { createdAt, validTo, maxAccounts } = content.attributeList;
     return { providerIndex, identityIndex, createdAt, validTo, maxAccounts };
+  }
+
+  /** The request for this provider and identity index has ended (issued or rejected): it no longer awaits its identity. */
+  _finishRequest(providerIndex, identityIndex) {
+    const awaiting = this._requestAwaitingIdentity;
+    if (awaiting?.providerIndex === providerIndex && awaiting?.identityIndex === identityIndex) this._requestAwaitingIdentity = null;
   }
 
   /**
