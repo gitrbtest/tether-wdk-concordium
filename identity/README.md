@@ -159,6 +159,7 @@ repeated ones are reported.
 cd identity
 npm ci
 npm test                  # unit tests, offline
+npm run test:integration  # live: the testnet identity provider accepts our request
 npm run check:providers   # live: report on every provider, testnet and mainnet
 npm run fixtures          # re-capture the recorded wallet-proxy data used by the tests
 ```
@@ -172,7 +173,8 @@ wallet-proxies publish (pass `testnet` or `mainnet` to check one network) and
 reports, per provider, whether it serves its verification page or answers with
 an error. It stops there: nothing is filled in and no identity is issued. Each
 request comes from a fresh random seed that is never stored. A provider error
-is reported, not treated as a failure.
+is reported, not treated as a failure; the integration test, by contrast, fails
+if the Concordium testnet provider does not accept the request.
 
 ## License
 
