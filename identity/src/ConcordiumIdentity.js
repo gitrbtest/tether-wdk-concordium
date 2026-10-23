@@ -96,7 +96,7 @@ function providerError(raw) {
     // not JSON: keep the raw text as the detail
   }
   return new IdentityIssuanceError(
-    `The identity provider reported an error${code ? ` (${code})` : ''}; no identity was issued.`,
+    `The identity provider reported an error${code ? ` (${code})` : ''}${detail ? `: ${detail}` : '.'}`,
     { reason: 'provider-error', code, detail },
   );
 }

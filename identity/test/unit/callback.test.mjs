@@ -45,15 +45,23 @@ test("a provider's error reply becomes an IdentityIssuanceError with its code an
     assert.equal(e.reason, 'provider-error');
     assert.equal(e.code, 'INVALID_REQUEST');
     assert.equal(e.detail, 'not authorized to perform: kms:Decrypt');
-    assert.match(e.message, /reported an error \(INVALID_REQUEST\); no identity was issued/);
+    assert.equal(e.message, 'The identity provider reported an error (INVALID_REQUEST): not authorized to perform: kms:Decrypt');
     return true;
   });
 });
 
 test('an error reply that is not JSON keeps the text as the detail', () => {
-  assert.throws(() => identity().parseIdentityCallback(`${RETURN}#error=access_denied`), (e) =>
+  // as the testnet provider replies to a request whose proofs do not verify
+  assert.throws(() => identity().parseIdentityCallback(`${RETURN}#error=Invalid%20proofs`), (e) =>
     e instanceof IdentityIssuanceError && e.reason === 'provider-error' && e.code === undefined
-    && e.detail === 'access_denied');
+    && e.detail === 'Invalid proofs'
+    && e.message === 'The identity provider reported an error: Invalid proofs');
+});
+
+test('an empty error reply still becomes a provider error', () => {
+  assert.throws(() => identity().parseIdentityCallback(`${RETURN}#error=`), (e) =>
+    e instanceof IdentityIssuanceError && e.reason === 'provider-error'
+    && e.message === 'The identity provider reported an error.');
 });
 
 test('a callback with neither a code_uri nor an error is rejected', () => {
