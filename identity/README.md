@@ -158,13 +158,21 @@ repeated ones are reported.
 ```bash
 cd identity
 npm ci
-npm test          # unit tests, offline
-npm run fixtures  # re-capture the recorded wallet-proxy data used by the tests
+npm test                  # unit tests, offline
+npm run check:providers   # live: report on every provider, testnet and mainnet
+npm run fixtures          # re-capture the recorded wallet-proxy data used by the tests
 ```
 
 Unit tests use recorded testnet and mainnet wallet-proxy data from
 `test/fixtures`, so they run without network access. Re-capture it when the
 published providers or parameters may have changed, and review the diff.
+
+`check:providers` builds a request for every provider the testnet and mainnet
+wallet-proxies publish (pass `testnet` or `mainnet` to check one network) and
+reports, per provider, whether it serves its verification page or answers with
+an error. It stops there: nothing is filled in and no identity is issued. Each
+request comes from a fresh random seed that is never stored. A provider error
+is reported, not treated as a failure.
 
 ## License
 

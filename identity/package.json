@@ -22,7 +22,8 @@
   ],
   "scripts": {
     "test": "node --test test/unit/*.test.mjs",
-    "fixtures": "node test/fixtures/capture.mjs"
+    "fixtures": "node test/fixtures/capture.mjs",
+    "check:providers": "node scripts/check-providers.mjs"
   },
   "keywords": [
     "wdk",
