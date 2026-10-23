@@ -176,6 +176,24 @@ test('after a rejection, the request no longer awaits its identity', async () =>
   await assert.rejects(() => identity.retrieveIdentity(callback, FAST), /No identity request was started on this object/);
 });
 
+test("after the provider's error reply, the request no longer awaits its identity", async () => {
+  const { identity, pollRequests } = identityWithProviderReplies([issuedReply()]);
+  await identity.createIdentityRequest({ ...ISSUED_FOR, redirectUri: 'http://localhost:4000/callback' });
+  // as the testnet provider replies to a request whose proofs do not verify
+  await assert.rejects(() => identity.retrieveIdentity('http://localhost:4000/callback#error=Invalid%20proofs', FAST),
+    (e) => e instanceof IdentityIssuanceError && e.reason === 'provider-error' && e.detail === 'Invalid proofs');
+  assert.equal(identity._requestAwaitingIdentity, null);
+  assert.equal(pollRequests.length, 0);
+});
+
+test("an error reply for other numbers leaves the request awaiting its identity", async () => {
+  const { identity } = identityWithProviderReplies([issuedReply()]);
+  await identity.createIdentityRequest({ providerIndex: 0, identityIndex: 7, redirectUri: 'http://localhost:4000/callback' });
+  await assert.rejects(() => identity.retrieveIdentity('http://localhost:4000/callback#error=Invalid%20proofs',
+    { providerIndex: 0, identityIndex: 8 }), /Invalid proofs/);
+  assert.deepEqual(identity._requestAwaitingIdentity, { providerIndex: 0, identityIndex: 7 });
+});
+
 test('numbers given explicitly take precedence over the request awaiting its identity', async () => {
   const { identity } = identityWithProviderReplies([issuedReply()]);
   await identity.createIdentityRequest({ providerIndex: 0, identityIndex: 7, redirectUri: 'http://localhost:4000/callback' });

@@ -347,10 +347,21 @@ export default class ConcordiumIdentity {
     return { providerIndex, identityIndex, createdAt, validTo, maxAccounts };
   }
 
-  /** The request for this provider and identity index has ended (issued or rejected): it no longer awaits its identity. */
+  /** The request for this provider and identity index has ended (issued, rejected or refused): it no longer awaits its identity. */
   _finishRequest(providerIndex, identityIndex) {
     const awaiting = this._requestAwaitingIdentity;
     if (awaiting?.providerIndex === providerIndex && awaiting?.identityIndex === identityIndex) this._requestAwaitingIdentity = null;
+  }
+
+  /** As _finishRequest, for the request a call is about: the numbers given, or else the request awaiting its identity. */
+  _finishRequestFor(options) {
+    let request;
+    try {
+      request = this._identityToCollect(options);
+    } catch {
+      return; // no request to finish
+    }
+    this._finishRequest(request.providerIndex, request.identityIndex);
   }
 
   /**
@@ -363,7 +374,14 @@ export default class ConcordiumIdentity {
    * @param {object} [options]  as for waitForIdentity: providerIndex, identityIndex, timeoutMs, intervalMs, signal
    */
   async retrieveIdentity(callbackUrl, options = {}) {
-    const { codeUri } = this.parseIdentityCallback(callbackUrl);
+    let codeUri;
+    try {
+      ({ codeUri } = this.parseIdentityCallback(callbackUrl));
+    } catch (e) {
+      // The provider's error reply ends the request, as a rejection does.
+      if (e instanceof IdentityIssuanceError) this._finishRequestFor(options);
+      throw e;
+    }
     return this.waitForIdentity(codeUri, options);
   }
 }
