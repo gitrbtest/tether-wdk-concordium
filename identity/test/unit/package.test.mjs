@@ -15,6 +15,19 @@ test('the package entry point loads', async () => {
   assert.equal(typeof api, 'object');
 });
 
+test('the listener entry point loads separately, and the main entry does not load it', async () => {
+  const listener = await import('@concordium/wdk-identity-concordium/listener');
+  assert.equal(typeof listener.listenForIdentityCallback, 'function');
+  const main = await import('@concordium/wdk-identity-concordium');
+  assert.equal(main.listenForIdentityCallback, undefined);
+  // Only the listener uses Node's web server, so the main entry stays usable without one.
+  const { readdirSync } = await import('node:fs');
+  const sources = ['index.js', ...readdirSync(new URL('src/', packageRoot)).map((name) => `src/${name}`)];
+  const usingHttp = sources.filter((file) => /from 'node:http'/.test(readFileSync(new URL(file, packageRoot), 'utf8')));
+  assert.deepEqual(usingHttp, ['src/callback-listener.js']);
+  assert.doesNotMatch(readFileSync(new URL('index.js', packageRoot), 'utf8'), /callback-listener/);
+});
+
 test('every file the package would publish exists', () => {
   const entries = [manifest.main, manifest.types, ...manifest.files];
   for (const entry of entries) {

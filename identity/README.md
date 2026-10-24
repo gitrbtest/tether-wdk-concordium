@@ -116,8 +116,9 @@ with no personal data, is returned.
 
 After `createIdentityRequest` on the same object, the callback address is all
 that is needed. Browsers never send the part after `#` to a server, so read the
-address where the browser arrives: an app's own scheme, or a script on the
-return page (`location.href`).
+address where the browser arrives: an app's own scheme, a script on the
+return page (`location.href`), or, on a desktop or server, the built-in
+listener below.
 
 **Resuming after a restart.** Verification can take a while. To survive an app
 restart, read the reply first and save the `code_uri` with the provider and
@@ -152,6 +153,42 @@ A rejected or refused request is finished: a new request may use the same
 identity index. An identity that does not belong to this wallet is refused with
 an `Error` and not kept. Brief network failures while polling are retried;
 repeated ones are reported.
+
+## Built-in callback listener (desktop and server)
+
+On Node.js, the package can catch the provider's return itself. The listener is
+a separate entry point, so the main entry stays usable where there is no web
+server (mobile apps use their own app scheme instead).
+
+```js
+import { listenForIdentityCallback } from '@concordium/wdk-identity-concordium/listener';
+
+const listener = await listenForIdentityCallback();
+// listener.redirectUri: 'http://127.0.0.1:53817/identity-callback/9f2c…'
+
+const { issuanceUrl } = await identity.createIdentityRequest({
+  providerIndex: 0, redirectUri: listener.redirectUri,
+});
+// open issuanceUrl in the user's browser …
+
+const summary = await identity.retrieveIdentity(await listener.callback);
+```
+
+When the browser arrives, the listener serves a small page whose script posts the
+full address back (browsers never send the part after `#` to a server), shows
+"You can close this tab", and closes. It listens on 127.0.0.1 only, at a random
+secret path, and accepts a single callback; other requests are refused.
+
+| Option | Default | Meaning |
+|---|---|---|
+| `port` | 0 (any free port) | port on 127.0.0.1; set one if the return address must be fixed |
+| `timeoutMs` | 900000 (15 minutes) | stop waiting if the browser never comes back |
+| `signal` | none | an `AbortSignal`, e.g. from a Cancel button |
+
+`listener.callback` rejects with `IdentityIssuanceError` reason `'timeout'` or
+`'cancelled'`; `listener.close()` stops listening early. A provider that cannot
+read the request shows an error page and never sends the browser back, so give
+the user a way to cancel.
 
 ## Development
 

@@ -10,10 +10,15 @@
     ".": {
       "types": "./types/index.d.ts",
       "default": "./index.js"
+    },
+    "./listener": {
+      "types": "./types/listener.d.ts",
+      "default": "./listener.js"
     }
   },
   "files": [
     "index.js",
+    "listener.js",
     "src",
     "types",
     "README.md",
