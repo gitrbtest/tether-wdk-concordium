@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, request as httpRequest } from 'node:http';
-import { listenForIdentityCallback } from '@concordium/wdk-identity-concordium/listener';
+import { listenForIdentityCallback } from '@concordium/wdk-identity-concordium/node';
 import {
   ConcordiumIdentity,
   IdentityIssuanceError,

@@ -15,17 +15,23 @@ test('the package entry point loads', async () => {
   assert.equal(typeof api, 'object');
 });
 
-test('the listener entry point loads separately, and the main entry does not load it', async () => {
-  const listener = await import('@concordium/wdk-identity-concordium/listener');
-  assert.equal(typeof listener.listenForIdentityCallback, 'function');
+test('the optional Node.js extras load from their own entry point, and the main entry does not load them', async () => {
+  const extras = await import('@concordium/wdk-identity-concordium/node');
+  assert.equal(typeof extras.listenForIdentityCallback, 'function');
   const main = await import('@concordium/wdk-identity-concordium');
   assert.equal(main.listenForIdentityCallback, undefined);
-  // Only the listener uses Node's web server, so the main entry stays usable without one.
+
+  // Node-only code (web server, file system) lives in src/node, so the main entry stays usable without it.
   const { readdirSync } = await import('node:fs');
-  const sources = ['index.js', ...readdirSync(new URL('src/', packageRoot)).map((name) => `src/${name}`)];
-  const usingHttp = sources.filter((file) => /from 'node:http'/.test(readFileSync(new URL(file, packageRoot), 'utf8')));
-  assert.deepEqual(usingHttp, ['src/callback-listener.js']);
-  assert.doesNotMatch(readFileSync(new URL('index.js', packageRoot), 'utf8'), /callback-listener/);
+  const sourcesIn = (dir) => readdirSync(new URL(dir, packageRoot), { withFileTypes: true })
+    .flatMap((entry) => (entry.isDirectory() ? sourcesIn(`${dir}${entry.name}/`) : [`${dir}${entry.name}`]));
+  const nodeOnly = ['index.js', ...sourcesIn('src/')]
+    .filter((file) => /from 'node:(http|https|net|fs)/.test(readFileSync(new URL(file, packageRoot), 'utf8')));
+  assert.ok(nodeOnly.length > 0);
+  for (const file of nodeOnly) assert.match(file, /^src\/node\//, `${file} uses Node-only modules outside src/node`);
+  for (const file of ['index.js', ...sourcesIn('src/').filter((f) => !f.startsWith('src/node/'))]) {
+    assert.doesNotMatch(readFileSync(new URL(file, packageRoot), 'utf8'), /\/node\//, `${file} does not import src/node`);
+  }
 });
 
 test('every file the package would publish exists', () => {

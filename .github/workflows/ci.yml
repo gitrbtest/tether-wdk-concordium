@@ -46,4 +46,4 @@ jobs:
       - run: npm test
       - name: Verify unit tests without external networking
         run: sudo unshare --net -- "$(command -v node)" --test test/unit/*.test.mjs
-      - run: npx --no-install tsc --noEmit types/index.d.ts types/listener.d.ts
+      - run: npx --no-install tsc --noEmit types/index.d.ts types/node.d.ts

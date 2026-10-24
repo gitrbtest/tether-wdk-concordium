@@ -11,14 +11,14 @@
       "types": "./types/index.d.ts",
       "default": "./index.js"
     },
-    "./listener": {
-      "types": "./types/listener.d.ts",
-      "default": "./listener.js"
+    "./node": {
+      "types": "./types/node.d.ts",
+      "default": "./node.js"
     }
   },
   "files": [
     "index.js",
-    "listener.js",
+    "node.js",
     "src",
     "types",
     "README.md",

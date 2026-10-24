@@ -1,15 +1,46 @@
 /**
- * Built-in callback listener for desktop and server wallets (Node.js only).
+ * Identity callback listener: an optional helper for Node.js wallets on a
+ * desktop or server. Mobile and web wallets do not need it (see below).
  *
- * After verification the provider sends the browser to the wallet's return
- * address, with its reply after `#`. Browsers never send that part to a server,
- * so the listener serves a small page whose script posts the full address back.
- * The listener accepts one callback, from this machine only, at a random secret
- * path, and then closes.
+ * The problem it solves
+ * ---------------------
+ * The user verifies their identity in a web browser. When they have finished,
+ * the identity provider sends the browser back to the wallet: to the return
+ * address the wallet chose (the redirectUri given to createIdentityRequest),
+ * with the provider's reply added after a `#`. This return is the "identity
+ * callback". For example:
+ *
+ *   http://127.0.0.1:53817/identity-callback/9f2c…#code_uri=https://id-service…
+ *
+ * The wallet needs that whole address, including the part after `#`, to collect
+ * the identity (retrieveIdentity). But browsers never send the part after `#` to
+ * the server they visit; it stays inside the browser. A plain web server at the
+ * return address would see only `/identity-callback/9f2c…` and lose the reply.
+ * (A mobile app avoids this because it controls its own web view and sees the
+ * full address; a web wallet's own page can read it directly.)
+ *
+ * How it works
+ * ------------
+ * 1. listenForIdentityCallback starts a small web server on this computer
+ *    (127.0.0.1) at a random, unguessable path, and returns that address for the
+ *    wallet to use as redirectUri.
+ * 2. When the browser arrives there, the server answers with a small page. A
+ *    script on that page reads the page's own full address (location.href,
+ *    which does include the part after `#`) and posts it back to the server.
+ * 3. The server hands that full address to the wallet (the `callback` promise),
+ *    the page tells the user they can close the tab, and the server shuts down.
+ *
+ * Safety
+ * ------
+ * - Reachable only from this computer (127.0.0.1), and only at the random path.
+ * - Waits for exactly one return. As soon as one arrives, or the wait times out
+ *   or is cancelled, it stops listening; anything after that is refused.
+ * - Takes only an address that starts with its own return address, up to a
+ *   limited size. Anything else is refused, and it keeps waiting for the real one.
  */
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { IdentityIssuanceError } from './errors.js';
+import { IdentityIssuanceError } from '../errors.js';
 
 const HOST = '127.0.0.1';
 const PATH_PREFIX = '/identity-callback/';

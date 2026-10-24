@@ -117,8 +117,8 @@ with no personal data, is returned.
 After `createIdentityRequest` on the same object, the callback address is all
 that is needed. Browsers never send the part after `#` to a server, so read the
 address where the browser arrives: an app's own scheme, a script on the
-return page (`location.href`), or, on a desktop or server, the built-in
-listener below.
+return page (`location.href`), or, on a desktop or server, the optional
+built-in listener below.
 
 **Resuming after a restart.** Verification can take a while. To survive an app
 restart, read the reply first and save the `code_uri` with the provider and
@@ -154,14 +154,16 @@ identity index. An identity that does not belong to this wallet is refused with
 an `Error` and not kept. Brief network failures while polling are retried;
 repeated ones are reported.
 
-## Built-in callback listener (desktop and server)
+## Optional: built-in callback listener (Node.js desktop and server wallets)
 
-On Node.js, the package can catch the provider's return itself. The listener is
-a separate entry point, so the main entry stays usable where there is no web
-server (mobile apps use their own app scheme instead).
+Wallets that catch the provider's return themselves (a mobile app's own scheme,
+or a page of a web wallet) do not need this. For Node.js wallets on a desktop or
+server, the package can catch the return itself. It comes from a separate entry
+point, `@concordium/wdk-identity-concordium/node`, for optional Node.js extras,
+so the main entry stays usable where there is no web server.
 
 ```js
-import { listenForIdentityCallback } from '@concordium/wdk-identity-concordium/listener';
+import { listenForIdentityCallback } from '@concordium/wdk-identity-concordium/node';
 
 const listener = await listenForIdentityCallback();
 // listener.redirectUri: 'http://127.0.0.1:53817/identity-callback/9f2c…'
