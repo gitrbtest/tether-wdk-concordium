@@ -192,6 +192,9 @@ secret path, and accepts a single callback; other requests are refused.
 read the request shows an error page and never sends the browser back, so give
 the user a way to cancel.
 
+A runnable example of the whole flow on testnet: `npm run example:verify-identity`
+(`examples/verify-identity.mjs`).
+
 ## Development
 
 ```bash

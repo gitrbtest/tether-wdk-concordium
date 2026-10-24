@@ -29,7 +29,8 @@
     "test": "node --test test/unit/*.test.mjs",
     "test:integration": "node --test test/integration/*.test.mjs",
     "fixtures": "node test/fixtures/capture.mjs",
-    "check:providers": "node scripts/check-providers.mjs"
+    "check:providers": "node scripts/check-providers.mjs",
+    "example:verify-identity": "node examples/verify-identity.mjs"
   },
   "keywords": [
     "wdk",
