@@ -14,11 +14,16 @@
     "./node": {
       "types": "./types/node.d.ts",
       "default": "./node.js"
+    },
+    "./testing": {
+      "types": "./types/testing.d.ts",
+      "default": "./testing.js"
     }
   },
   "files": [
     "index.js",
     "node.js",
+    "testing.js",
     "src",
     "types",
     "README.md",

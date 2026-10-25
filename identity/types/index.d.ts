@@ -60,6 +60,27 @@ export class IdentityStorageError extends Error {
   slotName?: string;
 }
 
+/**
+ * Where encrypted identities are kept: any object with these three methods (a phone's storage,
+ * a backend, a database…). It only ever receives encrypted bytes and a slot name such as
+ * 'concordium-identity/testnet/0/0', never the identity itself.
+ */
+export interface IdentityStore {
+  /** Save the bytes under the slot name, replacing anything saved there before. */
+  save(slotName: string, bytes: Uint8Array): Promise<void>;
+  /** The bytes saved under the slot name, or null if there are none. */
+  read(slotName: string): Promise<Uint8Array | null>;
+  /** Remove what is saved under the slot name. Nothing saved there is not an error. */
+  delete(slotName: string): Promise<void>;
+}
+
+/** An IdentityStore in memory: for tests and short-lived processes; nothing survives the process. */
+export class MemoryIdentityStore implements IdentityStore {
+  save(slotName: string, bytes: Uint8Array): Promise<void>;
+  read(slotName: string): Promise<Uint8Array | null>;
+  delete(slotName: string): Promise<void>;
+}
+
 /** The identity providers published by a Concordium wallet-proxy. */
 export class IdentityProviders {
   constructor(config: IdentityConfig, options?: { fetch?: typeof fetch });

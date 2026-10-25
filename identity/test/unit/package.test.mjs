@@ -34,6 +34,16 @@ test('the optional Node.js extras load from their own entry point, and the main 
   }
 });
 
+test('testing tools load from their own entry point, and the main entry does not offer them', async () => {
+  const testing = await import('@concordium/wdk-identity-concordium/testing');
+  assert.equal(typeof testing.verifyIdentityStore, 'function');
+  const main = await import('@concordium/wdk-identity-concordium');
+  assert.equal(main.verifyIdentityStore, undefined);
+  for (const file of ['index.js', 'node.js']) {
+    assert.doesNotMatch(readFileSync(new URL(file, packageRoot), 'utf8'), /testing/, `${file} does not load the testing tools`);
+  }
+});
+
 test('every file the package would publish exists', () => {
   const entries = [manifest.main, manifest.types, ...manifest.files];
   for (const entry of entries) {

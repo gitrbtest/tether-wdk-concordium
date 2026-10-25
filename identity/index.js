@@ -13,3 +13,4 @@ export { CONCORDIUM_MAINNET_IDENTITY_CONFIG, CONCORDIUM_TESTNET_IDENTITY_CONFIG 
 export { default as IdentityProviders } from './src/IdentityProviders.js';
 export { IdentityProviderError, IdentityIssuanceError, IdentityStorageError } from './src/errors.js';
 export { default as ConcordiumIdentity } from './src/ConcordiumIdentity.js';
+export { default as MemoryIdentityStore } from './src/MemoryIdentityStore.js';
