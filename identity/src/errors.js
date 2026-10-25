@@ -32,3 +32,21 @@ export class IdentityIssuanceError extends Error {
     this.detail = detail;
   }
 }
+
+/**
+ * Thrown when a saved identity cannot be used: the bytes in a storage slot cannot be
+ * decrypted with this wallet's seed, are not identity data, or use an unknown format version
+ * (reason 'unreadable-slot'). Carries the slot name.
+ */
+export class IdentityStorageError extends Error {
+  /**
+   * @param {string} message
+   * @param {{ reason: 'unreadable-slot', slotName?: string }} info
+   */
+  constructor(message, { reason, slotName } = {}) {
+    super(message);
+    this.name = 'IdentityStorageError';
+    this.reason = reason;
+    this.slotName = slotName;
+  }
+}

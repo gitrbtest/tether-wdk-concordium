@@ -1,0 +1,2 @@
+# Golden files are compared byte for byte: never convert line endings or diff them as text.
+test/fixtures/golden/*.bin binary

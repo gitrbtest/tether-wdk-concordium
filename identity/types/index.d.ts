@@ -50,6 +50,16 @@ export class IdentityIssuanceError extends Error {
   detail?: string;
 }
 
+/**
+ * Thrown when a saved identity cannot be used: the bytes in a storage slot cannot be decrypted
+ * with this wallet's seed, are not identity data, or use an unknown format version.
+ */
+export class IdentityStorageError extends Error {
+  reason: 'unreadable-slot';
+  /** The storage slot concerned, e.g. 'concordium-identity/testnet/0/0'. */
+  slotName?: string;
+}
+
 /** The identity providers published by a Concordium wallet-proxy. */
 export class IdentityProviders {
   constructor(config: IdentityConfig, options?: { fetch?: typeof fetch });
