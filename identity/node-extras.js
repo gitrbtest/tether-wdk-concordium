@@ -10,6 +10,9 @@
  *   127.0.0.1, for wallets that cannot receive it through an app scheme or
  *   their own web page.
  * - FileIdentityStore: keeps encrypted identities in files on disk.
+ *
+ * (Not named node.js: on Windows, npm scripts that run `node` would open that
+ * file instead of starting Node.js.)
  */
 
 export { listenForIdentityCallback } from './src/node/identity-callback-listener.js';

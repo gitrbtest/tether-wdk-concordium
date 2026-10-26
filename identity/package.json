@@ -13,7 +13,7 @@
     },
     "./node": {
       "types": "./types/node.d.ts",
-      "default": "./node.js"
+      "default": "./node-extras.js"
     },
     "./testing": {
       "types": "./types/testing.d.ts",
@@ -22,7 +22,7 @@
   },
   "files": [
     "index.js",
-    "node.js",
+    "node-extras.js",
     "testing.js",
     "docs",
     "src",

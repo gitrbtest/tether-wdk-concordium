@@ -60,8 +60,19 @@ test('testing tools load from their own entry point, and the main entry does not
   assert.equal(typeof testing.verifyIdentityStore, 'function');
   const main = await import('@concordium/wdk-identity-concordium');
   assert.equal(main.verifyIdentityStore, undefined);
-  for (const file of ['index.js', 'node.js']) {
+  for (const file of ['index.js', 'node-extras.js']) {
     assert.doesNotMatch(readFileSync(new URL(file, packageRoot), 'utf8'), /testing/, `${file} does not load the testing tools`);
+  }
+});
+
+test('no file at the top of the package is named after a command its scripts run', async () => {
+  // On Windows, npm runs scripts through cmd.exe, which looks in the current folder first and runs .js
+  // files: a top-level node.js would be opened instead of Node.js itself, and the script does nothing.
+  const { readdirSync } = await import('node:fs');
+  const commands = new Set(Object.values(manifest.scripts).map((script) => script.trim().split(/\s+/)[0]));
+  commands.add('npm').add('npx');
+  for (const name of readdirSync(packageRoot)) {
+    assert.ok(!commands.has(name.split('.')[0]), `${name} would be run instead of the ${name.split('.')[0]} command`);
   }
 });
 
