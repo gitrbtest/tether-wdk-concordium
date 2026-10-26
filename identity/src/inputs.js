@@ -4,6 +4,7 @@
  * (never repeating a secret, such as the seed, in the message).
  */
 import * as sdk from '@concordium/web-sdk';
+import { hexToBytes } from '@noble/hashes/utils';
 
 const SEED_BYTES = 64;
 
@@ -57,7 +58,7 @@ export function toSeedBytes(seed) {
     } catch {
       throw new Error('Invalid seed phrase.');
     }
-    return Uint8Array.from(Buffer.from(hdWallet.seedAsHex, 'hex'));
+    return hexToBytes(hdWallet.seedAsHex);
   }
   if (seed instanceof Uint8Array && seed.length === SEED_BYTES) {
     return Uint8Array.from(seed);

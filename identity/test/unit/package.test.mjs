@@ -34,6 +34,24 @@ test('the optional Node.js extras load from their own entry point, and the main 
   }
 });
 
+test('the main entry uses no Node.js-only features, so it can run in browsers and mobile runtimes too', async () => {
+  const { readdirSync } = await import('node:fs');
+  // Everything the main entry loads: index.js and src/, except the optional Node extras and the testing tools.
+  const mainEntryFiles = ['index.js', ...readdirSync(new URL('src/', packageRoot), { withFileTypes: true })
+    .filter((entry) => entry.isFile()).map((entry) => `src/${entry.name}`)];
+  const nodeOnly = [
+    [/\bBuffer\b/, 'Node\'s Buffer (use Uint8Array, and @noble/hashes/utils for hex)'],
+    [/\bprocess\.(env|argv|exit|cwd|platform|version|versions|nextTick|on)\b/, 'Node\'s process'],
+    [/from ['"](node:[\w/]+|fs|path|os|http|https|net|crypto)['"]/, 'a Node.js built-in module'],
+  ];
+  for (const file of mainEntryFiles) {
+    const code = readFileSync(new URL(file, packageRoot), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '') // ignore comments: only code counts
+      .replace(/(^|\s)\/\/.*$/gm, '$1');
+    for (const [pattern, what] of nodeOnly) assert.doesNotMatch(code, pattern, `${file} uses ${what}`);
+  }
+});
+
 test('testing tools load from their own entry point, and the main entry does not offer them', async () => {
   const testing = await import('@concordium/wdk-identity-concordium/testing');
   assert.equal(typeof testing.verifyIdentityStore, 'function');

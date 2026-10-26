@@ -1,4 +1,5 @@
 import * as sdk from '@concordium/web-sdk';
+import { bytesToHex } from '@noble/hashes/utils';
 import { parseIdentityConfig } from './config.js';
 import { IdentityIssuanceError, IdentityProviderError } from './errors.js';
 import IdentityProviders from './IdentityProviders.js';
@@ -65,7 +66,7 @@ export default class ConcordiumIdentity {
   /** Key derivation for this identity's seed and network (the same tree as the wallet package). */
   get _hdWallet() {
     this._requireNotDisposed();
-    return sdk.ConcordiumHdWallet.fromHex(Buffer.from(this._seed).toString('hex'), this._config.derivationNetwork);
+    return sdk.ConcordiumHdWallet.fromHex(bytesToHex(this._seed), this._config.derivationNetwork);
   }
 
   /** The network's cryptographic parameters, as published by the wallet-proxy (read once per object). */
