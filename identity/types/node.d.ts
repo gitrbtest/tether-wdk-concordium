@@ -1,3 +1,5 @@
+import type { IdentityStore } from './index.js';
+
 /** Options for listenForIdentityCallback. */
 export interface ListenForIdentityCallbackOptions {
   /** Port on 127.0.0.1; 0 (the default) picks a free one. */
@@ -26,3 +28,16 @@ export interface IdentityCallbackListener {
  * @throws {IdentityIssuanceError} reason 'cancelled' if the signal is already aborted.
  */
 export function listenForIdentityCallback(options?: ListenForIdentityCallbackOptions): Promise<IdentityCallbackListener>;
+
+/**
+ * An IdentityStore keeping encrypted identities in files: <folder>/concordium-identity/<network>/<provider>/<identity>.bin.
+ * Creates the folder when needed; writes safely (a temporary file, then one replacing step); owner-only
+ * permissions where the operating system supports them; slot names can never point outside the folder.
+ */
+export class FileIdentityStore implements IdentityStore {
+  /** @param folder Where to keep the files; created when needed. */
+  constructor(folder: string);
+  save(slotName: string, bytes: Uint8Array): Promise<void>;
+  read(slotName: string): Promise<Uint8Array | null>;
+  delete(slotName: string): Promise<void>;
+}
