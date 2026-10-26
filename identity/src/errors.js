@@ -34,14 +34,15 @@ export class IdentityIssuanceError extends Error {
 }
 
 /**
- * Thrown when a saved identity cannot be used: the bytes in a storage slot cannot be
+ * Thrown when a saved identity cannot be used or saved: the bytes in a storage slot cannot be
  * decrypted with this wallet's seed, are not identity data, or use an unknown format version
- * (reason 'unreadable-slot'). Carries the slot name.
+ * (reason 'unreadable-slot'); or a different identity is already saved where saveIdentity was asked
+ * to save (reason 'slot-in-use'). Carries the slot name.
  */
 export class IdentityStorageError extends Error {
   /**
    * @param {string} message
-   * @param {{ reason: 'unreadable-slot', slotName?: string }} info
+   * @param {{ reason: 'unreadable-slot' | 'slot-in-use', slotName?: string }} info
    */
   constructor(message, { reason, slotName } = {}) {
     super(message);

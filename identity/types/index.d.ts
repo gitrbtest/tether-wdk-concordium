@@ -51,11 +51,14 @@ export class IdentityIssuanceError extends Error {
 }
 
 /**
- * Thrown when a saved identity cannot be used: the bytes in a storage slot cannot be decrypted
- * with this wallet's seed, are not identity data, or use an unknown format version.
+ * Thrown when a saved identity cannot be used or saved: the bytes in a storage slot cannot be decrypted
+ * with this wallet's seed, are not identity data, or use an unknown format version; or a different
+ * identity is already saved where saveIdentity was asked to save.
  */
 export class IdentityStorageError extends Error {
-  reason: 'unreadable-slot';
+  /** unreadable-slot: the saved bytes cannot be decrypted, are not identity data, or use an unknown format version.
+   *  slot-in-use: saveIdentity found a different identity already saved there (pass { replace: true } to replace it). */
+  reason: 'unreadable-slot' | 'slot-in-use';
   /** The storage slot concerned, e.g. 'concordium-identity/testnet/0/0'. */
   slotName?: string;
 }
@@ -136,13 +139,34 @@ export interface IdentitySummary {
   maxAccounts: number;
 }
 
+/** Which saved identity: the provider and the wallet's identity index. */
+export interface IdentitySlot {
+  providerIndex: number;
+  identityIndex: number;
+}
+
+export interface SaveIdentityOptions extends IdentitySlot {
+  /** Replace a different identity (or unreadable bytes) already saved there. Ask the user first. */
+  replace?: boolean;
+}
+
+/** An identity's summary and the slot it was saved in. */
+export interface SavedIdentitySummary extends IdentitySummary {
+  /** e.g. 'concordium-identity/testnet/0/0' */
+  slotName: string;
+}
+
 /** A wallet's Concordium identity, derived from the wallet's own seed. */
 export class ConcordiumIdentity {
   /**
    * @param seed The wallet's BIP-39 seed phrase, or its 64-byte seed.
    * @param config e.g. CONCORDIUM_TESTNET_IDENTITY_CONFIG; use the same key derivation as the wallet package.
    */
-  constructor(seed: string | Uint8Array, config: IdentityConfig, options?: { fetch?: typeof fetch });
+  /**
+   * @param options.fetch HTTP implementation (defaults to the global fetch).
+   * @param options.store Where saveIdentity / loadIdentity keep encrypted identities.
+   */
+  constructor(seed: string | Uint8Array, config: IdentityConfig, options?: { fetch?: typeof fetch; store?: IdentityStore });
   /**
    * Start identity verification: build the identity request for a provider and the link to its verification page.
    * @throws {IdentityProviderError} If the provider is not published, or publishes no issuance address.
@@ -166,6 +190,22 @@ export class ConcordiumIdentity {
    * @throws {IdentityIssuanceError} reason 'provider-error', 'rejected', 'timeout' or 'cancelled'.
    */
   retrieveIdentity(callbackUrl: string, options?: WaitForIdentityOptions): Promise<IdentitySummary>;
+  /**
+   * Save the identity held for a provider and identity index, encrypted, in the configured store. The store
+   * receives only encrypted bytes and the slot name. A different identity already saved there is not
+   * replaced unless { replace: true }.
+   * @throws {IdentityStorageError} reason 'slot-in-use' or 'unreadable-slot' (unless replace).
+   * @throws {Error} If no store is configured, no identity is held for the slot, or the identity has been disposed.
+   */
+  saveIdentity(options: SaveIdentityOptions): Promise<SavedIdentitySummary>;
+  /**
+   * Load a saved identity from the configured store and hold it inside this object again. No network call.
+   * @returns The summary, or null if nothing is saved for that slot.
+   * @throws {IdentityStorageError} reason 'unreadable-slot' if the saved bytes cannot be decrypted.
+   */
+  loadIdentity(slot: IdentitySlot): Promise<IdentitySummary | null>;
+  /** Delete the saved identity from the configured store. An identity held in this object is kept. */
+  deleteIdentity(slot: IdentitySlot): Promise<void>;
   /** True once dispose() has been called. */
   get disposed(): boolean;
   /** Zero the seed and any collected identities, and drop them; later calls that need the seed throw. */

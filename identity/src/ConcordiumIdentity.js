@@ -2,12 +2,30 @@ import * as sdk from '@concordium/web-sdk';
 import { parseIdentityConfig } from './config.js';
 import { IdentityIssuanceError, IdentityProviderError } from './errors.js';
 import IdentityProviders from './IdentityProviders.js';
+import IdentityVault from './IdentityVault.js';
+import { deriveStorageKey } from './storage-format.js';
 
 const SEED_BYTES = 64;
 const GLOBAL_PATH = '/v0/global';
 const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 const DEFAULT_INTERVAL_MS = 3000;
 const MAX_POLL_ERRORS = 3; // consecutive network/HTTP failures tolerated while polling
+
+/**
+ * The content of an issued identity (without its version wrapper), checked to have the parts an
+ * issued identity has. `problem` is the error message if it does not.
+ */
+function identityContent(identityObject, problem) {
+  const content = identityObject?.value ?? identityObject;
+  if (!content?.preIdentityObject || !content?.attributeList || !content?.signature) throw new Error(problem);
+  return content;
+}
+
+/** The summary a wallet gets about an identity: no personal data. */
+function summaryOf(content, providerIndex, identityIndex) {
+  const { createdAt, validTo, maxAccounts } = content.attributeList;
+  return { providerIndex, identityIndex, createdAt, validTo, maxAccounts };
+}
 
 function requirePositive(value, name) {
   if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number of milliseconds.`);
@@ -110,10 +128,17 @@ export default class ConcordiumIdentity {
    * @param {string | Uint8Array} seed  the wallet's BIP-39 seed phrase, or its 64-byte seed
    * @param {{ useMainnetKeyDerivation: boolean, walletProxyUrl: string }} config
    *   e.g. CONCORDIUM_TESTNET_IDENTITY_CONFIG; use the same key derivation as the wallet package
-   * @param {{ fetch?: typeof fetch }} [options]  HTTP implementation (defaults to the global fetch)
+   * @param {{ fetch?: typeof fetch, store?: { save: Function, read: Function, delete: Function } }} [options]
+   *   fetch: HTTP implementation (defaults to the global fetch);
+   *   store: where saveIdentity / loadIdentity keep encrypted identities (any IdentityStore)
    */
-  constructor(seed, config, { fetch: fetchFn = (url, options) => fetch(url, options) } = {}) {
+  constructor(seed, config, { fetch: fetchFn = (url, options) => fetch(url, options), store } = {}) {
     this._config = parseIdentityConfig(config); // validated before the seed is touched
+    // Saving identities: an IdentityVault on the given store. It asks for the key through _storageKey()
+    // and never sees the seed.
+    this._vault = store === undefined ? undefined : new IdentityVault({
+      store, derivationNetwork: this._config.derivationNetwork, storageKey: () => this._storageKey(),
+    });
     this._fetch = fetchFn;
     this._providers = new IdentityProviders(this._config, { fetch: (url, options) => this._fetch(url, options) });
     this._seed = toSeedBytes(seed);
@@ -331,20 +356,21 @@ export default class ConcordiumIdentity {
 
   /** Check an issued identity is this wallet's, keep it as bytes, and return its summary. */
   _checkAndKeepIdentity(identityObject, { providerIndex, identityIndex, expectedIdCredPub }) {
-    const content = identityObject?.value ?? identityObject;
-    if (!content?.preIdentityObject || !content?.attributeList || !content?.signature) {
-      throw new Error('The identity provider returned an identity in an unexpected format.');
-    }
+    const content = identityContent(identityObject, 'The identity provider returned an identity in an unexpected format.');
     if (content.preIdentityObject.idCredPub !== expectedIdCredPub) {
       throw new Error(
         `The issued identity does not belong to this wallet for provider ${providerIndex}, identity ${identityIndex}.`);
     }
+    this._holdIdentity(providerIndex, identityIndex, identityObject);
+    this._finishRequest(providerIndex, identityIndex);
+    return summaryOf(content, providerIndex, identityIndex);
+  }
+
+  /** Keep an identity inside this object as UTF-8 JSON bytes (zeroing any it replaces), so dispose() can zero it. */
+  _holdIdentity(providerIndex, identityIndex, identityObject) {
     const label = providerIdentityLabel(providerIndex, identityIndex);
     this._identities.get(label)?.fill(0);
     this._identities.set(label, new TextEncoder().encode(JSON.stringify(identityObject)));
-    this._finishRequest(providerIndex, identityIndex);
-    const { createdAt, validTo, maxAccounts } = content.attributeList;
-    return { providerIndex, identityIndex, createdAt, validTo, maxAccounts };
   }
 
   /** The request for this provider and identity index has ended (issued, rejected or refused): it no longer awaits its identity. */
@@ -383,5 +409,88 @@ export default class ConcordiumIdentity {
       throw e;
     }
     return this.waitForIdentity(codeUri, options);
+  }
+
+  // ---- Saving identities: the vault does the storage; this object holds the identities ----
+
+  _requireVault() {
+    if (!this._vault) {
+      throw new Error('No identity store is configured: pass { store } when creating ConcordiumIdentity, '
+        + 'e.g. new MemoryIdentityStore().');
+    }
+    return this._vault;
+  }
+
+  /** The encryption key for saved identities, from the seed. The vault zeroes it after each use. */
+  _storageKey() {
+    this._requireNotDisposed();
+    return deriveStorageKey(this._seed, this._config.derivationNetwork);
+  }
+
+  /**
+   * Save the identity held for a provider and identity index, encrypted, in the configured store.
+   * The store receives only encrypted bytes and the slot name. The identity must be held: collected
+   * with retrieveIdentity / waitForIdentity, or loaded with loadIdentity.
+   *
+   * A slot that already holds the same identity is simply saved again. A slot holding a different
+   * identity, or bytes that cannot be decrypted with this wallet's seed, is never replaced silently:
+   * pass { replace: true } to replace it (ask the user first, e.g. after they verified again because
+   * the saved identity expired).
+   *
+   * @param {{ providerIndex: number, identityIndex: number, replace?: boolean }} options
+   * @returns {Promise<{ providerIndex: number, identityIndex: number, createdAt: string, validTo: string,
+   *   maxAccounts: number, slotName: string }>}  the identity's summary and where it was saved
+   * @throws {IdentityStorageError} reason 'slot-in-use' or 'unreadable-slot', unless replace is true
+   */
+  async saveIdentity({ providerIndex, identityIndex, replace = false } = {}) {
+    this._requireNotDisposed();
+    const vault = this._requireVault();
+    requireIndex(providerIndex, 'providerIndex');
+    requireIndex(identityIndex, 'identityIndex');
+    const held = this._identities.get(providerIdentityLabel(providerIndex, identityIndex));
+    if (!held) {
+      throw new Error(`No identity is held for provider ${providerIndex}, identity ${identityIndex}: `
+        + 'collect it (retrieveIdentity) or load it (loadIdentity) first.');
+    }
+    const identityObject = JSON.parse(new TextDecoder().decode(held));
+    const slotName = await vault.save({ providerIndex, identityIndex, identityObject, replace });
+    const content = identityContent(identityObject, 'The identity held is in an unexpected format.');
+    return { ...summaryOf(content, providerIndex, identityIndex), slotName };
+  }
+
+  /**
+   * Load a saved identity from the configured store and hold it inside this object again (e.g. after
+   * an app restart), ready for account creation. No network call.
+   *
+   * @param {{ providerIndex: number, identityIndex: number }} options
+   * @returns {Promise<{ providerIndex: number, identityIndex: number, createdAt: string, validTo: string,
+   *   maxAccounts: number } | null>}  the identity's summary, or null if nothing is saved for it
+   * @throws {IdentityStorageError} reason 'unreadable-slot' if the saved bytes cannot be decrypted
+   */
+  async loadIdentity({ providerIndex, identityIndex } = {}) {
+    this._requireNotDisposed();
+    const vault = this._requireVault();
+    requireIndex(providerIndex, 'providerIndex');
+    requireIndex(identityIndex, 'identityIndex');
+    const identityObject = await vault.load({ providerIndex, identityIndex });
+    if (identityObject === null) return null;
+    const content = identityContent(identityObject,
+      `The identity saved in ${vault.slotName(providerIndex, identityIndex)} is incomplete.`);
+    this._holdIdentity(providerIndex, identityIndex, identityObject);
+    return summaryOf(content, providerIndex, identityIndex);
+  }
+
+  /**
+   * Delete the saved identity for a provider and identity index from the configured store. An identity
+   * held inside this object is kept (dispose() clears those). Nothing saved is not an error.
+   *
+   * @param {{ providerIndex: number, identityIndex: number }} options
+   */
+  async deleteIdentity({ providerIndex, identityIndex } = {}) {
+    this._requireNotDisposed();
+    const vault = this._requireVault();
+    requireIndex(providerIndex, 'providerIndex');
+    requireIndex(identityIndex, 'identityIndex');
+    await vault.delete({ providerIndex, identityIndex });
   }
 }
