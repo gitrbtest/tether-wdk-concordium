@@ -3,127 +3,21 @@ import { parseIdentityConfig } from './config.js';
 import { IdentityIssuanceError, IdentityProviderError } from './errors.js';
 import IdentityProviders from './IdentityProviders.js';
 import IdentityVault from './IdentityVault.js';
+import WalletProxy from './WalletProxy.js';
 import { deriveStorageKey } from './storage-format.js';
-
-const SEED_BYTES = 64;
-const GLOBAL_PATH = '/v0/global';
-const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
-const DEFAULT_INTERVAL_MS = 3000;
-const MAX_POLL_ERRORS = 3; // consecutive network/HTTP failures tolerated while polling
-
-/**
- * The content of an issued identity (without its version wrapper), checked to have the parts an
- * issued identity has. `problem` is the error message if it does not.
- */
-function identityContent(identityObject, problem) {
-  const content = identityObject?.value ?? identityObject;
-  if (!content?.preIdentityObject || !content?.attributeList || !content?.signature) throw new Error(problem);
-  return content;
-}
-
-/** The summary a wallet gets about an identity: no personal data. */
-function summaryOf(content, providerIndex, identityIndex) {
-  const { createdAt, validTo, maxAccounts } = content.attributeList;
-  return { providerIndex, identityIndex, createdAt, validTo, maxAccounts };
-}
-
-function requirePositive(value, name) {
-  if (!Number.isFinite(value) || value <= 0) throw new Error(`${name} must be a positive number of milliseconds.`);
-}
-
-/** Wait `ms`, or reject early with a 'cancelled' error if `signal` aborts. */
-function sleep(ms, signal) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(done, ms);
-    function done() { signal?.removeEventListener('abort', abort); resolve(); }
-    function abort() { clearTimeout(timer); reject(cancelledError()); }
-    signal?.addEventListener('abort', abort, { once: true });
-  });
-}
-
-function cancelledError() {
-  return new IdentityIssuanceError('Waiting for the identity was cancelled.', { reason: 'cancelled' });
-}
-
-/** The label an issued identity is held under in _identities, e.g. "0/334563111" (provider 0, identity index 334563111). */
-const providerIdentityLabel =(providerIndex, identityIndex) => `${providerIndex}/${identityIndex}`;
-
-/** Same rule and wording as the wallet package's identity coordinates. */
-function requireIndex(value, name) {
-  if (!Number.isSafeInteger(value) || value < 0) {
-    throw new Error(`${name} is required and must be a non-negative safe integer.`);
-  }
-}
-
-/**
- * The address the provider sends the browser back to. Any absolute URL is
- * accepted (a web address or an app's own scheme); there is no default. It is
- * passed on exactly as given: providers may compare it character for character
- * with the address the wallet registered.
- */
-function requireRedirectUri(value) {
-  try {
-    if (typeof value !== 'string' || value !== value.trim() || !value) throw new Error();
-    new URL(value); // throws unless absolute
-  } catch {
-    throw new Error('redirectUri is required and must be an absolute URL.');
-  }
-}
-
-/**
- * The 64-byte seed as our own copy. A seed phrase is checked and converted by
- * the SDK (BIP-39, as in the WDK base). Raw bytes are checked here, before the
- * SDK sees them: its length error repeats the seed, which must never reach a log.
- */
-function toSeedBytes(seed) {
-  if (typeof seed === 'string') {
-    let hdWallet;
-    try {
-      hdWallet = sdk.ConcordiumHdWallet.fromSeedPhrase(seed, 'Testnet'); // the network does not affect the seed
-    } catch {
-      throw new Error('Invalid seed phrase.');
-    }
-    return Uint8Array.from(Buffer.from(hdWallet.seedAsHex, 'hex'));
-  }
-  if (seed instanceof Uint8Array && seed.length === SEED_BYTES) {
-    return Uint8Array.from(seed);
-  }
-  throw new Error('The seed must be a BIP-39 seed phrase or a 64-byte seed.');
-}
-
-/** An absolute http(s) URL, or null. */
-function httpUrlOrNull(value) {
-  try {
-    const url = new URL(value);
-    return ['http:', 'https:'].includes(url.protocol) ? url.href : null;
-  } catch {
-    return null;
-  }
-}
-
-/** The provider's error from the callback: JSON {"error":{"code","detail"}}, or plain text. */
-function providerError(raw) {
-  let code;
-  let detail = raw;
-  try {
-    const parsed = JSON.parse(raw);
-    const error = parsed?.error ?? parsed;
-    code = typeof error?.code === 'string' ? error.code : undefined;
-    detail = typeof error?.detail === 'string' ? error.detail : raw;
-  } catch {
-    // not JSON: keep the raw text as the detail
-  }
-  return new IdentityIssuanceError(
-    `The identity provider reported an error${code ? ` (${code})` : ''}${detail ? `: ${detail}` : '.'}`,
-    { reason: 'provider-error', code, detail },
-  );
-}
+import { buildIdentityRequest, issuanceLink, expectedIdCredPub } from './identity-request.js';
+import { pollIdentityProvider, cancelledError, DEFAULT_TIMEOUT_MS, DEFAULT_INTERVAL_MS } from './identity-polling.js';
+import { parseIdentityCallback as readIdentityCallback } from './identity-callback.js';
+import { providerIdentityLabel, identityContent, summaryOf } from './identity-object.js';
+import { requireIndex, requirePositive, requireRedirectUri, httpUrlOrNull, toSeedBytes } from './inputs.js';
 
 /**
  * A wallet's Concordium identity, derived from the wallet's own seed: requesting
  * an identity from a provider, without the Concordium ID App.
  */
 export default class ConcordiumIdentity {
+  // ---- Creating and disposing ----
+
   /**
    * @param {string | Uint8Array} seed  the wallet's BIP-39 seed phrase, or its 64-byte seed
    * @param {{ useMainnetKeyDerivation: boolean, walletProxyUrl: string }} config
@@ -140,6 +34,7 @@ export default class ConcordiumIdentity {
       store, derivationNetwork: this._config.derivationNetwork, storageKey: () => this._storageKey(),
     });
     this._fetch = fetchFn;
+    this._walletProxy = new WalletProxy(this._config, { fetch: (url, options) => this._fetch(url, options) });
     this._providers = new IdentityProviders(this._config, { fetch: (url, options) => this._fetch(url, options) });
     this._seed = toSeedBytes(seed);
     // Issued identities collected by waitForIdentity, held as UTF-8 JSON bytes so dispose() can zero them.
@@ -173,18 +68,12 @@ export default class ConcordiumIdentity {
     return sdk.ConcordiumHdWallet.fromHex(Buffer.from(this._seed).toString('hex'), this._config.derivationNetwork);
   }
 
-  /** The network's cryptographic parameters, as published by the wallet-proxy. */
-  async _globalContext() {
-    const response = await this._fetch(this._config.walletProxyUrl + GLOBAL_PATH);
-    if (!response.ok) {
-      throw new Error(`The wallet-proxy answered HTTP ${response.status} for the cryptographic parameters.`);
-    }
-    const { value } = await response.json();
-    if (!value?.onChainCommitmentKey || !value?.bulletproofGenerators || !value?.genesisString) {
-      throw new Error('The wallet-proxy returned cryptographic parameters in an unexpected format.');
-    }
-    return value;
+  /** The network's cryptographic parameters, as published by the wallet-proxy (read once per object). */
+  _globalContext() {
+    return this._walletProxy.globalContext();
   }
+
+  // ---- Starting verification ----
 
   /**
    * Start identity verification: build the identity request for a provider from
@@ -213,29 +102,12 @@ export default class ConcordiumIdentity {
     }
 
     const globalContext = await this._globalContext();
-    // Keys are derived with the provider's own index, so the request and the keys always agree.
-    const ipIdentity = provider.ipInfo.ipIdentity;
-    const hdWallet = this._hdWallet;
-    const idObjectRequest = sdk.createIdentityRequestWithKeys({
-      ipInfo: provider.ipInfo,
-      arsInfos: provider.arsInfos,
-      // Any arThreshold of the provider's anonymity revokers together can reveal the identity; fewer cannot.
-      arThreshold: Math.max(1, Object.keys(provider.arsInfos).length - 1),
-      globalContext,
-      idCredSec: hdWallet.getIdCredSec(ipIdentity, identityIndex).toString('hex'),
-      prfKey: hdWallet.getPrfKey(ipIdentity, identityIndex).toString('hex'),
-      blindingRandomness: hdWallet.getSignatureBlindingRandomness(ipIdentity, identityIndex).toString('hex'),
-    });
-
-    const query = new URLSearchParams({
-      state: JSON.stringify({ idObjectRequest }),
-      response_type: 'code',
-      scope: 'identity',
-      redirect_uri: redirectUri,
-    });
+    const idObjectRequest = buildIdentityRequest({ provider, globalContext, hdWallet: this._hdWallet, identityIndex });
     this._requestAwaitingIdentity = { providerIndex, identityIndex };
-    return { issuanceUrl: `${provider.issuanceStart}?${query}`, providerIndex, identityIndex };
+    return { issuanceUrl: issuanceLink(provider.issuanceStart, idObjectRequest, redirectUri), providerIndex, identityIndex };
   }
+
+  // ---- Collecting the issued identity ----
 
   /**
    * Read the address the provider sent the browser back to, after verification.
@@ -249,30 +121,14 @@ export default class ConcordiumIdentity {
    * @throws {Error} If the URL holds neither a code_uri nor a provider error.
    */
   parseIdentityCallback(callbackUrl) {
-    let url;
-    try {
-      url = new URL(callbackUrl);
-    } catch {
-      throw new Error('callbackUrl must be the absolute URL the provider sent the browser to.');
-    }
-    const reply = new URLSearchParams(url.hash.slice(1) || url.search.slice(1));
-    if (reply.has('error')) throw providerError(reply.get('error'));
-    if (!reply.has('code_uri')) {
-      throw new Error('The callback holds neither a code_uri nor an error from the identity provider.');
-    }
-    const codeUri = httpUrlOrNull(reply.get('code_uri'));
-    if (!codeUri) throw new Error("The callback's code_uri is not an absolute HTTP(S) URL.");
-    return { codeUri };
+    return readIdentityCallback(callbackUrl);
   }
 
   /** The idCredPub an identity for this seed, provider and identity index must carry. */
   async _expectedIdCredPub(providerIndex, identityIndex) {
     const provider = await this._providers.get(providerIndex);
     const globalContext = await this._globalContext();
-    const idCredSec = this._hdWallet.getIdCredSec(provider.ipInfo.ipIdentity, identityIndex).toString('hex');
-    return sdk.createIdentityRecoveryRequestWithKeys({
-      ipInfo: provider.ipInfo, globalContext, idCredSec, timestamp: 0,
-    }).value.idCredPub;
+    return expectedIdCredPub({ provider, globalContext, hdWallet: this._hdWallet, identityIndex });
   }
 
   /**
@@ -296,6 +152,20 @@ export default class ConcordiumIdentity {
    * @throws {IdentityIssuanceError} reason 'rejected', 'timeout' or 'cancelled'.
    */
   async waitForIdentity(codeUri, options = {}) {
+    const { pollUrl, providerIndex, identityIndex, timeoutMs, intervalMs, signal } = this._checkWaitOptions(codeUri, options);
+    const expectedIdCredPub = await this._expectedIdCredPub(providerIndex, identityIndex);
+    const reply = await pollIdentityProvider({ fetch: this._fetch, url: pollUrl, timeoutMs, intervalMs, signal });
+    if (reply.status === 'error') {
+      this._finishRequest(providerIndex, identityIndex); // a rejected request can never succeed
+      throw new IdentityIssuanceError(
+        `The identity provider did not issue the identity${reply.detail ? `: ${reply.detail}` : '.'}`,
+        { reason: 'rejected', detail: reply.detail || undefined });
+    }
+    return this._checkAndKeepIdentity(reply.token?.identityObject, { providerIndex, identityIndex, expectedIdCredPub });
+  }
+
+  /** Check waitForIdentity's inputs before any network call; resolves which identity is being collected. */
+  _checkWaitOptions(codeUri, options) {
     const { timeoutMs = DEFAULT_TIMEOUT_MS, intervalMs = DEFAULT_INTERVAL_MS, signal } = options;
     this._requireNotDisposed();
     const pollUrl = httpUrlOrNull(codeUri);
@@ -306,44 +176,7 @@ export default class ConcordiumIdentity {
     requirePositive(timeoutMs, 'timeoutMs');
     requirePositive(intervalMs, 'intervalMs');
     if (signal?.aborted) throw cancelledError();
-
-    const expectedIdCredPub = await this._expectedIdCredPub(providerIndex, identityIndex);
-    const deadline = Date.now() + timeoutMs;
-    let failedPollsInARow = 0;
-
-    while (true) {
-      if (signal?.aborted) throw cancelledError();
-      let reply;
-      try {
-        const response = await this._fetch(pollUrl, { signal });
-        if (!response.ok) throw new Error(`The identity provider answered HTTP ${response.status}.`);
-        reply = await response.json();
-        failedPollsInARow = 0;
-      } catch (e) {
-        if (signal?.aborted) throw cancelledError();
-        if (++failedPollsInARow >= MAX_POLL_ERRORS) throw e;
-      }
-
-      if (reply?.status === 'done') {
-        return this._checkAndKeepIdentity(reply.token?.identityObject, { providerIndex, identityIndex, expectedIdCredPub });
-      }
-      if (reply?.status === 'error') {
-        this._finishRequest(providerIndex, identityIndex); // a rejected request can never succeed
-        throw new IdentityIssuanceError(
-          `The identity provider did not issue the identity${reply.detail ? `: ${reply.detail}` : '.'}`,
-          { reason: 'rejected', detail: reply.detail || undefined });
-      }
-      if (reply && reply.status !== 'pending') {
-        throw new Error(`The identity provider answered with an unexpected status: ${JSON.stringify(reply.status)}.`);
-      }
-
-      if (Date.now() + intervalMs > deadline) {
-        throw new IdentityIssuanceError(
-          `The identity was not issued within ${timeoutMs} ms; the provider may still be verifying. ` +
-          'Wait again with the same code_uri later.', { reason: 'timeout' });
-      }
-      await sleep(intervalMs, signal);
-    }
+    return { pollUrl, providerIndex, identityIndex, timeoutMs, intervalMs, signal };
   }
 
   /** The provider and identity index to collect for: as given, or those of the request awaiting its identity. */
@@ -411,7 +244,7 @@ export default class ConcordiumIdentity {
     return this.waitForIdentity(codeUri, options);
   }
 
-  // ---- Saving identities: the vault does the storage; this object holds the identities ----
+  // ---- Saving identities (the vault does the storage; this object holds the identities) ----
 
   _requireVault() {
     if (!this._vault) {

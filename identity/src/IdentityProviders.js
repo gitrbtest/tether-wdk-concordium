@@ -1,8 +1,6 @@
 import { parseIdentityConfig } from './config.js';
 import { IdentityProviderError } from './errors.js';
-
-/** The wallet-proxy provider list. v1 is the version that publishes recovery addresses. */
-const IP_INFO_PATH = '/v1/ip_info';
+import WalletProxy from './WalletProxy.js';
 
 /**
  * An address a provider publishes for itself, read exactly as published and
@@ -33,20 +31,11 @@ export default class IdentityProviders {
    * @param {{ fetch?: typeof fetch }} [options]  HTTP implementation (defaults to the global fetch)
    */
   constructor(config, { fetch: fetchFn = (url, options) => fetch(url, options) } = {}) {
-    this._config = parseIdentityConfig(config);
-    this._fetch = fetchFn;
+    this._walletProxy = new WalletProxy(parseIdentityConfig(config), { fetch: fetchFn });
   }
 
-  async _entries() {
-    const response = await this._fetch(this._config.walletProxyUrl + IP_INFO_PATH);
-    if (!response.ok) {
-      throw new Error(`The wallet-proxy answered HTTP ${response.status} for the identity provider list.`);
-    }
-    const list = await response.json();
-    if (!Array.isArray(list)) {
-      throw new Error('The wallet-proxy returned an identity provider list in an unexpected format.');
-    }
-    return list;
+  _entries() {
+    return this._walletProxy.providerEntries();
   }
 
   /**
