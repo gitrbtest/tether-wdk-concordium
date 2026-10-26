@@ -15,7 +15,7 @@ import { writeFile } from 'node:fs/promises';
 import {
   CONCORDIUM_MAINNET_IDENTITY_CONFIG,
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
-} from '../../src/config.js';
+} from '../../src/shared/config.js';
 
 const NETWORKS = {
   testnet: CONCORDIUM_TESTNET_IDENTITY_CONFIG.walletProxyUrl,

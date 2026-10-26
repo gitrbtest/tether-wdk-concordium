@@ -40,7 +40,7 @@
  */
 import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
-import { IdentityIssuanceError } from '../errors.js';
+import { IdentityIssuanceError } from '../shared/errors.js';
 
 const HOST = '127.0.0.1';
 const PATH_PREFIX = '/identity-callback/';

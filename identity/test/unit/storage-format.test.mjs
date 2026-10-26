@@ -1,5 +1,5 @@
 /**
- * The encrypted storage format (src/storage-format.js): the key from the seed, encrypting and
+ * The encrypted storage format (src/storage/storage-format.js): the key from the seed, encrypting and
  * decrypting, binding to the slot, and reading identities saved in format version 1.
  * Uses the recorded testnet identity; no external services.
  */
@@ -9,7 +9,7 @@ import { readFileSync } from 'node:fs';
 import { ConcordiumIdentity, IdentityStorageError, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
 import {
   STORAGE_FORMAT_VERSION, storageSlotName, deriveStorageKey, encryptIdentity, decryptIdentity,
-} from '../../src/storage-format.js';
+} from '../../src/storage/storage-format.js';
 
 const TEST_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const OTHER_PHRASE = 'legal winner thank year wave sausage worth useful legal winner thank yellow';

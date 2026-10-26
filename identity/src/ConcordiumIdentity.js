@@ -1,16 +1,16 @@
 import * as sdk from '@concordium/web-sdk';
 import { bytesToHex } from '@noble/hashes/utils';
-import { parseIdentityConfig } from './config.js';
-import { IdentityIssuanceError, IdentityProviderError } from './errors.js';
-import IdentityProviders from './IdentityProviders.js';
-import IdentityVault from './IdentityVault.js';
-import WalletProxy from './WalletProxy.js';
-import { deriveStorageKey } from './storage-format.js';
-import { buildIdentityRequest, issuanceLink, expectedIdCredPub } from './identity-request.js';
-import { pollIdentityProvider, cancelledError, DEFAULT_TIMEOUT_MS, DEFAULT_INTERVAL_MS } from './identity-polling.js';
-import { parseIdentityCallback as readIdentityCallback } from './identity-callback.js';
-import { providerIdentityLabel, identityContent, summaryOf } from './identity-object.js';
-import { requireIndex, requirePositive, requireRedirectUri, httpUrlOrNull, toSeedBytes } from './inputs.js';
+import { parseIdentityConfig } from './shared/config.js';
+import { IdentityIssuanceError, IdentityProviderError } from './shared/errors.js';
+import IdentityProviders from './providers/IdentityProviders.js';
+import IdentityVault from './storage/IdentityVault.js';
+import WalletProxy from './providers/WalletProxy.js';
+import { deriveStorageKey } from './storage/storage-format.js';
+import { buildIdentityRequest, issuanceLink, expectedIdCredPub } from './issuance/identity-request.js';
+import { pollIdentityProvider, cancelledError, DEFAULT_TIMEOUT_MS, DEFAULT_INTERVAL_MS } from './issuance/identity-polling.js';
+import { parseIdentityCallback as readIdentityCallback } from './issuance/identity-callback.js';
+import { providerIdentityLabel, identityContent, summaryOf } from './issuance/identity-object.js';
+import { requireIndex, requirePositive, requireRedirectUri, httpUrlOrNull, toSeedBytes } from './shared/inputs.js';
 
 /**
  * A wallet's Concordium identity, derived from the wallet's own seed: requesting

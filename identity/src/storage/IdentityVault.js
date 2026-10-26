@@ -8,7 +8,7 @@
  */
 import { requireIdentityStore } from './identity-store-contract.js';
 import { storageSlotName, encryptIdentity, decryptIdentity } from './storage-format.js';
-import { IdentityStorageError } from './errors.js';
+import { IdentityStorageError } from '../shared/errors.js';
 
 export default class IdentityVault {
   #store;

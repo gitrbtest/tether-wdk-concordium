@@ -1,5 +1,5 @@
-import { parseIdentityConfig } from './config.js';
-import { IdentityProviderError } from './errors.js';
+import { parseIdentityConfig } from '../shared/config.js';
+import { IdentityProviderError } from '../shared/errors.js';
 import WalletProxy from './WalletProxy.js';
 
 /**

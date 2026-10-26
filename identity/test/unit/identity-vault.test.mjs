@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { IdentityStorageError, MemoryIdentityStore } from '@concordium/wdk-identity-concordium';
-import IdentityVault from '../../src/IdentityVault.js';
+import IdentityVault from '../../src/storage/IdentityVault.js';
 
 const identityObject = JSON.parse(readFileSync(new URL('../fixtures/identity-done.testnet.json', import.meta.url), 'utf8')).token.identityObject;
 const SLOT = { providerIndex: 0, identityIndex: 5 };

@@ -36,9 +36,12 @@ test('the optional Node.js extras load from their own entry point, and the main 
 
 test('the main entry uses no Node.js-only features, so it can run in browsers and mobile runtimes too', async () => {
   const { readdirSync } = await import('node:fs');
-  // Everything the main entry loads: index.js and src/, except the optional Node extras and the testing tools.
-  const mainEntryFiles = ['index.js', ...readdirSync(new URL('src/', packageRoot), { withFileTypes: true })
-    .filter((entry) => entry.isFile()).map((entry) => `src/${entry.name}`)];
+  // Everything the main entry loads: index.js and all of src/, except the optional Node extras and the testing tools.
+  const sourcesIn = (dir) => readdirSync(new URL(dir, packageRoot), { withFileTypes: true })
+    .flatMap((entry) => (entry.isDirectory() ? sourcesIn(`${dir}${entry.name}/`) : [`${dir}${entry.name}`]));
+  const mainEntryFiles = ['index.js', ...sourcesIn('src/')
+    .filter((file) => !file.startsWith('src/node/') && !file.startsWith('src/testing/'))];
+  assert.ok(mainEntryFiles.includes('src/storage/storage-format.js'), 'the check reaches files in subfolders');
   const nodeOnly = [
     [/\bBuffer\b/, 'Node\'s Buffer (use Uint8Array, and @noble/hashes/utils for hex)'],
     [/\bprocess\.(env|argv|exit|cwd|platform|version|versions|nextTick|on)\b/, 'Node\'s process'],

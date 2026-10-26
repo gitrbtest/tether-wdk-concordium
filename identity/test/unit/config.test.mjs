@@ -5,7 +5,7 @@ import {
   CONCORDIUM_MAINNET_IDENTITY_CONFIG,
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
   parseIdentityConfig,
-} from '../../src/config.js';
+} from '../../src/shared/config.js';
 
 /** A valid custom configuration, to vary one field at a time. */
 const VALID = { useMainnetKeyDerivation: false, walletProxyUrl: 'https://wallet-proxy.example' };

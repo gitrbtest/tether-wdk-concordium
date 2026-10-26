@@ -2,7 +2,7 @@
  * Polling the identity provider's code_uri until it has an answer: patient, careful polling that knows
  * nothing about seeds or ownership (ConcordiumIdentity.waitForIdentity checks the identity afterwards).
  */
-import { IdentityIssuanceError } from './errors.js';
+import { IdentityIssuanceError } from '../shared/errors.js';
 
 export const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 export const DEFAULT_INTERVAL_MS = 3000;

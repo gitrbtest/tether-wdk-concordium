@@ -2,7 +2,7 @@
 
 This describes exactly how `@concordium/wdk-identity-concordium` encrypts an identity before handing it to
 a store, so the format can be reviewed, and read by other implementations (for example a native mobile
-wallet sharing the same data). The code is in [`src/storage-format.js`](../src/storage-format.js).
+wallet sharing the same data). The code is in [`src/storage/storage-format.js`](../src/storage/storage-format.js).
 
 ## Overview
 

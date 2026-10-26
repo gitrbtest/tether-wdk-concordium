@@ -6,8 +6,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { IdentityIssuanceError } from '@concordium/wdk-identity-concordium';
-import { pollIdentityProvider } from '../../src/identity-polling.js';
-import { issuanceLink } from '../../src/identity-request.js';
+import { pollIdentityProvider } from '../../src/issuance/identity-polling.js';
+import { issuanceLink } from '../../src/issuance/identity-request.js';
 
 const URL_ = 'https://id-service.testnet.concordium.com/api/v1/identity/abc';
 

@@ -9,8 +9,8 @@
  * capability lands.
  */
 
-export { CONCORDIUM_MAINNET_IDENTITY_CONFIG, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from './src/config.js';
-export { default as IdentityProviders } from './src/IdentityProviders.js';
-export { IdentityProviderError, IdentityIssuanceError, IdentityStorageError } from './src/errors.js';
+export { CONCORDIUM_MAINNET_IDENTITY_CONFIG, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from './src/shared/config.js';
+export { default as IdentityProviders } from './src/providers/IdentityProviders.js';
+export { IdentityProviderError, IdentityIssuanceError, IdentityStorageError } from './src/shared/errors.js';
 export { default as ConcordiumIdentity } from './src/ConcordiumIdentity.js';
-export { default as MemoryIdentityStore } from './src/MemoryIdentityStore.js';
+export { default as MemoryIdentityStore } from './src/storage/MemoryIdentityStore.js';

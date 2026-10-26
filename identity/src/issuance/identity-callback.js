@@ -2,8 +2,8 @@
  * Reading the address the identity provider sent the browser back to, after verification.
  * No network call: the provider's reply is in the URL itself, after `#` (or `?`).
  */
-import { IdentityIssuanceError } from './errors.js';
-import { httpUrlOrNull } from './inputs.js';
+import { IdentityIssuanceError } from '../shared/errors.js';
+import { httpUrlOrNull } from '../shared/inputs.js';
 
 /** The provider's error from the callback: JSON {"error":{"code","detail"}}, or plain text. */
 function providerError(raw) {

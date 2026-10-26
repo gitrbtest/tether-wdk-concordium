@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as sdk from '@concordium/web-sdk';
 import ConcordiumIdentity from '../../src/ConcordiumIdentity.js';
-import { CONCORDIUM_MAINNET_IDENTITY_CONFIG, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '../../src/config.js';
+import { CONCORDIUM_MAINNET_IDENTITY_CONFIG, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '../../src/shared/config.js';
 
 /** The public all-"abandon" BIP-39 test phrase (no value is ever held under it on mainnet). */
 const TEST_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';

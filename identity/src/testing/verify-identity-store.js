@@ -1,10 +1,10 @@
 /**
  * verifyIdentityStore: checks a store against the identity store contract (see
- * ../identity-store-contract.js), for operators who write their own store (a phone's storage, a
+ * ../storage/identity-store-contract.js), for operators who write their own store (a phone's storage, a
  * backend, a database). For tests only: it saves and deletes slots of its own. It works in any test
  * framework: it resolves if the store behaves, and throws an Error naming the first check that failed.
  */
-import { requireIdentityStore } from '../identity-store-contract.js';
+import { requireIdentityStore } from '../storage/identity-store-contract.js';
 
 const CHECK_PREFIX = 'concordium-identity-store-check';
 

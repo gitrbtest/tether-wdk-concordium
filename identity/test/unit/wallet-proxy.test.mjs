@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ConcordiumIdentity, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
-import WalletProxy from '../../src/WalletProxy.js';
+import WalletProxy from '../../src/providers/WalletProxy.js';
 import { walletProxyFetch } from '../helpers.mjs';
 
 const PROXY = CONCORDIUM_TESTNET_IDENTITY_CONFIG.walletProxyUrl;

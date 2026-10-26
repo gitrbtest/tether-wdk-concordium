@@ -33,7 +33,7 @@ import { gcm } from '@noble/ciphers/aes';
 import { randomBytes } from '@noble/ciphers/webcrypto';
 import { hkdf } from '@noble/hashes/hkdf';
 import { sha256 } from '@noble/hashes/sha256';
-import { IdentityStorageError } from './errors.js';
+import { IdentityStorageError } from '../shared/errors.js';
 
 export const STORAGE_FORMAT_VERSION = 1;
 
