@@ -24,6 +24,7 @@
     "index.js",
     "node.js",
     "testing.js",
+    "docs",
     "src",
     "types",
     "README.md",

@@ -15,12 +15,16 @@ like any other account.
 
 > **Status: in development.** The package is not published yet, and its API
 > may change until the first release. Available today: listing identity
-> providers, starting identity verification and collecting the issued
-> identity. Encrypted storage and account creation are planned.
+> providers, starting identity verification, collecting the issued identity,
+> and saving it encrypted. Account creation is planned.
 
 ## Requirements
 
 Node.js 18+, using ES modules, the same as `@concordium/wdk-wallet-concordium`.
+
+The main entry uses no Node.js-only features (a test enforces this), so it is meant to run in browsers
+and mobile runtimes too; so far it is tested on Node.js. Node.js-only extras (the callback listener, the
+file store) come from a separate entry point, `@concordium/wdk-identity-concordium/node`.
 
 ## Configuration
 
@@ -154,6 +158,109 @@ identity index. An identity that does not belong to this wallet is refused with
 an `Error` and not kept. Brief network failures while polling are retried;
 repeated ones are reported.
 
+## Saving and loading identities
+
+An identity is saved **encrypted**, in a store the wallet chooses: memory, files, a database, a backend.
+The store only ever receives encrypted bytes and a slot name such as
+`concordium-identity/testnet/0/594450697`; it never sees the identity, and cannot read it without the
+wallet's seed.
+
+```js
+import { ConcordiumIdentity, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
+import { FileIdentityStore } from '@concordium/wdk-identity-concordium/node';
+
+const store = new FileIdentityStore('./identities');
+const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { store });
+
+await identity.retrieveIdentity(callbackUrl);                          // collect, as above
+await identity.saveIdentity({ providerIndex: 0, identityIndex: 0 });   // → { …summary, slotName }
+
+// Later, e.g. after an app restart, in a new object with the same seed and store:
+const summary = await identity.loadIdentity({ providerIndex: 0, identityIndex: 0 }); // summary, or null
+await identity.deleteIdentity({ providerIndex: 0, identityIndex: 0 });               // removes the saved copy
+```
+
+- **The encryption key comes from the seed** each time it is needed and is wiped after use; it is never
+  stored. No password, nothing extra for the user to remember.
+- **Loading needs no network call.** Decrypting proves the identity was saved with this seed for this slot.
+- **Saved and held are separate.** `saveIdentity` saves the identity this object holds (collected or
+  loaded); `loadIdentity` holds a saved one again, ready for the next steps. `deleteIdentity` removes
+  the saved copy only; `dispose()` zeroes everything the object holds.
+
+### Saving over an existing identity
+
+`saveIdentity` never silently replaces a different identity:
+
+| Already saved in the slot | `saveIdentity` |
+|---|---|
+| nothing | saves |
+| the same identity | saves again (harmless) |
+| a different identity (e.g. an earlier one, before the user verified again) | `IdentityStorageError` reason `'slot-in-use'`, unless `{ replace: true }` |
+| bytes this seed cannot decrypt | `IdentityStorageError` reason `'unreadable-slot'`, unless `{ replace: true }` |
+
+Replacing a verified identity costs the user a new verification, so **ask the user before passing
+`{ replace: true }`**. `loadIdentity` reports bytes it cannot decrypt (another seed, damaged data, an
+unknown format version) as `IdentityStorageError` reason `'unreadable-slot'`.
+
+### Stores
+
+| Store | From | For |
+|---|---|---|
+| `MemoryIdentityStore` | main entry | tests and short-lived processes; nothing survives the process |
+| `FileIdentityStore(folder)` | `/node` | desktop and server wallets: one file per slot, written safely (a temporary file, then one replacing step), owner-only permissions on macOS and Linux. On Windows, access follows the folder's permissions: keep it where only the user can reach it (e.g. inside their user profile). |
+| your own | — | anything else: a database, your backend, a phone's storage |
+
+### Writing your own store
+
+A store is any object with three async methods:
+
+```js
+const store = {
+  async save(slotName, bytes) { … },  // save the bytes (Uint8Array), replacing anything saved under that name
+  async read(slotName) { … },         // the bytes saved under that name, or null
+  async delete(slotName) { … },       // remove them; nothing saved there is not an error
+};
+```
+
+For example, on PostgreSQL:
+
+```js
+// CREATE TABLE identities (slot TEXT PRIMARY KEY, data BYTEA NOT NULL)
+const databaseStore = {
+  async save(slotName, bytes) {
+    await pool.query('INSERT INTO identities (slot, data) VALUES ($1, $2) '
+      + 'ON CONFLICT (slot) DO UPDATE SET data = EXCLUDED.data', [slotName, Buffer.from(bytes)]);
+  },
+  async read(slotName) {
+    const { rows } = await pool.query('SELECT data FROM identities WHERE slot = $1', [slotName]);
+    return rows.length ? new Uint8Array(rows[0].data) : null;
+  },
+  async delete(slotName) {
+    await pool.query('DELETE FROM identities WHERE slot = $1', [slotName]);
+  },
+};
+```
+
+Check your store against the contract in your own tests, with any test framework. It saves and deletes
+a few slots of its own (`concordium-identity-store-check/…`), so run it against a test instance:
+
+```js
+import { verifyIdentityStore } from '@concordium/wdk-identity-concordium/testing';
+
+test('our identity store meets the contract', async () => {
+  await verifyIdentityStore(databaseStore); // throws naming the first check that failed
+});
+```
+
+A runnable example on a real SQL database (SQLite, built into Node.js 22.13+), showing that the table
+only holds slot names and encrypted bytes: `npm run example:database-store`
+(`examples/database-store.mjs`).
+
+### The format
+
+The exact format (key derivation, encryption, byte layout, a test vector) and the threat model are in
+[`docs/storage-format.md`](docs/storage-format.md).
+
 ## Optional: built-in callback listener (Node.js desktop and server wallets)
 
 Wallets that catch the provider's return themselves (a mobile app's own scheme,
@@ -192,8 +299,10 @@ secret path, and accepts a single callback; other requests are refused.
 read the request shows an error page and never sends the browser back, so give
 the user a way to cancel.
 
-A runnable example of the whole flow on testnet: `npm run example:verify-identity`
-(`examples/verify-identity.mjs`).
+A runnable example of the whole flow on testnet, saving the identity encrypted in
+`./demo-identities`: `npm run example:verify-identity` (`examples/verify-identity.mjs`; set
+`OPEN_BROWSER=1` to open the verification page for you). Load it again in a new program with
+`npm run example:load-identity`.
 
 ## Development
 
