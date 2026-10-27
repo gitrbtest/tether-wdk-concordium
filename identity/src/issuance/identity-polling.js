@@ -3,6 +3,7 @@
  * nothing about seeds or ownership (ConcordiumIdentity.waitForIdentity checks the identity afterwards).
  */
 import { IdentityIssuanceError } from '../shared/errors.js';
+import { sleep } from '../shared/sleep.js';
 
 export const DEFAULT_TIMEOUT_MS = 15 * 60 * 1000;
 export const DEFAULT_INTERVAL_MS = 3000;
@@ -10,16 +11,6 @@ const MAX_FAILURES_IN_A_ROW = 3; // network or HTTP failures tolerated in a row
 
 export function cancelledError() {
   return new IdentityIssuanceError('Waiting for the identity was cancelled.', { reason: 'cancelled' });
-}
-
-/** Wait `ms`, or reject early with a 'cancelled' error if `signal` aborts. */
-function sleep(ms, signal) {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(done, ms);
-    function done() { signal?.removeEventListener('abort', abort); resolve(); }
-    function abort() { clearTimeout(timer); reject(cancelledError()); }
-    signal?.addEventListener('abort', abort, { once: true });
-  });
 }
 
 /**
@@ -33,6 +24,8 @@ function sleep(ms, signal) {
  */
 export async function pollIdentityProvider({ fetch, url, timeoutMs, intervalMs, signal }) {
   const deadline = Date.now() + timeoutMs;
+  // Checks that failed one after another (network failure or an HTTP error). Any check that gets an
+  // answer resets it to 0, so occasional blips are retried; MAX_FAILURES_IN_A_ROW in a row are reported.
   let failuresInARow = 0;
 
   while (true) {
@@ -58,6 +51,6 @@ export async function pollIdentityProvider({ fetch, url, timeoutMs, intervalMs, 
         `The identity was not issued within ${timeoutMs} ms; the provider may still be verifying. ` +
         'Wait again with the same code_uri later.', { reason: 'timeout' });
     }
-    await sleep(intervalMs, signal);
+    await sleep(intervalMs, signal, cancelledError);
   }
 }

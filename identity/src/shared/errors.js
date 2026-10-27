@@ -34,6 +34,31 @@ export class IdentityIssuanceError extends Error {
 }
 
 /**
+ * Thrown when an account is not created from an identity. `reason` says why:
+ * - rejected: the chain refused the credential (`detail` has the reason, if the chain gave one)
+ * - expired: the credential was not included on chain before its expiry time
+ * - timeout: the wait ended before the account was final; it may still be created (ask again)
+ * - cancelled: the wait was cancelled; if the credential was sent, the account may still be created
+ * - wallet-proxy: the wallet-proxy failed or answered unexpectedly (`detail` has what it said)
+ * Carries the new account's `address` and the `transactionHash` when they are known.
+ */
+export class AccountCreationError extends Error {
+  /**
+   * @param {string} message
+   * @param {{ reason: 'rejected' | 'expired' | 'timeout' | 'cancelled' | 'wallet-proxy',
+   *   address?: string, transactionHash?: string, detail?: string }} info
+   */
+  constructor(message, { reason, address, transactionHash, detail } = {}) {
+    super(message);
+    this.name = 'AccountCreationError';
+    this.reason = reason;
+    this.address = address;
+    this.transactionHash = transactionHash;
+    this.detail = detail;
+  }
+}
+
+/**
  * Thrown when a saved identity cannot be used or saved: the bytes in a storage slot cannot be
  * decrypted with this wallet's seed, are not identity data, or use an unknown format version
  * (reason 'unreadable-slot'); or a different identity is already saved where saveIdentity was asked
