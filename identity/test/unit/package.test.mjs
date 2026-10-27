@@ -87,3 +87,15 @@ test('the package supports the same Node.js versions as the wallet package', () 
   assert.equal(manifest.engines.node, walletManifest.engines.node,
     'keep engines.node in identity/package.json and the root package.json in line');
 });
+
+test('the Rust bindings are the exact version the SDK uses: one copy, upgraded together', () => {
+  // src/account/credential.js calls the SDK's own Rust bindings directly (getDeploymentDetails). If the SDK
+  // is upgraded without them, two different versions of Concordium's cryptography would be installed.
+  const lock = JSON.parse(readFileSync(new URL('package-lock.json', packageRoot), 'utf8')).packages;
+  const pinned = manifest.dependencies['@concordium/rust-bindings'];
+  assert.match(pinned, /^\d+\.\d+\.\d+$/, 'pinned to an exact version');
+  assert.equal(lock['node_modules/@concordium/rust-bindings'].version, pinned, 'the installed version is the pinned one');
+  assert.equal(lock['node_modules/@concordium/web-sdk/node_modules/@concordium/rust-bindings'], undefined,
+    `the SDK needs a different version (${lock['node_modules/@concordium/web-sdk'].dependencies['@concordium/rust-bindings']}): `
+    + 'update the pin in package.json to the one the SDK uses');
+});
