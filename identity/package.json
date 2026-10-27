@@ -36,7 +36,9 @@
     "test:integration": "node --test test/integration/*.test.mjs",
     "fixtures": "node test/fixtures/capture.mjs",
     "check:providers": "node scripts/check-providers.mjs",
-    "example:verify-identity": "node examples/verify-identity.mjs"
+    "example:verify-identity": "node examples/verify-identity.mjs",
+    "example:load-identity": "node examples/load-identity.mjs",
+    "example:database-store": "node examples/database-store.mjs"
   },
   "keywords": [
     "wdk",

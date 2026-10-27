@@ -18,3 +18,5 @@ identity-request.json
 .vscode
 .zprofile
 .zshrc
+# Identity demo runs (examples/verify-identity.mjs) save encrypted identities here
+demo-identities/
