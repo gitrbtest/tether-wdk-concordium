@@ -41,7 +41,7 @@ test('one identity reads the cryptographic parameters once, however often it nee
   const { fetch, requests } = walletProxyFetch('testnet');
   const identity = new ConcordiumIdentity(TEST_PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch });
   // The ownership check (used when collecting) needs them; it is much quicker than building a full request.
-  await identity._expectedIdCredPub(0, 0);
-  await identity._expectedIdCredPub(0, 1);
+  await identity._issuance.expectedIdCredPub(0, 0);
+  await identity._issuance.expectedIdCredPub(0, 1);
   assert.equal(requests.filter((url) => url.endsWith('/v0/global')).length, 1);
 });

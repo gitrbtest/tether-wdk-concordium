@@ -1,22 +1,27 @@
 import * as sdk from '@concordium/web-sdk';
 import { bytesToHex } from '@noble/hashes/utils';
 import { parseIdentityConfig } from './shared/config.js';
-import { IdentityIssuanceError, IdentityProviderError, AccountCreationError } from './shared/errors.js';
+import { requireIndex, toSeedBytes } from './shared/inputs.js';
+import HeldIdentities from './shared/HeldIdentities.js';
 import IdentityProviders from './providers/IdentityProviders.js';
-import IdentityVault from './storage/IdentityVault.js';
 import WalletProxy from './providers/WalletProxy.js';
+import IdentityIssuance from './issuance/IdentityIssuance.js';
+import { identityContent, summaryOf } from './issuance/identity-object.js';
+import IdentityVault from './storage/IdentityVault.js';
 import { deriveStorageKey } from './storage/storage-format.js';
-import { buildIdentityRequest, issuanceLink, expectedIdCredPub } from './issuance/identity-request.js';
-import { pollIdentityProvider, cancelledError, DEFAULT_TIMEOUT_MS, DEFAULT_INTERVAL_MS } from './issuance/identity-polling.js';
-import { parseIdentityCallback as readIdentityCallback } from './issuance/identity-callback.js';
-import { providerIdentityLabel, identityContent, summaryOf, hasExpired } from './issuance/identity-object.js';
-import { buildAccountCredential, accountAddressOf, ATTRIBUTE_NAMES } from './account/credential.js';
-import { submitAndWait, DEFAULT_ACCOUNT_TIMEOUT_MS, DEFAULT_ACCOUNT_INTERVAL_MS } from './account/submission.js';
-import { requireIndex, requirePositive, requireRedirectUri, httpUrlOrNull, toSeedBytes } from './shared/inputs.js';
+import AccountCreator, { readAccountOptions } from './account/AccountCreator.js';
 
 /**
- * A wallet's Concordium identity, derived from the wallet's own seed: requesting
- * an identity from a provider, without the Concordium ID App.
+ * A wallet's Concordium identity, derived from the wallet's own seed, without the Concordium ID App:
+ * request an identity from a provider, collect it, save it encrypted, and create accounts from it.
+ *
+ * This class is the public face. It owns the seed and hands each call to a helper:
+ *
+ *   ConcordiumIdentity   seed, dispose, the public methods
+ *     ├─ IdentityIssuance   request link, collect + ownership check        (issuance/)
+ *     ├─ HeldIdentities     the identities held in memory, as bytes        (shared/)
+ *     ├─ IdentityVault      save / load / delete, encrypted                 (storage/)
+ *     └─ AccountCreator     checks, "exists?", build, send + wait           (account/)
  */
 export default class ConcordiumIdentity {
   // ---- Creating and disposing ----
@@ -31,20 +36,20 @@ export default class ConcordiumIdentity {
    */
   constructor(seed, config, { fetch: fetchFn = (url, options) => fetch(url, options), store } = {}) {
     this._config = parseIdentityConfig(config); // validated before the seed is touched
-    // Saving identities: an IdentityVault on the given store. It asks for the key through _storageKey()
-    // and never sees the seed.
+    this._fetch = fetchFn;
+    const fetchVia = (url, options) => this._fetch(url, options);
+    const walletProxy = new WalletProxy(this._config, { fetch: fetchVia });
+    const providers = new IdentityProviders(this._config, { fetch: fetchVia });
+    const hdWallet = () => this._hdWallet; // the helpers never see the seed itself
+
+    this._held = new HeldIdentities();
+    this._issuance = new IdentityIssuance({ providers, walletProxy, fetch: fetchVia, hdWallet, held: this._held });
+    this._accounts = new AccountCreator({ providers, walletProxy, hdWallet });
+    // Saving identities: the vault asks for the key through _storageKey() and never sees the seed.
     this._vault = store === undefined ? undefined : new IdentityVault({
       store, derivationNetwork: this._config.derivationNetwork, storageKey: () => this._storageKey(),
     });
-    this._fetch = fetchFn;
-    this._walletProxy = new WalletProxy(this._config, { fetch: (url, options) => this._fetch(url, options) });
-    this._providers = new IdentityProviders(this._config, { fetch: (url, options) => this._fetch(url, options) });
     this._seed = toSeedBytes(seed);
-    // Issued identities collected by waitForIdentity, held as UTF-8 JSON bytes so dispose() can zero them.
-    this._identities = new Map();
-    // The provider and identity index of the last request started here, so the
-    // wallet can hand back just the callback address (see retrieveIdentity).
-    this._requestAwaitingIdentity = null;
   }
 
   /** True once dispose() has been called. */
@@ -52,13 +57,12 @@ export default class ConcordiumIdentity {
     return this._seed === undefined;
   }
 
-  /** Zero the seed and any collected identities, and drop them. Later calls that need the seed throw. A second call does nothing. */
+  /** Zero the seed and any identities held, and drop them. Later calls that need the seed throw. A second call does nothing. */
   dispose() {
     if (this._seed) this._seed.fill(0);
     this._seed = undefined;
-    for (const bytes of this._identities.values()) bytes.fill(0);
-    this._identities.clear();
-    this._requestAwaitingIdentity = null;
+    this._held.zeroAll();
+    this._issuance.dispose();
   }
 
   _requireNotDisposed() {
@@ -71,9 +75,10 @@ export default class ConcordiumIdentity {
     return sdk.ConcordiumHdWallet.fromHex(bytesToHex(this._seed), this._config.derivationNetwork);
   }
 
-  /** The network's cryptographic parameters, as published by the wallet-proxy (read once per object). */
-  _globalContext() {
-    return this._walletProxy.globalContext();
+  /** The encryption key for saved identities, from the seed. The vault zeroes it after each use. */
+  _storageKey() {
+    this._requireNotDisposed();
+    return deriveStorageKey(this._seed, this._config.derivationNetwork);
   }
 
   // ---- Starting verification ----
@@ -92,22 +97,9 @@ export default class ConcordiumIdentity {
    * @throws {IdentityProviderError} If the provider is not published, or publishes no issuance address.
    * @throws {Error} If the identity has been disposed.
    */
-  async createIdentityRequest({ providerIndex, identityIndex = 0, redirectUri } = {}) {
+  async createIdentityRequest(options) {
     this._requireNotDisposed();
-    requireIndex(providerIndex, 'providerIndex');
-    requireIndex(identityIndex, 'identityIndex');
-    requireRedirectUri(redirectUri);
-
-    const provider = await this._providers.get(providerIndex);
-    if (!provider.issuanceStart) {
-      throw new IdentityProviderError(
-        `Identity provider ${providerIndex} publishes no issuance address on this network.`, providerIndex);
-    }
-
-    const globalContext = await this._globalContext();
-    const idObjectRequest = buildIdentityRequest({ provider, globalContext, hdWallet: this._hdWallet, identityIndex });
-    this._requestAwaitingIdentity = { providerIndex, identityIndex };
-    return { issuanceUrl: issuanceLink(provider.issuanceStart, idObjectRequest, redirectUri), providerIndex, identityIndex };
+    return this._issuance.createRequest(options);
   }
 
   // ---- Collecting the issued identity ----
@@ -124,14 +116,7 @@ export default class ConcordiumIdentity {
    * @throws {Error} If the URL holds neither a code_uri nor a provider error.
    */
   parseIdentityCallback(callbackUrl) {
-    return readIdentityCallback(callbackUrl);
-  }
-
-  /** The idCredPub an identity for this seed, provider and identity index must carry. */
-  async _expectedIdCredPub(providerIndex, identityIndex) {
-    const provider = await this._providers.get(providerIndex);
-    const globalContext = await this._globalContext();
-    return expectedIdCredPub({ provider, globalContext, hdWallet: this._hdWallet, identityIndex });
+    return this._issuance.parseCallback(callbackUrl);
   }
 
   /**
@@ -154,76 +139,9 @@ export default class ConcordiumIdentity {
    * @returns {Promise<{ providerIndex: number, identityIndex: number, createdAt: string, validTo: string, maxAccounts: number }>}
    * @throws {IdentityIssuanceError} reason 'rejected', 'timeout' or 'cancelled'.
    */
-  async waitForIdentity(codeUri, options = {}) {
-    const { pollUrl, providerIndex, identityIndex, timeoutMs, intervalMs, signal } = this._checkWaitOptions(codeUri, options);
-    const expectedIdCredPub = await this._expectedIdCredPub(providerIndex, identityIndex);
-    const reply = await pollIdentityProvider({ fetch: this._fetch, url: pollUrl, timeoutMs, intervalMs, signal });
-    if (reply.status === 'error') {
-      this._finishRequest(providerIndex, identityIndex); // a rejected request can never succeed
-      throw new IdentityIssuanceError(
-        `The identity provider did not issue the identity${reply.detail ? `: ${reply.detail}` : '.'}`,
-        { reason: 'rejected', detail: reply.detail || undefined });
-    }
-    return this._checkAndKeepIdentity(reply.token?.identityObject, { providerIndex, identityIndex, expectedIdCredPub });
-  }
-
-  /** Check waitForIdentity's inputs before any network call; resolves which identity is being collected. */
-  _checkWaitOptions(codeUri, options) {
-    const { timeoutMs = DEFAULT_TIMEOUT_MS, intervalMs = DEFAULT_INTERVAL_MS, signal } = options;
+  async waitForIdentity(codeUri, options) {
     this._requireNotDisposed();
-    const pollUrl = httpUrlOrNull(codeUri);
-    if (!pollUrl) throw new Error('codeUri must be an absolute HTTP(S) URL.');
-    const { providerIndex, identityIndex } = this._identityToCollect(options);
-    requireIndex(providerIndex, 'providerIndex');
-    requireIndex(identityIndex, 'identityIndex');
-    requirePositive(timeoutMs, 'timeoutMs');
-    requirePositive(intervalMs, 'intervalMs');
-    if (signal?.aborted) throw cancelledError();
-    return { pollUrl, providerIndex, identityIndex, timeoutMs, intervalMs, signal };
-  }
-
-  /** The provider and identity index to collect for: as given, or those of the request awaiting its identity. */
-  _identityToCollect({ providerIndex, identityIndex } = {}) {
-    if (providerIndex !== undefined) return { providerIndex, identityIndex: identityIndex ?? 0 };
-    if (identityIndex === undefined && this._requestAwaitingIdentity) return { ...this._requestAwaitingIdentity };
-    throw new Error('No identity request was started on this object: pass providerIndex '
-      + '(and identityIndex, if not 0) to collect, e.g. when resuming after a restart.');
-  }
-
-  /** Check an issued identity is this wallet's, keep it as bytes, and return its summary. */
-  _checkAndKeepIdentity(identityObject, { providerIndex, identityIndex, expectedIdCredPub }) {
-    const content = identityContent(identityObject, 'The identity provider returned an identity in an unexpected format.');
-    if (content.preIdentityObject.idCredPub !== expectedIdCredPub) {
-      throw new Error(
-        `The issued identity does not belong to this wallet for provider ${providerIndex}, identity ${identityIndex}.`);
-    }
-    this._holdIdentity(providerIndex, identityIndex, identityObject);
-    this._finishRequest(providerIndex, identityIndex);
-    return summaryOf(content, providerIndex, identityIndex);
-  }
-
-  /** Keep an identity inside this object as UTF-8 JSON bytes (zeroing any it replaces), so dispose() can zero it. */
-  _holdIdentity(providerIndex, identityIndex, identityObject) {
-    const label = providerIdentityLabel(providerIndex, identityIndex);
-    this._identities.get(label)?.fill(0);
-    this._identities.set(label, new TextEncoder().encode(JSON.stringify(identityObject)));
-  }
-
-  /** The request for this provider and identity index has ended (issued, rejected or refused): it no longer awaits its identity. */
-  _finishRequest(providerIndex, identityIndex) {
-    const awaiting = this._requestAwaitingIdentity;
-    if (awaiting?.providerIndex === providerIndex && awaiting?.identityIndex === identityIndex) this._requestAwaitingIdentity = null;
-  }
-
-  /** As _finishRequest, for the request a call is about: the numbers given, or else the request awaiting its identity. */
-  _finishRequestFor(options) {
-    let request;
-    try {
-      request = this._identityToCollect(options);
-    } catch {
-      return; // no request to finish
-    }
-    this._finishRequest(request.providerIndex, request.identityIndex);
+    return this._issuance.waitForIdentity(codeUri, options);
   }
 
   /**
@@ -235,33 +153,12 @@ export default class ConcordiumIdentity {
    * @param {string} callbackUrl  the full URL the provider sent the browser to
    * @param {object} [options]  as for waitForIdentity: providerIndex, identityIndex, timeoutMs, intervalMs, signal
    */
-  async retrieveIdentity(callbackUrl, options = {}) {
-    let codeUri;
-    try {
-      ({ codeUri } = this.parseIdentityCallback(callbackUrl));
-    } catch (e) {
-      // The provider's error reply ends the request, as a rejection does.
-      if (e instanceof IdentityIssuanceError) this._finishRequestFor(options);
-      throw e;
-    }
-    return this.waitForIdentity(codeUri, options);
-  }
-
-  // ---- Saving identities (the vault does the storage; this object holds the identities) ----
-
-  _requireVault() {
-    if (!this._vault) {
-      throw new Error('No identity store is configured: pass { store } when creating ConcordiumIdentity, '
-        + 'e.g. new MemoryIdentityStore().');
-    }
-    return this._vault;
-  }
-
-  /** The encryption key for saved identities, from the seed. The vault zeroes it after each use. */
-  _storageKey() {
+  async retrieveIdentity(callbackUrl, options) {
     this._requireNotDisposed();
-    return deriveStorageKey(this._seed, this._config.derivationNetwork);
+    return this._issuance.retrieveIdentity(callbackUrl, options);
   }
+
+  // ---- Saving identities ----
 
   /**
    * Save the identity held for a provider and identity index, encrypted, in the configured store.
@@ -279,16 +176,10 @@ export default class ConcordiumIdentity {
    * @throws {IdentityStorageError} reason 'slot-in-use' or 'unreadable-slot', unless replace is true
    */
   async saveIdentity({ providerIndex, identityIndex, replace = false } = {}) {
-    this._requireNotDisposed();
-    const vault = this._requireVault();
+    const vault = this._ready();
     requireIndex(providerIndex, 'providerIndex');
     requireIndex(identityIndex, 'identityIndex');
-    const held = this._identities.get(providerIdentityLabel(providerIndex, identityIndex));
-    if (!held) {
-      throw new Error(`No identity is held for provider ${providerIndex}, identity ${identityIndex}: `
-        + 'collect it (retrieveIdentity) or load it (loadIdentity) first.');
-    }
-    const identityObject = JSON.parse(new TextDecoder().decode(held));
+    const identityObject = this._held.require(providerIndex, identityIndex);
     const slotName = await vault.save({ providerIndex, identityIndex, identityObject, replace });
     const content = identityContent(identityObject, 'The identity held is in an unexpected format.');
     return { ...summaryOf(content, providerIndex, identityIndex), slotName };
@@ -304,15 +195,14 @@ export default class ConcordiumIdentity {
    * @throws {IdentityStorageError} reason 'unreadable-slot' if the saved bytes cannot be decrypted
    */
   async loadIdentity({ providerIndex, identityIndex } = {}) {
-    this._requireNotDisposed();
-    const vault = this._requireVault();
+    const vault = this._ready();
     requireIndex(providerIndex, 'providerIndex');
     requireIndex(identityIndex, 'identityIndex');
     const identityObject = await vault.load({ providerIndex, identityIndex });
     if (identityObject === null) return null;
     const content = identityContent(identityObject,
       `The identity saved in ${vault.slotName(providerIndex, identityIndex)} is incomplete.`);
-    this._holdIdentity(providerIndex, identityIndex, identityObject);
+    this._held.hold(providerIndex, identityIndex, identityObject);
     return summaryOf(content, providerIndex, identityIndex);
   }
 
@@ -323,11 +213,20 @@ export default class ConcordiumIdentity {
    * @param {{ providerIndex: number, identityIndex: number }} options
    */
   async deleteIdentity({ providerIndex, identityIndex } = {}) {
-    this._requireNotDisposed();
-    const vault = this._requireVault();
+    const vault = this._ready();
     requireIndex(providerIndex, 'providerIndex');
     requireIndex(identityIndex, 'identityIndex');
     await vault.delete({ providerIndex, identityIndex });
+  }
+
+  /** Not disposed, and a store configured: the vault to save to and load from. */
+  _ready() {
+    this._requireNotDisposed();
+    if (!this._vault) {
+      throw new Error('No identity store is configured: pass { store } when creating ConcordiumIdentity, '
+        + 'e.g. new MemoryIdentityStore().');
+    }
+    return this._vault;
   }
 
   // ---- Creating accounts ----
@@ -358,81 +257,10 @@ export default class ConcordiumIdentity {
    *   sent); 'rejected', 'expired', 'timeout', 'cancelled' or 'wallet-proxy' (see AccountCreationError)
    * @throws {Error} If no identity is held for these numbers, an input is invalid, or the identity has been disposed.
    */
-  async createAccount({
-    providerIndex, identityIndex, credNumber = 0, revealAttributes = [],
-    timeoutMs = DEFAULT_ACCOUNT_TIMEOUT_MS, intervalMs = DEFAULT_ACCOUNT_INTERVAL_MS, signal,
-  } = {}) {
+  async createAccount(options) {
     this._requireNotDisposed();
-    requireIndex(providerIndex, 'providerIndex');
-    requireIndex(identityIndex, 'identityIndex');
-    requireIndex(credNumber, 'credNumber');
-    requirePositive(timeoutMs, 'timeoutMs');
-    requirePositive(intervalMs, 'intervalMs');
-    if (!Array.isArray(revealAttributes) || !revealAttributes.every((name) => typeof name === 'string')) {
-      throw new Error('revealAttributes must be an array of attribute names.');
-    }
-    const held = this._identities.get(providerIdentityLabel(providerIndex, identityIndex));
-    if (!held) {
-      throw new Error(`No identity is held for provider ${providerIndex}, identity ${identityIndex}: `
-        + 'collect it (retrieveIdentity) or load it (loadIdentity) first.');
-    }
-    const content = identityContent(JSON.parse(new TextDecoder().decode(held)), 'The identity held is in an unexpected format.');
-    this._checkAccountRequest(content, { credNumber, revealAttributes });
-
-    const provider = await this._providers.get(providerIndex);
-    const globalContext = await this._globalContext();
-    const hdWallet = this._hdWallet;
-    const address = accountAddressOf({ provider, globalContext, hdWallet, identityIndex, credNumber });
-    const result = { providerIndex, identityIndex, credNumber, address };
-
-    // Already on chain (e.g. created before a restart): return it, send nothing.
-    if (await this._accountExists(address, signal)) return { ...result, created: false };
-
-    const credential = await buildAccountCredential({
-      provider, globalContext, hdWallet, idObject: content, identityIndex, credNumber,
-      revealAttributes: [...new Set(revealAttributes)],
-      expiry: new Date(Date.now() + timeoutMs + ACCOUNT_CREDENTIAL_MARGIN_MS),
-    });
-    const { transactionHash, blockHash } = await submitAndWait({
-      walletProxy: this._walletProxy, credential, timeoutMs, intervalMs, signal,
-    });
-    return { ...result, created: true, transactionHash, blockHash };
-  }
-
-  /** The checks made before anything is sent: each gives its own reason. */
-  _checkAccountRequest(content, { credNumber, revealAttributes }) {
-    const { validTo, maxAccounts, chosenAttributes } = content.attributeList;
-    if (hasExpired(content)) {
-      throw new AccountCreationError(`The identity expired at the end of ${validTo.slice(0, 4)}-${validTo.slice(4)}: `
-        + 'verify again for a new identity to create accounts.', { reason: 'identity-expired' });
-    }
-    if (credNumber >= maxAccounts) {
-      throw new AccountCreationError(`This identity allows ${maxAccounts} accounts (credNumber 0 to ${maxAccounts - 1}); `
-        + `credNumber ${credNumber} is not one of them.`, { reason: 'max-accounts' });
-    }
-    const unknown = revealAttributes.find((name) => !ATTRIBUTE_NAMES.includes(name) || !(name in chosenAttributes));
-    if (unknown !== undefined) {
-      throw new AccountCreationError(`"${unknown}" is not an attribute this identity holds, so it cannot be revealed.`,
-        { reason: 'unknown-attribute', detail: unknown });
-    }
-  }
-
-  /** Whether the account exists on chain; a wallet-proxy failure is an AccountCreationError. */
-  async _accountExists(address, signal) {
-    try {
-      return await this._walletProxy.accountExists(address, { signal });
-    } catch (e) {
-      if (signal?.aborted) {
-        throw new AccountCreationError('Creating the account was cancelled before anything was sent.', { reason: 'cancelled', address });
-      }
-      throw new AccountCreationError(`The wallet-proxy could not say whether account ${address} exists: ${e.message}`,
-        { reason: 'wallet-proxy', address, detail: e.message });
-    }
+    const request = readAccountOptions(options);                                        // inputs checked, defaults filled in
+    const identityObject = this._held.require(request.providerIndex, request.identityIndex); // the identity it is for
+    return this._accounts.create(identityObject, request);                               // checks → exists? → build → send
   }
 }
-
-/**
- * The credential stays valid for the whole wait plus this margin, so it cannot expire while createAccount
- * is still waiting for it.
- */
-const ACCOUNT_CREDENTIAL_MARGIN_MS = 2 * 60 * 1000;

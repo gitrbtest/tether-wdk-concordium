@@ -48,7 +48,7 @@ test('polls until the identity is issued, keeps it inside, and returns only a su
 
   assert.deepEqual(summary, { ...ISSUED_FOR, createdAt: '202609', validTo: '202709', maxAccounts: 200 });
   assert.equal(pollRequests.length, 3);
-  const held = identity._identities.get(`${ISSUED_FOR.providerIndex}/${ISSUED_FOR.identityIndex}`);
+  const held = identity._held._bytes.get(`${ISSUED_FOR.providerIndex}/${ISSUED_FOR.identityIndex}`);
   assert.ok(held instanceof Uint8Array, 'held as bytes');
   assert.deepEqual(JSON.parse(new TextDecoder().decode(held)), issuedReply().token.identityObject);
   assert.doesNotMatch(JSON.stringify(summary), /John|Doe|19700101/, 'the summary carries no personal data');
@@ -65,7 +65,7 @@ test('an identity issued for a different seed, provider or identity index is ref
   const { identity } = identityWithProviderReplies([issuedReply()]);
   await assert.rejects(() => identity.waitForIdentity(CODE_URI, { providerIndex: 0, identityIndex: 7, ...FAST }),
     /does not belong to this wallet for provider 0, identity 7/);
-  assert.equal(identity._identities.size, 0);
+  assert.equal(identity._held.size, 0);
 });
 
 test('a rejection by the provider becomes IdentityIssuanceError (rejected) with its detail', async () => {
@@ -143,10 +143,10 @@ test("retrieveIdentity reports a provider's error reply without polling", async 
 test('dispose zeroes the identities held inside, and a disposed identity cannot wait', async () => {
   const { identity } = identityWithProviderReplies([issuedReply()]);
   await identity.waitForIdentity(CODE_URI, { ...ISSUED_FOR, ...FAST });
-  const held = identity._identities.get(`${ISSUED_FOR.providerIndex}/${ISSUED_FOR.identityIndex}`);
+  const held = identity._held._bytes.get(`${ISSUED_FOR.providerIndex}/${ISSUED_FOR.identityIndex}`);
   identity.dispose();
   assert.ok(held.every((byte) => byte === 0));
-  assert.equal(identity._identities.size, 0);
+  assert.equal(identity._held.size, 0);
   await assert.rejects(() => identity.waitForIdentity(CODE_URI, ISSUED_FOR), /This identity has been disposed/);
 });
 
@@ -156,7 +156,7 @@ test('after createIdentityRequest, the callback address is all retrieveIdentity 
   const callback = `http://localhost:4000/callback#code_uri=${encodeURIComponent(CODE_URI)}`;
   const summary = await identity.retrieveIdentity(callback, FAST);
   assert.deepEqual({ providerIndex: summary.providerIndex, identityIndex: summary.identityIndex }, ISSUED_FOR);
-  assert.equal(identity._requestAwaitingIdentity, null, 'the request no longer awaits its identity');
+  assert.equal(identity._issuance.requestAwaitingIdentity, null, 'the request no longer awaits its identity');
 });
 
 test('without a request started on the object, the numbers must be given', async () => {
@@ -172,7 +172,7 @@ test('after a rejection, the request no longer awaits its identity', async () =>
   const callback = `http://localhost:4000/callback#code_uri=${encodeURIComponent(CODE_URI)}`;
   await assert.rejects(() => identity.retrieveIdentity(callback, FAST),
     (e) => e instanceof IdentityIssuanceError && e.reason === 'rejected' && e.detail === 'Identity object has failed');
-  assert.equal(identity._requestAwaitingIdentity, null);
+  assert.equal(identity._issuance.requestAwaitingIdentity, null);
   await assert.rejects(() => identity.retrieveIdentity(callback, FAST), /No identity request was started on this object/);
 });
 
@@ -182,7 +182,7 @@ test("after the provider's error reply, the request no longer awaits its identit
   // as the testnet provider replies to a request whose proofs do not verify
   await assert.rejects(() => identity.retrieveIdentity('http://localhost:4000/callback#error=Invalid%20proofs', FAST),
     (e) => e instanceof IdentityIssuanceError && e.reason === 'provider-error' && e.detail === 'Invalid proofs');
-  assert.equal(identity._requestAwaitingIdentity, null);
+  assert.equal(identity._issuance.requestAwaitingIdentity, null);
   assert.equal(pollRequests.length, 0);
 });
 
@@ -191,7 +191,7 @@ test("an error reply for other numbers leaves the request awaiting its identity"
   await identity.createIdentityRequest({ providerIndex: 0, identityIndex: 7, redirectUri: 'http://localhost:4000/callback' });
   await assert.rejects(() => identity.retrieveIdentity('http://localhost:4000/callback#error=Invalid%20proofs',
     { providerIndex: 0, identityIndex: 8 }), /Invalid proofs/);
-  assert.deepEqual(identity._requestAwaitingIdentity, { providerIndex: 0, identityIndex: 7 });
+  assert.deepEqual(identity._issuance.requestAwaitingIdentity, { providerIndex: 0, identityIndex: 7 });
 });
 
 test('numbers given explicitly take precedence over the request awaiting its identity', async () => {

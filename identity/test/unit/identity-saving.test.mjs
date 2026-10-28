@@ -79,7 +79,7 @@ test('saved in one object, loaded in a new one with the same seed and store (an 
 
   const restarted = newIdentity({ store });
   assert.deepEqual(await restarted.loadIdentity(ISSUED_FOR), SUMMARY);
-  assert.ok(restarted._identities.has('0/334563111'), 'held inside again, ready for account creation');
+  assert.ok(restarted._held.has(0, 334563111), 'held inside again, ready for account creation');
   assert.deepEqual(await restarted.saveIdentity(ISSUED_FOR), { ...SUMMARY, slotName: SLOT }, 'and can be saved again');
 });
 
@@ -101,7 +101,7 @@ test('nothing saved: load gives null; delete removes the saved copy but keeps th
   await identity.deleteIdentity(ISSUED_FOR);
   assert.equal(await store.read(SLOT), null);
   assert.equal(await identity.loadIdentity(ISSUED_FOR), null);
-  assert.ok(identity._identities.has('0/334563111'), 'still held: dispose() clears what is held');
+  assert.ok(identity._held.has(0, 334563111), 'still held: dispose() clears what is held');
   await identity.deleteIdentity(ISSUED_FOR); // nothing saved: not an error
 });
 
@@ -119,7 +119,7 @@ test('a different identity already saved is not replaced unless replace: true, a
   const older = newIdentity({ store });
   const olderObject = issuedReply().token.identityObject;
   olderObject.value.attributeList.validTo = '202609'; // e.g. an earlier identity for the same slot
-  older._holdIdentity(0, 334563111, olderObject);
+  older._held.hold(0, 334563111, olderObject);
   await older.saveIdentity(ISSUED_FOR);
   const olderBytes = await store.read(SLOT);
 
@@ -135,7 +135,7 @@ test('a different identity already saved is not replaced unless replace: true, a
 test('bytes that cannot be decrypted (another seed, damaged) are not overwritten unless replace: true', async () => {
   const store = new MemoryIdentityStore();
   const otherSeed = newIdentity({ store, phrase: OTHER_PHRASE });
-  otherSeed._holdIdentity(0, 334563111, issuedReply().token.identityObject);
+  otherSeed._held.hold(0, 334563111, issuedReply().token.identityObject);
   await otherSeed.saveIdentity(ISSUED_FOR);
   const theirs = await store.read(SLOT);
 
@@ -166,7 +166,7 @@ test('a disposed identity refuses to save, load or delete; dispose zeroes a load
   await (await collected(store)).saveIdentity(ISSUED_FOR);
   const identity = newIdentity({ store });
   await identity.loadIdentity(ISSUED_FOR);
-  const held = identity._identities.get('0/334563111');
+  const held = identity._held._bytes.get('0/334563111');
   identity.dispose();
   assert.ok(held.every((byte) => byte === 0), 'the loaded identity is zeroed');
   for (const call of [() => identity.saveIdentity(ISSUED_FOR), () => identity.loadIdentity(ISSUED_FOR), () => identity.deleteIdentity(ISSUED_FOR)]) {
