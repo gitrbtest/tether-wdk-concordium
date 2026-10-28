@@ -16,7 +16,7 @@ like any other account.
 > **Status: in development.** The package is not published yet, and its API
 > may change until the first release. Available today: listing identity
 > providers, starting identity verification, collecting the issued identity,
-> and saving it encrypted. Account creation is planned.
+> saving it encrypted, and creating accounts from it (tested on testnet).
 
 ## Requirements
 
@@ -124,15 +124,27 @@ address where the browser arrives: an app's own scheme, a script on the
 return page (`location.href`), or, on a desktop or server, the optional
 built-in listener below.
 
-**Resuming after a restart.** Verification can take a while. To survive an app
-restart, read the reply first and save the `code_uri` with the provider and
-identity index, then wait in a new object:
+**Resuming after a restart.** Verification can take a while, and the app may be
+closed while it waits. The provider sends its reply only once, in the address the
+browser arrives at, and a new `ConcordiumIdentity` after a restart does not know
+which request it was. So use the two steps instead of `retrieveIdentity`: read the
+reply first and save the `code_uri` with the provider and identity index; after a
+restart, continue in a new object from the same seed:
 
 ```js
-const { codeUri } = identity.parseIdentityCallback(callbackUrl); // no network call
-// … save codeUri, providerIndex and identityIndex; after a restart:
-const summary = await identity.waitForIdentity(codeUri, { providerIndex: 0, identityIndex: 0 });
+// Before: read the reply and save what is needed to continue (no network call)
+const { codeUri } = identity.parseIdentityCallback(callbackUrl);
+await appStorage.set('pendingIdentity', { codeUri, providerIndex: 0, identityIndex: 0 });
+
+// After a restart: a new object from the same seed, told which request it is continuing
+const pending = await appStorage.get('pendingIdentity');
+const resumed = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { store });
+const summary = await resumed.waitForIdentity(pending.codeUri,
+  { providerIndex: pending.providerIndex, identityIndex: pending.identityIndex });
 ```
+
+(`appStorage` stands for wherever the app keeps its own small settings.) Without this,
+an app closed during the wait loses the reply, and the user has to verify again.
 
 Options for both `retrieveIdentity` and `waitForIdentity`:
 
@@ -260,6 +272,66 @@ only holds slot names and encrypted bytes: `npm run example:database-store`
 
 The exact format (key derivation, encryption, byte layout, a test vector) and the threat model are in
 [`docs/storage-format.md`](docs/storage-format.md).
+
+## Creating accounts
+
+Once an identity is held (collected, or loaded from the store), `createAccount` creates an account on
+chain from it, with no ID App. It returns once the account is final, so the address always exists.
+
+```js
+import { ConcordiumIdentity, AccountCreationError, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
+import WalletManagerConcordium, { CONCORDIUM_TESTNET_CONFIG } from '@concordium/wdk-wallet-concordium';
+
+const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { store });
+await identity.loadIdentity({ providerIndex: 0, identityIndex: 0 });   // or collected just now
+
+const { address, path, created } = await identity.createAccount({ providerIndex: 0, identityIndex: 0 });
+// address: the new account; path: '0/0/0'; created: false if it already existed
+
+// Use it like any other account, through the wallet package:
+const wallet = new WalletManagerConcordium(seedPhrase, CONCORDIUM_TESTNET_CONFIG);
+const account = await wallet.getAccountByPath(path);
+```
+
+- **Several accounts per identity:** `credNumber` 0, 1, 2… (default 0), below the identity's
+  `maxAccounts` (200 on testnet). They are the same numbers as the wallet package's paths
+  (`provider/identity/credNumber`), and `path` in the result is exactly what `getAccountByPath` takes.
+- **Nothing about the person is revealed** on the account by default. To show attributes publicly, name
+  them: `revealAttributes: ['countryOfResidence']`. Revealed values are public on chain.
+- **Already exists:** if the account is already on chain (for example, created before an app restart), it
+  is returned with `created: false` and nothing is sent. So calling again after a timeout or a crash is safe.
+- **No fee:** creating an account is free on Concordium; the new account starts with a balance of 0.
+
+What is sent is the account's *credential*: its public key, the identity provider's number, the identity's
+dates, commitments to the attributes and zero-knowledge proofs that a verified identity stands behind it.
+The identity itself and the person's details are not sent. It goes through the configured wallet-proxy
+(`/v0/submitCredential`), which passes it to the chain; no node connection is needed.
+
+### When it fails
+
+`AccountCreationError` with a `reason`:
+
+| `reason` | Meaning | Sent? |
+|---|---|---|
+| `identity-expired` | the identity's `validTo` month has passed: the user verifies again for a new identity | no |
+| `max-accounts` | `credNumber` is not below the identity's `maxAccounts` | no |
+| `unknown-attribute` | an attribute to reveal is not one the identity holds (`detail` names it) | no |
+| `rejected` | the chain refused the credential (`detail` has its reason, if it gave one) | yes |
+| `expired` | the credential was not included on chain before its expiry time | yes |
+| `timeout` | still not final after `timeoutMs` (default 5 minutes); it may still be created: call again | yes |
+| `cancelled` | the wait was cancelled through `signal`; if already sent, it may still be created | maybe |
+| `wallet-proxy` | the wallet-proxy failed or answered unexpectedly (`detail` has what it said) | maybe |
+
+`address` (and `transactionHash`, once built) are on the error when known. For `timeout`, `cancelled` and
+`wallet-proxy`, calling `createAccount` again is the way to find out: it returns the account if it was
+created, and otherwise tries again.
+
+### Keys
+
+The account's keys come from the wallet's seed, as for the identity request; the seed itself is never handed
+to Concordium's SDK. The SDK takes the derived keys as hex text, which JavaScript cannot wipe; the signing
+key is held as bytes and zeroed straight after use, and short-lived text copies of the other keys exist until
+garbage collection, as noted in the [storage threat model](docs/storage-format.md#threat-model).
 
 ## Optional: built-in callback listener (Node.js desktop and server wallets)
 

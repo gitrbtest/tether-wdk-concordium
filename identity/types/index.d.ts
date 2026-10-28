@@ -64,6 +64,31 @@ export class IdentityStorageError extends Error {
 }
 
 /**
+ * Thrown when an account is not created from an identity. The first three reasons are found before
+ * anything is sent; the others while sending the credential and waiting for the account.
+ */
+export class AccountCreationError extends Error {
+  /**
+   * identity-expired: the identity's validTo month has passed (verify again for a new identity).
+   * max-accounts: credNumber is not below the identity's maxAccounts.
+   * unknown-attribute: an attribute to reveal is not one the identity holds (`detail` names it).
+   * rejected: the chain refused the credential (`detail` has its reason, if it gave one).
+   * expired: the credential was not included on chain before its expiry time.
+   * timeout: the wait ended before the account was final; it may still be created (call createAccount again).
+   * cancelled: the wait was cancelled; if the credential was already sent, the account may still be created.
+   * wallet-proxy: the wallet-proxy failed or answered unexpectedly (`detail` has what it said).
+   */
+  reason: 'identity-expired' | 'max-accounts' | 'unknown-attribute'
+    | 'rejected' | 'expired' | 'timeout' | 'cancelled' | 'wallet-proxy';
+  /** The account concerned, when known. */
+  address?: string;
+  /** The credential's transaction hash, once built. */
+  transactionHash?: string;
+  /** More about the reason, e.g. the chain's or the wallet-proxy's words, or the unknown attribute's name. */
+  detail?: string;
+}
+
+/**
  * Where encrypted identities are kept: any object with these three methods (a phone's storage,
  * a backend, a database…). It only ever receives encrypted bytes and a slot name such as
  * 'concordium-identity/testnet/0/0', never the identity itself.
@@ -156,6 +181,41 @@ export interface SavedIdentitySummary extends IdentitySummary {
   slotName: string;
 }
 
+/** Options for creating an account from a held identity. */
+export interface CreateAccountOptions extends IdentitySlot {
+  /** Which account under this identity: 0, 1, 2… below the identity's maxAccounts. Defaults to 0. */
+  credNumber?: number;
+  /**
+   * Attribute names to show publicly on the account, e.g. ['countryOfResidence']. Defaults to none:
+   * nothing about the person is revealed. Revealed values are public on chain.
+   */
+  revealAttributes?: string[];
+  /** Stop waiting after this many milliseconds; the account may still be created. Defaults to 5 minutes. */
+  timeoutMs?: number;
+  /** Milliseconds between status checks. Defaults to 2000. */
+  intervalMs?: number;
+  /** Cancels the wait. */
+  signal?: AbortSignal;
+}
+
+/** An account created (or found existing) for an identity. */
+export interface CreatedAccount extends IdentitySlot {
+  credNumber: number;
+  /**
+   * 'provider/identity/credNumber', e.g. '0/0/0': what @concordium/wdk-wallet-concordium's
+   * getAccountByPath takes, to use the account.
+   */
+  path: string;
+  /** The account address. It exists on chain. */
+  address: string;
+  /** false if the account already existed: then nothing was sent and there is no transaction. */
+  created: boolean;
+  /** The transaction that created the account (when created). */
+  transactionHash?: string;
+  /** The finalized block it is in (when created). */
+  blockHash?: string;
+}
+
 /** A wallet's Concordium identity, derived from the wallet's own seed. */
 export class ConcordiumIdentity {
   /**
@@ -206,6 +266,14 @@ export class ConcordiumIdentity {
   loadIdentity(slot: IdentitySlot): Promise<IdentitySummary | null>;
   /** Delete the saved identity from the configured store. An identity held in this object is kept. */
   deleteIdentity(slot: IdentitySlot): Promise<void>;
+  /**
+   * Create an account on chain from the identity held for a provider and identity index (collected, or
+   * loaded with loadIdentity), with no ID App. Returns once the account is final, so the address exists.
+   * An account that already exists is returned with created: false, and nothing is sent.
+   * @throws {AccountCreationError} See its reasons.
+   * @throws {Error} If no identity is held for the slot, an option is invalid, or the identity has been disposed.
+   */
+  createAccount(options: CreateAccountOptions): Promise<CreatedAccount>;
   /** True once dispose() has been called. */
   get disposed(): boolean;
   /** Zero the seed and any collected identities, and drop them; later calls that need the seed throw. */
