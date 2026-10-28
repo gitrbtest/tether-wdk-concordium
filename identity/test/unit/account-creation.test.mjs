@@ -64,9 +64,11 @@ test('an account is created from the held identity: sent, final, and its address
   const account = await create(identity);
   assert.equal(account.address, ACCOUNT_0);
   assert.deepEqual({ ...account, transactionHash: undefined }, {
-    ...ISSUED_FOR, credNumber: 0, address: ACCOUNT_0, created: true, transactionHash: undefined, blockHash: 'b1',
+    ...ISSUED_FOR, credNumber: 0, path: '0/334563111/0', address: ACCOUNT_0, created: true, transactionHash: undefined, blockHash: 'b1',
   });
   assert.match(account.transactionHash, /^[0-9a-f]{64}$/);
+  // the form the wallet package's getAccountByPath accepts (its own check, copied): "provider/identity/cred"
+  assert.match(account.path, /^(0|[1-9]\d*)\/(0|[1-9]\d*)\/(0|[1-9]\d*)$/);
   const [{ body }] = sent();
   assert.equal(body.value.credential.type, 'normal');
   assert.deepEqual(body.value.credential.contents.policy.revealedAttributes, {}, 'nothing revealed by default');
@@ -74,7 +76,7 @@ test('an account is created from the held identity: sent, final, and its address
 
 test('an account that already exists is returned, and nothing is sent', async () => {
   const { identity, sent } = await identityHolding({ exists: true });
-  assert.deepEqual(await create(identity), { ...ISSUED_FOR, credNumber: 0, address: ACCOUNT_0, created: false });
+  assert.deepEqual(await create(identity), { ...ISSUED_FOR, credNumber: 0, path: '0/334563111/0', address: ACCOUNT_0, created: false });
   assert.equal(sent().length, 0);
 });
 
@@ -82,6 +84,7 @@ test('several accounts under one identity: each account number has its own addre
   const { identity } = await identityHolding();
   const second = await create(identity, { credNumber: 1 });
   assert.equal(second.credNumber, 1);
+  assert.equal(second.path, '0/334563111/1', "the path the wallet package's getAccountByPath takes");
   assert.notEqual(second.address, ACCOUNT_0);
 });
 

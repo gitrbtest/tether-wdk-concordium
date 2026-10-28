@@ -67,7 +67,8 @@ export default class AccountCreator {
     const globalContext = await this.#walletProxy.globalContext();
     const hdWallet = this.#hdWallet();
     const address = accountAddressOf({ provider, globalContext, hdWallet, identityIndex, credNumber });
-    const result = { providerIndex, identityIndex, credNumber, address };
+    // path: how the wallet package asks for this account, getAccountByPath('provider/identity/credNumber').
+    const result = { providerIndex, identityIndex, credNumber, path: `${providerIndex}/${identityIndex}/${credNumber}`, address };
 
     // Already on chain (e.g. created before a restart): return it, send nothing.
     if (await this.#exists(address, signal)) return { ...result, created: false };

@@ -237,7 +237,8 @@ export default class ConcordiumIdentity {
    * the address always exists.
    *
    * An identity can have several accounts: credNumber 0, 1, 2… (below the identity's maxAccounts), the
-   * same numbers as the wallet package's paths ("provider/identity/credNumber"). If that account already
+   * same numbers as the wallet package's paths. The result's `path` (e.g. '0/0/1') is what the wallet package's
+   * getAccountByPath takes, to use the new account (balance, transfers). If that account already
    * exists (e.g. created before an app restart), it is returned with created: false and nothing is sent.
    *
    * Nothing about the person is revealed on the account unless named in revealAttributes (e.g.
@@ -251,7 +252,7 @@ export default class ConcordiumIdentity {
    * @param {number} [options.timeoutMs=300000]  stop waiting after this long (default 5 minutes); the account may still be created
    * @param {number} [options.intervalMs=2000]  wait this long between status checks
    * @param {AbortSignal} [options.signal]  cancels the wait
-   * @returns {Promise<{ providerIndex: number, identityIndex: number, credNumber: number, address: string,
+   * @returns {Promise<{ providerIndex: number, identityIndex: number, credNumber: number, path: string, address: string,
    *   created: boolean, transactionHash?: string, blockHash?: string }>}
    * @throws {AccountCreationError} reason 'identity-expired', 'max-accounts' or 'unknown-attribute' (nothing
    *   sent); 'rejected', 'expired', 'timeout', 'cancelled' or 'wallet-proxy' (see AccountCreationError)
