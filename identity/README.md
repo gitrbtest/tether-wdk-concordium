@@ -383,6 +383,7 @@ cd identity
 npm ci
 npm test                  # unit tests, offline
 npm run test:integration  # live: the testnet identity provider accepts our request
+WRITE=1 npm run test:integration   # also creates a real account on testnet (free, but permanent; see below)
 npm run check:providers   # live: report on every provider, testnet and mainnet
 npm run fixtures          # re-capture the recorded wallet-proxy data used by the tests
 ```
@@ -398,6 +399,11 @@ an error. It stops there: nothing is filled in and no identity is issued. Each
 request comes from a fresh random seed that is never stored. A provider error
 is reported, not treated as a failure; the integration test, by contrast, fails
 if the Concordium testnet provider does not accept the request.
+
+The `WRITE=1` live test creates accounts under the public "abandon" test phrase's recorded identity
+(provider 0, identity index 334563111), using account numbers 100–199, which are reserved for it: each run
+creates the first unused one, so the test's accounts are easy to recognise. When all are used, it fails and
+says so. Concordium's CI never runs it.
 
 ## License
 
