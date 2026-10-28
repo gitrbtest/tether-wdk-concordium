@@ -302,6 +302,11 @@ const account = await wallet.getAccountByPath(path);
   is returned with `created: false` and nothing is sent. So calling again after a timeout or a crash is safe.
 - **No fee:** creating an account is free on Concordium; the new account starts with a balance of 0.
 
+A runnable example on testnet, using an identity saved by `npm run example:verify-identity`:
+`npm run example:create-account` (`examples/create-account.mjs`; `IDENTITY_INDEX` and `CRED_NUMBER` choose the
+identity and the account). It prints the address, the `path`, and a link to the account on CCDScan,
+Concordium's testnet explorer.
+
 What is sent is the account's *credential*: its public key, the identity provider's number, the identity's
 dates, commitments to the attributes and zero-knowledge proofs that a verified identity stands behind it.
 The identity itself and the person's details are not sent. It goes through the configured wallet-proxy

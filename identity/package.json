@@ -38,7 +38,8 @@
     "check:providers": "node scripts/check-providers.mjs",
     "example:verify-identity": "node examples/verify-identity.mjs",
     "example:load-identity": "node examples/load-identity.mjs",
-    "example:database-store": "node examples/database-store.mjs"
+    "example:database-store": "node examples/database-store.mjs",
+    "example:create-account": "node examples/create-account.mjs"
   },
   "keywords": [
     "wdk",
