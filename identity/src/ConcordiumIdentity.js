@@ -1,7 +1,7 @@
 import * as sdk from '@concordium/web-sdk';
 import { bytesToHex } from '@noble/hashes/utils';
 import { parseIdentityConfig } from './shared/config.js';
-import { IdentityIssuanceError, IdentityProviderError } from './shared/errors.js';
+import { IdentityIssuanceError, IdentityProviderError, AccountCreationError } from './shared/errors.js';
 import IdentityProviders from './providers/IdentityProviders.js';
 import IdentityVault from './storage/IdentityVault.js';
 import WalletProxy from './providers/WalletProxy.js';
@@ -9,7 +9,9 @@ import { deriveStorageKey } from './storage/storage-format.js';
 import { buildIdentityRequest, issuanceLink, expectedIdCredPub } from './issuance/identity-request.js';
 import { pollIdentityProvider, cancelledError, DEFAULT_TIMEOUT_MS, DEFAULT_INTERVAL_MS } from './issuance/identity-polling.js';
 import { parseIdentityCallback as readIdentityCallback } from './issuance/identity-callback.js';
-import { providerIdentityLabel, identityContent, summaryOf } from './issuance/identity-object.js';
+import { providerIdentityLabel, identityContent, summaryOf, hasExpired } from './issuance/identity-object.js';
+import { buildAccountCredential, accountAddressOf, ATTRIBUTE_NAMES } from './account/credential.js';
+import { submitAndWait, DEFAULT_ACCOUNT_TIMEOUT_MS, DEFAULT_ACCOUNT_INTERVAL_MS } from './account/submission.js';
 import { requireIndex, requirePositive, requireRedirectUri, httpUrlOrNull, toSeedBytes } from './shared/inputs.js';
 
 /**
@@ -327,4 +329,110 @@ export default class ConcordiumIdentity {
     requireIndex(identityIndex, 'identityIndex');
     await vault.delete({ providerIndex, identityIndex });
   }
+
+  // ---- Creating accounts ----
+
+  /**
+   * Create an account on chain from the identity held for a provider and identity index (collected, or
+   * loaded with loadIdentity), with no ID App involved. Returns once the account is final on chain, so
+   * the address always exists.
+   *
+   * An identity can have several accounts: credNumber 0, 1, 2… (below the identity's maxAccounts), the
+   * same numbers as the wallet package's paths ("provider/identity/credNumber"). If that account already
+   * exists (e.g. created before an app restart), it is returned with created: false and nothing is sent.
+   *
+   * Nothing about the person is revealed on the account unless named in revealAttributes (e.g.
+   * ['countryOfResidence']): those values become public on chain.
+   *
+   * @param {object} options
+   * @param {number} options.providerIndex
+   * @param {number} options.identityIndex
+   * @param {number} [options.credNumber=0]  which account under this identity
+   * @param {string[]} [options.revealAttributes=[]]  attribute names to show publicly on the account
+   * @param {number} [options.timeoutMs=300000]  stop waiting after this long (default 5 minutes); the account may still be created
+   * @param {number} [options.intervalMs=2000]  wait this long between status checks
+   * @param {AbortSignal} [options.signal]  cancels the wait
+   * @returns {Promise<{ providerIndex: number, identityIndex: number, credNumber: number, address: string,
+   *   created: boolean, transactionHash?: string, blockHash?: string }>}
+   * @throws {AccountCreationError} reason 'identity-expired', 'max-accounts' or 'unknown-attribute' (nothing
+   *   sent); 'rejected', 'expired', 'timeout', 'cancelled' or 'wallet-proxy' (see AccountCreationError)
+   * @throws {Error} If no identity is held for these numbers, an input is invalid, or the identity has been disposed.
+   */
+  async createAccount({
+    providerIndex, identityIndex, credNumber = 0, revealAttributes = [],
+    timeoutMs = DEFAULT_ACCOUNT_TIMEOUT_MS, intervalMs = DEFAULT_ACCOUNT_INTERVAL_MS, signal,
+  } = {}) {
+    this._requireNotDisposed();
+    requireIndex(providerIndex, 'providerIndex');
+    requireIndex(identityIndex, 'identityIndex');
+    requireIndex(credNumber, 'credNumber');
+    requirePositive(timeoutMs, 'timeoutMs');
+    requirePositive(intervalMs, 'intervalMs');
+    if (!Array.isArray(revealAttributes) || !revealAttributes.every((name) => typeof name === 'string')) {
+      throw new Error('revealAttributes must be an array of attribute names.');
+    }
+    const held = this._identities.get(providerIdentityLabel(providerIndex, identityIndex));
+    if (!held) {
+      throw new Error(`No identity is held for provider ${providerIndex}, identity ${identityIndex}: `
+        + 'collect it (retrieveIdentity) or load it (loadIdentity) first.');
+    }
+    const content = identityContent(JSON.parse(new TextDecoder().decode(held)), 'The identity held is in an unexpected format.');
+    this._checkAccountRequest(content, { credNumber, revealAttributes });
+
+    const provider = await this._providers.get(providerIndex);
+    const globalContext = await this._globalContext();
+    const hdWallet = this._hdWallet;
+    const address = accountAddressOf({ provider, globalContext, hdWallet, identityIndex, credNumber });
+    const result = { providerIndex, identityIndex, credNumber, address };
+
+    // Already on chain (e.g. created before a restart): return it, send nothing.
+    if (await this._accountExists(address, signal)) return { ...result, created: false };
+
+    const credential = await buildAccountCredential({
+      provider, globalContext, hdWallet, idObject: content, identityIndex, credNumber,
+      revealAttributes: [...new Set(revealAttributes)],
+      expiry: new Date(Date.now() + timeoutMs + ACCOUNT_CREDENTIAL_MARGIN_MS),
+    });
+    const { transactionHash, blockHash } = await submitAndWait({
+      walletProxy: this._walletProxy, credential, timeoutMs, intervalMs, signal,
+    });
+    return { ...result, created: true, transactionHash, blockHash };
+  }
+
+  /** The checks made before anything is sent: each gives its own reason. */
+  _checkAccountRequest(content, { credNumber, revealAttributes }) {
+    const { validTo, maxAccounts, chosenAttributes } = content.attributeList;
+    if (hasExpired(content)) {
+      throw new AccountCreationError(`The identity expired at the end of ${validTo.slice(0, 4)}-${validTo.slice(4)}: `
+        + 'verify again for a new identity to create accounts.', { reason: 'identity-expired' });
+    }
+    if (credNumber >= maxAccounts) {
+      throw new AccountCreationError(`This identity allows ${maxAccounts} accounts (credNumber 0 to ${maxAccounts - 1}); `
+        + `credNumber ${credNumber} is not one of them.`, { reason: 'max-accounts' });
+    }
+    const unknown = revealAttributes.find((name) => !ATTRIBUTE_NAMES.includes(name) || !(name in chosenAttributes));
+    if (unknown !== undefined) {
+      throw new AccountCreationError(`"${unknown}" is not an attribute this identity holds, so it cannot be revealed.`,
+        { reason: 'unknown-attribute', detail: unknown });
+    }
+  }
+
+  /** Whether the account exists on chain; a wallet-proxy failure is an AccountCreationError. */
+  async _accountExists(address, signal) {
+    try {
+      return await this._walletProxy.accountExists(address, { signal });
+    } catch (e) {
+      if (signal?.aborted) {
+        throw new AccountCreationError('Creating the account was cancelled before anything was sent.', { reason: 'cancelled', address });
+      }
+      throw new AccountCreationError(`The wallet-proxy could not say whether account ${address} exists: ${e.message}`,
+        { reason: 'wallet-proxy', address, detail: e.message });
+    }
+  }
 }
+
+/**
+ * The credential stays valid for the whole wait plus this margin, so it cannot expire while createAccount
+ * is still waiting for it.
+ */
+const ACCOUNT_CREDENTIAL_MARGIN_MS = 2 * 60 * 1000;

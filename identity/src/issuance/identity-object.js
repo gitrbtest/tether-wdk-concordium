@@ -16,6 +16,15 @@ export function identityContent(identityObject, problem) {
   return content;
 }
 
+/**
+ * Whether an identity has expired. `validTo` is a year and month ("202709"): the identity is valid until
+ * the end of that month (UTC).
+ */
+export function hasExpired(content, now = new Date()) {
+  const thisMonth = now.getUTCFullYear() * 100 + now.getUTCMonth() + 1;
+  return thisMonth > Number(content.attributeList.validTo);
+}
+
 /** The summary a wallet gets about an identity: no personal data. */
 export function summaryOf(content, providerIndex, identityIndex) {
   const { createdAt, validTo, maxAccounts } = content.attributeList;

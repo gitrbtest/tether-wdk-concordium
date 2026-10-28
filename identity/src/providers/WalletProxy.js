@@ -11,6 +11,8 @@ const GLOBAL_PATH = '/v0/global';
 /** Sending a credential that creates an account, and the status of a sent transaction. */
 const SUBMIT_CREDENTIAL_PATH = '/v0/submitCredential';
 const SUBMISSION_STATUS_PATH = '/v0/submissionStatus/';
+/** An account's balances: an empty object when the account does not exist. */
+const ACCOUNT_BALANCE_PATH = '/v0/accBalance/';
 
 /**
  * The wallet-proxy answered with an HTTP error. `errorMessage` is its own explanation, when it gave one
@@ -82,6 +84,16 @@ export default class WalletProxy {
       throw new WalletProxyHttpError(`The wallet-proxy answered HTTP ${response.status} for the transaction status.`, { status: response.status });
     }
     return response.json();
+  }
+
+  /** Whether an account exists on chain: the wallet-proxy answers `{}` for an address with no account. */
+  async accountExists(address, { signal } = {}) {
+    const response = await this.#fetch(this.#url + ACCOUNT_BALANCE_PATH + address, { signal });
+    if (!response.ok) {
+      throw new WalletProxyHttpError(`The wallet-proxy answered HTTP ${response.status} for account ${address}.`, { status: response.status });
+    }
+    const balances = await response.json();
+    return Boolean(balances?.currentBalance ?? balances?.finalizedBalance);
   }
 
   /**

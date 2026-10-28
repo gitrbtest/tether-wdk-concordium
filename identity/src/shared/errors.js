@@ -34,7 +34,11 @@ export class IdentityIssuanceError extends Error {
 }
 
 /**
- * Thrown when an account is not created from an identity. `reason` says why:
+ * Thrown when an account is not created from an identity. `reason` says why. Found before anything is sent:
+ * - 'identity-expired': the identity's validTo month has passed (verify again for a new identity)
+ * - 'max-accounts': the account number is not below the identity's maxAccounts
+ * - 'unknown-attribute': an attribute to reveal is not one the identity holds (`detail` names it)
+ * While sending and waiting:
  * - rejected: the chain refused the credential (`detail` has the reason, if the chain gave one)
  * - expired: the credential was not included on chain before its expiry time
  * - timeout: the wait ended before the account was final; it may still be created (ask again)
@@ -45,7 +49,8 @@ export class IdentityIssuanceError extends Error {
 export class AccountCreationError extends Error {
   /**
    * @param {string} message
-   * @param {{ reason: 'rejected' | 'expired' | 'timeout' | 'cancelled' | 'wallet-proxy',
+   * @param {{ reason: 'identity-expired' | 'max-accounts' | 'unknown-attribute'
+   *   | 'rejected' | 'expired' | 'timeout' | 'cancelled' | 'wallet-proxy',
    *   address?: string, transactionHash?: string, detail?: string }} info
    */
   constructor(message, { reason, address, transactionHash, detail } = {}) {

@@ -12,8 +12,17 @@ import * as sdk from '@concordium/web-sdk';
 import { getDeploymentDetails } from '@concordium/rust-bindings/wallet';
 import { bytesToHex } from '@noble/hashes/utils';
 
+/**
+ * The address of account number credNumber under an identity, without building the credential (fast):
+ * it comes from the credential id, which comes from the seed and the network's commitment key.
+ */
+export function accountAddressOf({ provider, globalContext, hdWallet, identityIndex, credNumber }) {
+  const credId = hdWallet.getCredentialId(provider.ipInfo.ipIdentity, identityIndex, credNumber, globalContext);
+  return sdk.getAccountAddress(bytesToHex(credId)).toString();
+}
+
 /** The attribute names an identity can hold, e.g. 'firstName', 'countryOfResidence'. */
-const ATTRIBUTE_NAMES = Object.keys(sdk.AttributesKeys).filter((name) => Number.isNaN(Number(name)));
+export const ATTRIBUTE_NAMES = Object.keys(sdk.AttributesKeys).filter((name) => Number.isNaN(Number(name)));
 
 /**
  * The signed credential for account number credNumber of an identity.
