@@ -23,6 +23,7 @@ User-facing changes to `@concordium/wdk-identity-concordium` are recorded here.
 - `AccountCreationError`, with `reason` `'identity-expired'`, `'max-accounts'` or `'unknown-attribute'` (found before anything is sent), or `'rejected'`, `'expired'`, `'timeout'`, `'cancelled'` or `'wallet-proxy'`, with the account's `address`, the `transactionHash` and a `detail` when known.
 - Live test, run only with `WRITE=1`: creates a real testnet account (account numbers 100–199 of the recorded test identity are reserved for it) and checks it exists on chain.
 - Example `create-account` (`npm run example:create-account`): create an account on testnet from a saved identity, and see it on CCDScan.
+- Example `wdk-end-to-end` (`npm run example:wdk-end-to-end`): an account created from the saved identity, used through `@concordium/wdk-wallet-concordium`: receives CCD, a PLT and a CIS-2 token, sends some back with the fee quoted first, and a second account with no CCD sends a PLT with its fee paid by a sponsor. The wallet package is a development-only dependency, for this example.
 - Dependency `@concordium/rust-bindings`, pinned to the exact version `@concordium/web-sdk` uses (a test keeps them in step), for the signed credential in the form the wallet-proxy takes.
 
 ### Changed

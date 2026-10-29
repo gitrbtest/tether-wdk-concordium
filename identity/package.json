@@ -39,7 +39,8 @@
     "example:verify-identity": "node examples/verify-identity.mjs",
     "example:load-identity": "node examples/load-identity.mjs",
     "example:database-store": "node examples/database-store.mjs",
-    "example:create-account": "node examples/create-account.mjs"
+    "example:create-account": "node examples/create-account.mjs",
+    "example:wdk-end-to-end": "node examples/wdk-end-to-end.mjs"
   },
   "keywords": [
     "wdk",
@@ -59,6 +60,7 @@
     "node": ">=18"
   },
   "devDependencies": {
+    "@concordium/wdk-wallet-concordium": "file:..",
     "typescript": "5.9.3"
   },
   "dependencies": {

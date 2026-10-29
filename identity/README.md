@@ -307,6 +307,14 @@ A runnable example on testnet, using an identity saved by `npm run example:verif
 identity and the account). It prints the address, the `path`, and a link to the account on CCDScan,
 Concordium's testnet explorer.
 
+The whole story with the wallet package, on testnet: `npm run example:wdk-end-to-end`
+(`examples/wdk-end-to-end.mjs`). It creates an account from the saved identity, hands it to
+`@concordium/wdk-wallet-concordium` with `getAccountByPath(path)`, receives CCD, a protocol-level token (TN) and a
+CIS-2 token from a funding account, sends some of each back with the fee quoted first, and has a second new
+account, holding no CCD, send a token to the first, its fee paid by a sponsor (three roles: sender,
+recipient, sponsor). It needs a funded testnet account of your
+own (see the file's header) and the wallet package installed in the repository root (`npm ci` there too).
+
 What is sent is the account's *credential*: its public key, the identity provider's number, the identity's
 dates, commitments to the attributes and zero-knowledge proofs that a verified identity stands behind it.
 The identity itself and the person's details are not sent. It goes through the configured wallet-proxy
