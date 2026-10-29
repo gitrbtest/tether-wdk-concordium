@@ -66,3 +66,17 @@ button:disabled { opacity: .5; cursor: default; }
 .online.wait { color: var(--accent); background: #e6f4f3; }
 button.checking { opacity: .75; }
 @media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }
+main > .card + .card, main > .card + .activity + .card { margin-top: 18px; }
+.address { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 15px; word-break: break-all; }
+code { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 15px; background: var(--bg); padding: 1px 6px; border-radius: 6px; }
+a.link, .activity a { color: var(--accent); font-weight: 600; }
+.balances { width: 100%; border-collapse: collapse; margin: 14px 0; }
+.balances td { padding: 12px 8px; border-bottom: 1px solid var(--line); }
+.balances td:first-child { font-weight: 700; width: 90px; }
+.balances .kind { color: var(--muted); font-size: 15px; }
+.balances .amount { text-align: right; font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 18px; }
+.activity { list-style: none; margin: 14px 4px 0; padding: 0; font-size: 15px; color: var(--muted); }
+.activity li { padding: 5px 0; }
+.activity li.done { color: var(--ink); }
+.activity li.failed { color: #8a1f1f; }
+.activity .spinner { color: var(--accent); }

@@ -130,7 +130,8 @@ async function post(demo, path, body = {}) {
 const state = async (demo) => (await fetch(`${demo.url}api/state`, { headers: { 'x-demo-token': demo.token } })).json();
 async function until(demo, check) {
   for (let i = 0; i < 100; i++) { const s = await state(demo); if (check(s)) return s; await new Promise((r) => setTimeout(r, 50)); }
-  throw new Error('the demo state never got there');
+  const last = await state(demo);
+  throw new Error(`the demo state never got there (step ${last.step}, busy ${last.busy}, error: ${last.error})`);
 }
 
 test('step 1: Start lists the providers that publish an issuance address', local, () => withRecordedDemo({}, async (demo) => {
@@ -201,4 +202,97 @@ test('a provider can only be chosen once its check says it is ready', local, () 
   assert.equal((await post(demo, '/api/verify', { providerIndex: 999 })).status, 400, 'not in the list');
   demo.state.providers.find((p) => p.index === 0).online = 'online';
   assert.equal((await post(demo, '/api/verify', { providerIndex: 0 })).status, 200);
+}));
+
+// ---- Steps 4–5: create the account, receive (a fake wallet package; no network) -----------------------------
+
+const ACCOUNT_0 = '3Z4WkEMb5msvBRPAZyneFcntHWqceHf7Q9JitSjBAegvQXSB5t'; // account 0 of the recorded identity
+const FUNDING_ADDRESS = '3GEmZc57STNxVqWykUceXAeCVsDzaogq6wNZhDLAV8bRNYzUYd';
+
+/** A fake wallet package: one account per path; balances it is told; every transfer recorded. */
+function fakeWalletPackage() {
+  const transfers = [];
+  const balances = { ccd: 0n, plt: 0n, cis2: 0n };
+  const accountFor = (path) => ({
+    getAddress: async () => (path === '0/1/0' ? FUNDING_ADDRESS : ACCOUNT_0),
+    getBalance: async () => balances.ccd,
+    getTokenBalance: async (token) => (token === 'TN' ? balances.plt : balances.cis2),
+    sendTransaction: async ({ to, value }) => { transfers.push({ token: 'CCD', to, amount: value }); balances.ccd += value; return { hash: 'a1'.repeat(32) }; },
+    transfer: async ({ token, recipient, amount }) => { transfers.push({ token, to: recipient, amount }); balances[token === 'TN' ? 'plt' : 'cis2'] += amount; return { hash: 'b2'.repeat(32) }; },
+  });
+  return { transfers, balances, makeWallet: () => ({ getAccountByPath: async (path) => accountFor(path), dispose() {} }) };
+}
+
+/** A demo with an identity verified (recorded data), a scripted wallet-proxy for accounts, and a fake wallet package. */
+async function withIdentityReady(env, run) {
+  const { mkdtempSync, rmSync, readFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { walletProxyFetch } = await import('../helpers.mjs');
+  const issued = () => JSON.parse(readFileSync(new URL('../fixtures/identity-done.testnet.json', import.meta.url), 'utf8'));
+  const { fetch: recorded } = walletProxyFetch('testnet');
+  const json = (body) => ({ ok: true, status: 200, json: async () => body });
+  const fetch = async (url, options) => {
+    if (url === CODE_URI) return json(issued());
+    if (url.includes('/v0/accBalance/')) return json({});
+    if (url.includes('/v0/submitCredential')) return json({ submissionId: 'x' });
+    if (url.includes('/v0/submissionStatus/')) return json({ status: 'finalized', outcome: 'success', blockHashes: ['b1'] });
+    return recorded(url, options);
+  };
+  const storeFolder = mkdtempSync(join(tmpdir(), 'demo-wallet-test-'));
+  const wallet = fakeWalletPackage();
+  // A fresh identity (verified below), whatever the env says about reusing one.
+  const settings = { ...readSettings(env), identityIndex: RECORDED_IDENTITY, reuseIdentity: false, storeFolder };
+  const demo = await startDemoServer({ settings, port: 0, fetch, checkProviders: false, makeWallet: wallet.makeWallet, pauseMs: 5 });
+  try {
+    await post(demo, '/api/start');
+    await post(demo, '/api/verify', { providerIndex: 0 });
+    await post(demo, '/api/callback', { url: `${demo.url}return#code_uri=${encodeURIComponent(CODE_URI)}` });
+    await until(demo, (s) => s.step === 'identity');
+    await run(demo, wallet);
+  } finally {
+    await demo.close();
+    rmSync(storeFolder, { recursive: true, force: true });
+  }
+}
+
+test('step 4: Create account makes account 0 of the identity, with its CCDScan link', local, () => withIdentityReady(FUNDED, async (demo) => {
+  assert.equal((await post(demo, '/api/create-account')).status, 202);
+  const s = await until(demo, (x) => x.step === 'account');
+  assert.equal(s.account.address, ACCOUNT_0);
+  assert.equal(s.account.path, `0/${RECORDED_IDENTITY}/0`);
+  assert.equal(s.account.created, true);
+  assert.match(s.account.link, /testnet\.ccdscan\.io.*daddress=3Z4WkEMb/);
+  assert.equal(s.activity.at(-1).status, 'done');
+  assert.equal(s.busy, null);
+}));
+
+test('step 5: the funding account sends CCD, TN and CIS-2 to the new account, then the balances show', local, () => withIdentityReady(FUNDED, async (demo, wallet) => {
+  await post(demo, '/api/create-account');
+  await until(demo, (x) => x.step === 'account');
+  assert.equal((await post(demo, '/api/receive')).status, 202);
+  const s = await until(demo, (x) => x.step === 'funded');
+  assert.deepEqual(wallet.transfers, [
+    { token: 'CCD', to: ACCOUNT_0, amount: 40_000_000n },
+    { token: 'TN', to: ACCOUNT_0, amount: 5_000_000n },
+    { token: 'cis2:12754:0:01', to: ACCOUNT_0, amount: 500n },
+  ]);
+  assert.deepEqual(s.balances.text, { ccd: '40.000000 CCD', plt: '5.000000 TN', cis2: '500 units' });
+  assert.equal(s.activity.filter((l) => l.status === 'done' && l.link).length, 4, 'the account and three transfers, each with a link');
+}));
+
+test('with no funding account, the page waits for CCD to arrive, then shows the balances', local, () => withIdentityReady({}, async (demo, wallet) => {
+  await post(demo, '/api/create-account');
+  await until(demo, (x) => x.step === 'account');
+  assert.equal((await post(demo, '/api/receive')).status, 400, 'nothing to receive from');
+  assert.equal((await state(demo)).activity.at(-1).status, 'running', 'waiting for CCD');
+  wallet.balances.ccd = 12_000_000n; // someone sends 12 CCD from another wallet
+  const s = await until(demo, (x) => x.step === 'funded');
+  assert.equal(s.balances.text.ccd, '12.000000 CCD');
+}));
+
+test('steps happen in order, one at a time', local, () => withIdentityReady(FUNDED, async (demo) => {
+  assert.equal((await post(demo, '/api/receive')).status, 400, 'no account yet');
+  await post(demo, '/api/create-account');
+  assert.equal((await post(demo, '/api/create-account')).status, 400, 'already running (or done)');
 }));

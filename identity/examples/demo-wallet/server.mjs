@@ -40,9 +40,11 @@ const MAX_BODY_BYTES = 64 * 1024;
  * @param {number} [options.port]  overrides settings.port (0: any free port, for tests)
  * @param {typeof fetch} [options.fetch]  HTTP for the packages (tests pass a fake)
  * @param {boolean} [options.checkProviders]  run the live "online" check of the providers (default true)
+ * @param {(seed: string) => object} [options.makeWallet]  the wallet package's manager for a seed (tests pass a fake)
+ * @param {number} [options.pauseMs]  waits between checks of the chain (tests make it short)
  * @returns {Promise<{ url: string, token: string, state: object, close: () => Promise<void> }>}
  */
-export async function startDemoServer({ settings = readSettings(), port = settings.port, fetch: fetchFn, checkProviders } = {}) {
+export async function startDemoServer({ settings = readSettings(), port = settings.port, fetch: fetchFn, checkProviders, makeWallet, pauseMs } = {}) {
   const token = randomBytes(16).toString('hex');
   // Everything the page draws. It holds no secrets: no seeds, no keys.
   const state = {
@@ -53,7 +55,9 @@ export async function startDemoServer({ settings = readSettings(), port = settin
     step: 'start',
     verifyStages: VERIFY_STAGES,
   };
-  const flow = new DemoFlow({ settings, state, ...(fetchFn ? { fetch: fetchFn } : {}), checkProviders });
+  const flow = new DemoFlow({
+    settings, state, checkProviders, ...(fetchFn ? { fetch: fetchFn } : {}), ...(makeWallet ? { makeWallet } : {}), ...(pauseMs ? { pauseMs } : {}),
+  });
   let host; // "127.0.0.1:<port>", known once listening
 
   const server = createServer(async (request, response) => {
@@ -88,6 +92,8 @@ export async function startDemoServer({ settings = readSettings(), port = settin
         case '/api/start': await flow.start(); return send(response, 200, state);
         case '/api/verify': return send(response, 200, await flow.verify(Number(body.providerIndex)));
         case '/api/callback': flow.callback(String(body.url ?? '')); return send(response, 202, { ok: true });
+        case '/api/create-account': flow.createAccount(); return send(response, 202, { ok: true });
+        case '/api/receive': flow.receive(); return send(response, 202, { ok: true });
         default: return send(response, 404, { error: 'Not found.' });
       }
     } catch (e) {
