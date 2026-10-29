@@ -40,7 +40,8 @@
     "example:load-identity": "node examples/load-identity.mjs",
     "example:database-store": "node examples/database-store.mjs",
     "example:create-account": "node examples/create-account.mjs",
-    "example:wdk-end-to-end": "node examples/wdk-end-to-end.mjs"
+    "example:wdk-end-to-end": "node examples/wdk-end-to-end.mjs",
+    "demo-wallet": "node examples/demo-wallet/server.mjs"
   },
   "keywords": [
     "wdk",
