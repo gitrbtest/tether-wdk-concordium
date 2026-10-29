@@ -106,8 +106,14 @@ const views = {
         <p class="address">${esc(s.account.address)}</p>` : `
         <p class="note">The new account is handed to our Concordium module for Tether's WDK
           (<code>@concordium/wdk-wallet-concordium</code>, Phase 1) with
-          <code>getAccountByPath('${esc(s.account.path)}')</code>. A funding account then sends it CCD, a
-          protocol-level token (TN) and a CIS-2 token.</p>
+          <code>getAccountByPath('${esc(s.account.path)}')</code>. Then it receives CCD, a protocol-level token (TN)
+          and a CIS-2 token:</p>
+        <dl class="facts">
+          <dt>From</dt><dd><strong>the funding account</strong>: a testnet account set up for this demo, standing in
+            for an exchange or a friend sending you funds${s.fundingAddress ? `<br><span class="address">${esc(s.fundingAddress)}</span>` : ''}</dd>
+          <dt>To</dt><dd>your new account<br><span class="address">${esc(s.account.address)}</span></dd>
+          <dt>Amounts</dt><dd>40 CCD · 5 TN · 500 CIS-2 units</dd>
+        </dl>
         <button class="primary" data-action="receive" ${s.busy ? 'disabled' : ''}>${s.busy === 'receiving'
           ? '<span class="spinner"></span>Receiving…' : 'Receive test funds'}</button>`}
     </section>
@@ -121,17 +127,90 @@ const views = {
       ${balancesTable(s.balances)}
       <p class="note">Read through the WDK wallet module (Phase 1) from the testnet node. CIS-2 tokens live in a smart contract:
         CCDScan shows them under the account's <strong>Tokens</strong> section, not in its transaction list.</p>
-      <p class="note">Next: send.</p>
     </section>
+    ${sendCard(s)}
+    ${sponsoredCard(s)}
     ${activity(s)}`,
 };
+
+// ---- Step 6: Send (the form keeps what is typed in `form`, so redrawing never wipes it) ---------------------------
+
+const form = { token: 'CCD', recipient: '', amount: '1', quote: null };
+
+function sendCard(s) {
+  const busy = Boolean(s.busy);
+  const q = form.quote;
+  return `
+    <section class="card send-card">
+      <p class="eyebrow">Step 6 · Send · Phase 1</p>
+      <h2>Send</h2>
+      <div class="form">
+        <label>Token
+          <select data-field="token" ${busy ? 'disabled' : ''}>
+            ${['CCD', 'TN', 'CIS-2'].map((t) => `<option ${form.token === t ? 'selected' : ''}>${t}</option>`).join('')}
+          </select></label>
+        <label>Amount <input data-field="amount" value="${esc(form.amount)}" inputmode="decimal" ${busy ? 'disabled' : ''}></label>
+        <label class="wide">Recipient (a testnet address)
+          <input data-field="recipient" value="${esc(form.recipient)}" placeholder="e.g. the funding account" ${busy ? 'disabled' : ''}></label>
+        ${s.fundingAddress ? `<button data-action="use-funding" ${busy ? 'disabled' : ''}>Use the funding account</button>` : ''}
+      </div>
+      <div class="send-actions">
+        <button data-action="quote" ${busy ? 'disabled' : ''}>Check the fee</button>
+        ${q ? `<span class="fee ${q.enough ? '' : 'short'}">Fee ${esc(q.feeText)} (paid in CCD by your account)${q.enough ? '' : ` · not enough CCD: needs ${esc(q.neededText)}`}</span>` : ''}
+        <button class="primary" data-action="send" ${busy || !q || !q.enough ? 'disabled' : ''}>${s.busy === 'sending'
+          ? '<span class="spinner"></span>Sending…' : q ? `Send ${esc(q.amountText)}` : s.lastSend ? 'Check the fee to send again' : 'Check the fee first'}</button>
+      </div>
+      ${sendResult(s.lastSend, s.account)}
+      <p class="note">The fee is quoted first by the WDK wallet module, then checked again before sending; a transfer is
+        never sent twice.</p>
+    </section>`;
+}
+
+/** This card's last send, in place: sending (spinner), sent (with the new balance), or failed. */
+function sendResult(r, account) {
+  if (!r) return '';
+  if (r.status === 'sending') return `<div class="result sending"><span class="spinner"></span>Sending ${esc(r.what)} (fee ${esc(r.feeText)}), waiting until final…</div>`;
+  if (r.status === 'failed') return `<div class="result failed">✖ Not sent: ${esc(r.error)}</div>`;
+  return `<div class="result sent">✔ Sent ${esc(r.what)} · final in ${esc(r.seconds)} s · fee ${esc(r.feeText)} ·
+    <a href="${esc(r.link)}" target="_blank" rel="noopener">transaction ↗</a>
+    <br>Your account now holds ${esc(r.balances.ccd)} · ${esc(r.balances.plt)} · ${esc(r.balances.cis2)}</div>`;
+}
+
+// ---- Step 6b: the sponsored send: three roles ------------------------------------------------------------------
+
+function sponsoredCard(s) {
+  if (s.funding === 'none') return '';
+  const sp = s.sponsored;
+  const role = (title, who, detail) => `
+    <div class="role"><p class="role-title">${title}</p><p class="address">${esc(who)}</p>${detail}</div>`;
+  const change = (party) => (party?.after
+    ? `<p class="change">${esc(party.before.plt)} → <strong>${esc(party.after.plt)}</strong><br>${esc(party.before.ccd)} → <strong>${esc(party.after.ccd)}</strong></p>`
+    : party?.before ? `<p class="change">${esc(party.before.plt)} · ${esc(party.before.ccd)}</p>` : '');
+  return `
+    <section class="card sponsored-card">
+      <p class="eyebrow">Step 6b · Sponsored send · Phase 1</p>
+      <h2>A token sent by an account with no CCD</h2>
+      <p class="note">A second account of your identity receives some TN but <strong>no CCD</strong>, so it cannot pay a fee.
+        It sends TN to your first account, and a <strong>sponsor</strong> (standing in for the wallet operator) pays the
+        fee. New users can move a token straight away, without first buying CCD.</p>
+      ${sp ? `
+        <div class="roles">
+          ${role('Sender · account 1', sp.sender.address, change(sp.sender))}
+          ${role('Recipient · account 0', sp.recipient.address, change(sp.recipient))}
+          ${role('Sponsor · pays the fee', sp.sponsor.address, `<p class="change">the funding account</p>${change(sp.sponsor)}${sp.sponsor.feeText ? `<p class="change">fee paid: <strong>${esc(sp.sponsor.feeText)}</strong></p>` : ''}`)}
+        </div>
+        ${sp.link ? `<p><a class="link" href="${esc(sp.link)}" target="_blank" rel="noopener">The sponsored transaction on CCDScan ↗</a></p>` : ''}` : ''}
+      <button class="primary" data-action="sponsored" ${s.busy ? 'disabled' : ''}>${s.busy === 'sponsoring'
+        ? '<span class="spinner"></span>Running the sponsored send…' : sp?.link ? 'Run it again' : 'Run the sponsored send'}</button>
+    </section>`;
+}
 
 /** The new account: address, path and where to see it. */
 function accountCard(s) {
   return `
     <section class="card account-card">
       <p class="eyebrow">Step 4 · Account · Phase 2</p>
-      <h2>Your new account is on chain ✔</h2>
+      <h2>Your ${s.account.created ? 'new ' : ''}account is on chain ✔</h2>
       <dl class="facts">
         <dt>Address</dt><dd class="address">${esc(s.account.address)}</dd>
         <dt>Created</dt><dd>${s.account.created ? `from your identity, final in ${esc(s.account.seconds)} s; no ID App, no fee` : 'earlier: it already existed, nothing was sent'}</dd>
@@ -151,12 +230,17 @@ function balancesTable(b) {
     </table>`;
 }
 
-/** The progress lines of the current step: running (spinner), done (with a CCDScan link), or failed. */
+/** The history of this session: every step so far, running (spinner), done (with a CCDScan link), or failed. */
 function activity(s) {
   if (!s.activity?.length) return '';
-  return `<ul class="activity">${s.activity.map((line) => `
+  return `
+    <section class="history">
+      <h3>History of this session</h3>
+      <p class="note">Every step since Start, oldest first, with links to the transactions on CCDScan.</p>
+      <ul class="activity">${s.activity.map((line) => `
     <li class="${line.status}">${line.status === 'running' ? '<span class="spinner"></span>' : line.status === 'done' ? '✔ ' : '✖ '}${esc(line.text)}${line.link
-      ? ` · <a href="${esc(line.link)}" target="_blank" rel="noopener">transaction ↗</a>` : ''}</li>`).join('')}</ul>`;
+      ? ` · <a href="${esc(line.link)}" target="_blank" rel="noopener">transaction ↗</a>` : ''}</li>`).join('')}</ul>
+    </section>`;
 }
 
 // ---- Drawing and clicks ----------------------------------------------------------------------------------------
@@ -182,6 +266,15 @@ async function refresh() {
   }
 }
 
+const rememberField = (event) => {
+  const field = event.target.dataset?.field;
+  if (!field) return;
+  form[field] = event.target.value;
+  if (form.quote) { form.quote = null; lastDrawn = ''; refresh(); }
+};
+app.addEventListener('input', rememberField);
+app.addEventListener('change', rememberField);
+
 app.addEventListener('click', async (event) => {
   const button = event.target.closest('button[data-action]');
   if (!button) return;
@@ -190,6 +283,21 @@ app.addEventListener('click', async (event) => {
     if (button.dataset.action === 'start') await api('/api/start', { method: 'POST', body: {} });
     if (button.dataset.action === 'create-account') await api('/api/create-account', { method: 'POST', body: {} });
     if (button.dataset.action === 'receive') await api('/api/receive', { method: 'POST', body: {} });
+    if (button.dataset.action === 'use-funding') {
+      form.recipient = (await api('/api/state')).fundingAddress;
+      form.quote = null;
+      lastDrawn = '';
+    }
+    if (button.dataset.action === 'quote') {
+      form.quote = null;
+      form.quote = await api('/api/quote', { method: 'POST', body: { token: form.token, recipient: form.recipient, amount: form.amount } });
+      lastDrawn = '';
+    }
+    if (button.dataset.action === 'send') {
+      await api('/api/send', { method: 'POST', body: { token: form.token, recipient: form.recipient, amount: form.amount } });
+      form.quote = null;
+    }
+    if (button.dataset.action === 'sponsored') await api('/api/sponsored', { method: 'POST', body: {} });
     if (button.dataset.action === 'verify') {
       // Open the tab now, in the click (browsers block tabs opened later), then send it to the provider.
       const tab = window.open('about:blank', '_blank');

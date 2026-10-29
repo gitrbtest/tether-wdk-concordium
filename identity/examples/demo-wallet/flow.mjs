@@ -18,7 +18,11 @@ import { FileIdentityStore } from '@concordium/wdk-identity-concordium/node';
 import { randomBytes } from 'node:crypto';
 import { checkProvider } from '../../scripts/lib/provider-check.mjs';
 import WalletManagerConcordium, { CONCORDIUM_TESTNET_CONFIG } from '@concordium/wdk-wallet-concordium';
-import { FUND, CIS2, PLT, accountLink, transactionLink, balancesOf, sendOnce, walletAccount } from './chain.mjs';
+import {
+  FUND, SPONSORED, TOKENS, CIS2, PLT, accountLink, transactionLink, balancesOf, read, sendOnce, walletAccount,
+  toBaseUnits, formatAmount, formatCcd, formatPlt,
+} from './chain.mjs';
+import { AccountAddress } from '@concordium/web-sdk';
 
 const CONFIG = CONCORDIUM_TESTNET_IDENTITY_CONFIG;
 
@@ -56,6 +60,7 @@ export default class DemoFlow {
     });
     Object.assign(state, {
       providers: null, verification: null, identity: null, account: null, balances: null, activity: [], busy: null, error: null,
+      fundingAddress: null, sponsored: null, lastSend: null,
     });
   }
 
@@ -182,6 +187,7 @@ export default class DemoFlow {
       this.#done(line, account.created ? `Account created, final on chain in ${seconds} s` : 'The account already exists on chain: nothing was sent',
         account.transactionHash && transactionLink(account.transactionHash));
       this.state.account = { ...account, link: accountLink(account.address), seconds };
+      if (this.#settings.funding) this.state.fundingAddress = await read(async () => (await this.#funding()).getAddress());
       this.state.step = 'account';
       if (!this.#settings.funding) this.#waitForFunds();
     });
@@ -203,13 +209,124 @@ export default class DemoFlow {
         [PLT, () => funding.transfer({ token: PLT, recipient: to, amount: FUND.plt })],
         ['CIS-2', () => funding.transfer({ token: CIS2, recipient: to, amount: FUND.cis2 })],
       ]) {
-        const line = this.#log(`The funding account sends ${name}, waiting until final`);
+        const line = this.#log(`The funding account (${this.state.fundingAddress?.slice(0, 8) ?? ''}…) sends ${name}, waiting until final`);
         const started = Date.now();
         const { hash } = await sendOnce(`the funding account sends ${name}`, send);
-        this.#done(line, `${name} received, final in ${((Date.now() - started) / 1000).toFixed(1)} s`, transactionLink(hash));
+        this.#done(line, `${name} received from the funding account, final in ${((Date.now() - started) / 1000).toFixed(1)} s`, transactionLink(hash));
       }
       this.state.balances = await balancesOf(account);
+      this.state.fundingAddress = await read(() => funding.getAddress());
       this.state.step = 'funded';
+    });
+  }
+
+  // ---- Step 6: send -------------------------------------------------------------------------------------------
+
+  /** Check a send: token, recipient, amount, and the fee (with whether the account's CCD covers it). Sends nothing. */
+  async quote({ token, recipient, amount }) {
+    if (this.state.step !== 'funded') throw new Error('Receive some funds first.');
+    const request = this.#sendRequest({ token, recipient, amount });
+    const account = await this.#account();
+    const fee = await this.#fee(account, request);
+    const needed = fee + (request.token === 'CCD' ? request.base : 0n);
+    const ccd = BigInt((await balancesOf(account)).ccd);
+    return {
+      fee: String(fee), feeText: formatCcd(fee), enough: ccd >= needed,
+      amountText: formatAmount(request.token, request.base), neededText: formatCcd(needed),
+    };
+  }
+
+  /** [Send]: checked again, the fee checked against the account's CCD, then sent once. In the background. */
+  send({ token, recipient, amount }) {
+    if (this.state.step !== 'funded') throw new Error('Receive some funds first.');
+    const request = this.#sendRequest({ token, recipient, amount });
+    this.#begin('sending');
+    this.#run(async () => {
+      const account = await this.#account();
+      const fee = await this.#fee(account, request);
+      const needed = fee + (request.token === 'CCD' ? request.base : 0n);
+      const ccd = BigInt((await balancesOf(account)).ccd);
+      if (ccd < needed) throw new Error(`Not enough CCD: this send needs ${formatCcd(needed)} (fee ${formatCcd(fee)}), the account has ${formatCcd(ccd)}.`);
+      const what = `${formatAmount(request.token, request.base)} to ${request.recipient.slice(0, 8)}…`;
+      const line = this.#log(`Sending ${what} (fee ${formatCcd(fee)}), waiting until final`);
+      // The Send card shows this send's result in place (sending → sent).
+      this.state.lastSend = { status: 'sending', what, feeText: formatCcd(fee) };
+      const started = Date.now();
+      const { hash } = await sendOnce(`sending ${what}`, () => (request.token === 'CCD'
+        ? account.sendTransaction({ to: request.recipient, value: request.base })
+        : account.transfer({ token: TOKENS[request.token].id, recipient: request.recipient, amount: request.base })));
+      const seconds = ((Date.now() - started) / 1000).toFixed(1);
+      this.#done(line, `Sent ${what}, final in ${seconds} s`, transactionLink(hash));
+      this.state.balances = await balancesOf(account);
+      Object.assign(this.state.lastSend, { status: 'sent', seconds, link: transactionLink(hash), balances: this.state.balances.text });
+    });
+  }
+
+  /** The send's inputs, checked: a token the page offers, a valid testnet address, a positive amount. */
+  #sendRequest({ token, recipient, amount }) {
+    if (!TOKENS[token]) throw new Error('Choose CCD, TN or CIS-2.');
+    const to = String(recipient ?? '').trim();
+    try { AccountAddress.fromBase58(to); } catch { throw new Error('The recipient is not a valid Concordium address.'); }
+    if (to === this.state.account.address) throw new Error('That is this account\'s own address: choose another recipient.');
+    return { token, recipient: to, base: toBaseUnits(amount, TOKENS[token].decimals) };
+  }
+
+  async #fee(account, { token, recipient, base }) {
+    const { fee } = await read(() => (token === 'CCD'
+      ? account.quoteSendTransaction({ to: recipient, value: base })
+      : account.quoteTransfer({ token: TOKENS[token].id, recipient, amount: base })));
+    return BigInt(fee);
+  }
+
+  // ---- Step 6b: the sponsored send ----------------------------------------------------------------------------
+
+  /**
+   * [Sponsored send]: three roles. A SENDER (account 1 of the identity, given TN but no CCD) sends TN to the
+   * RECIPIENT (account 0); the SPONSOR (the funding account, standing in for the wallet operator) pays the fee.
+   */
+  sponsored() {
+    if (this.state.step !== 'funded') throw new Error('Receive some funds first.');
+    if (!this.#settings.funding) throw new Error('A sponsored send needs a sponsor: configure a funding account.');
+    this.#begin('sponsoring');
+    this.state.sponsored = null; // a new run: the three boxes start again
+    this.#run(async () => {
+      const { providerIndex, identityIndex } = this.state.identity;
+      let line = this.#log('Creating a second account (account 1) for the sender, waiting until final');
+      const second = await this.#identity.createAccount({ providerIndex, identityIndex, credNumber: 1, intervalMs: this.pauseMs });
+      this.#done(line, second.created ? 'Account 1 created: the sender' : 'Account 1 already exists: the sender', second.transactionHash && transactionLink(second.transactionHash));
+      const sender = await walletAccount(this.#wallet ??= this.#makeWallet(this.#settings.seedPhrase), second.path, { pauseMs: this.pauseMs });
+      const recipient = await this.#account();
+      const funding = await this.#funding();
+      const sponsorAddress = await read(() => funding.getAddress());
+
+      line = this.#log(`The sponsor gives the sender ${formatPlt(SPONSORED.give)} and no CCD`);
+      const given = await sendOnce('giving the sender TN', () => funding.transfer({ token: PLT, recipient: second.address, amount: SPONSORED.give }));
+      this.#done(line, `The sender holds TN and no CCD`, transactionLink(given.hash));
+
+      const before = { sender: await balancesOf(sender), recipient: await balancesOf(recipient), sponsor: await balancesOf(funding) };
+      this.state.sponsored = {
+        sender: { address: second.address, path: second.path, before: before.sender.text },
+        recipient: { address: this.state.account.address, path: this.state.account.path, before: before.recipient.text },
+        sponsor: { address: sponsorAddress, before: before.sponsor.text },
+        amountText: formatPlt(SPONSORED.send),
+      };
+
+      line = this.#log(`The sender signs "send ${formatPlt(SPONSORED.send)}", the sponsor signs to pay the fee; waiting until final`);
+      const started = Date.now();
+      let tx = await sender.buildSponsorableTransfer({ token: PLT, recipient: this.state.account.address, amount: SPONSORED.send, sponsorAddress });
+      tx = await sender.signAsAccountToBeSponsored(tx);
+      tx = await funding.signAsSponsorSigned(tx);
+      const { hash } = await sendOnce('the sponsored send', () => sender.submitSponsored(tx));
+      this.#done(line, `Sponsored send final in ${((Date.now() - started) / 1000).toFixed(1)} s: the sender paid no fee`, transactionLink(hash));
+
+      const after = { sender: await balancesOf(sender), recipient: await balancesOf(recipient), sponsor: await balancesOf(funding) };
+      Object.assign(this.state.sponsored.sender, { after: after.sender.text });
+      Object.assign(this.state.sponsored.recipient, { after: after.recipient.text });
+      Object.assign(this.state.sponsored.sponsor, {
+        after: after.sponsor.text, feeText: formatCcd(BigInt(before.sponsor.ccd) - BigInt(after.sponsor.ccd)),
+      });
+      this.state.sponsored.link = transactionLink(hash);
+      this.state.balances = after.recipient;
     });
   }
 
@@ -253,6 +370,7 @@ export default class DemoFlow {
     step().catch((e) => {
       const running = this.state.activity.findLast((l) => l.status === 'running');
       if (running) running.status = 'failed';
+      if (this.state.lastSend?.status === 'sending') Object.assign(this.state.lastSend, { status: 'failed', error: e.message });
       this.state.error = e.message;
     }).finally(() => { this.state.busy = null; });
   }

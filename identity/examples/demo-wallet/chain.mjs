@@ -11,6 +11,35 @@ export const CIS2 = 'cis2:12754:0:01';
 /** What the funding account sends a new account, in base units (CCD and TN: 6 decimals; this CIS-2 token: none). */
 export const FUND = { ccd: 40_000_000n, plt: 5_000_000n, cis2: 500n };
 
+/** The sponsored send: what the second account is given (TN only, no CCD), and what it sends. */
+export const SPONSORED = { give: 2_000_000n, send: 1_000_000n };
+
+/** The tokens the Send step offers: the name on the page, the wallet package's token id, and decimals. */
+export const TOKENS = {
+  CCD: { id: null, decimals: 6 },
+  TN: { id: PLT, decimals: 6 },
+  'CIS-2': { id: CIS2, decimals: 0 },
+};
+
+/** "1.5" in a token with 6 decimals → 1500000n. Refuses anything that is not a plain positive amount. */
+export function toBaseUnits(amount, decimals) {
+  const text = String(amount ?? '').trim();
+  const match = /^(\d+)(?:\.(\d+))?$/.exec(text);
+  if (!match) throw new Error('Enter the amount as a number, e.g. 1 or 0.5.');
+  const [, whole, fraction = ''] = match;
+  if (fraction.length > decimals) {
+    throw new Error(decimals === 0 ? 'This token has no decimals: enter whole units.' : `At most ${decimals} decimals.`);
+  }
+  const base = BigInt(whole + fraction.padEnd(decimals, '0'));
+  if (base <= 0n) throw new Error('The amount must be more than 0.');
+  return base;
+}
+
+/** Text for an amount of a token: "1.500000 CCD", "1.000000 TN", "100 units". */
+export function formatAmount(token, base) {
+  return token === 'CCD' ? formatCcd(base) : token === 'TN' ? formatPlt(base) : `${base} units`;
+}
+
 export const formatCcd = (micro) => `${(Number(micro) / 1e6).toFixed(6)} CCD`;
 export const formatPlt = (base) => `${(Number(base) / 1e6).toFixed(6)} ${PLT}`;
 export const accountLink = (address) => `https://testnet.ccdscan.io/?dcount=1&dentity=account&daddress=${address}`;

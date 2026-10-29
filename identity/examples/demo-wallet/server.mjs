@@ -94,6 +94,9 @@ export async function startDemoServer({ settings = readSettings(), port = settin
         case '/api/callback': flow.callback(String(body.url ?? '')); return send(response, 202, { ok: true });
         case '/api/create-account': flow.createAccount(); return send(response, 202, { ok: true });
         case '/api/receive': flow.receive(); return send(response, 202, { ok: true });
+        case '/api/quote': return send(response, 200, await flow.quote(body));
+        case '/api/send': flow.send(body); return send(response, 202, { ok: true });
+        case '/api/sponsored': flow.sponsored(); return send(response, 202, { ok: true });
         default: return send(response, 404, { error: 'Not found.' });
       }
     } catch (e) {

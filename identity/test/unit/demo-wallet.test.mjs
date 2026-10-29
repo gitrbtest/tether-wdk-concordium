@@ -219,6 +219,12 @@ function fakeWalletPackage() {
     getTokenBalance: async (token) => (token === 'TN' ? balances.plt : balances.cis2),
     sendTransaction: async ({ to, value }) => { transfers.push({ token: 'CCD', to, amount: value }); balances.ccd += value; return { hash: 'a1'.repeat(32) }; },
     transfer: async ({ token, recipient, amount }) => { transfers.push({ token, to: recipient, amount }); balances[token === 'TN' ? 'plt' : 'cis2'] += amount; return { hash: 'b2'.repeat(32) }; },
+    quoteSendTransaction: async () => ({ fee: 3_634_187n }),
+    quoteTransfer: async ({ token }) => ({ fee: token === 'TN' ? 4_736_775n : 11_519_139n }),
+    buildSponsorableTransfer: async (request) => ({ request, signedBy: [] }),
+    signAsAccountToBeSponsored: async (tx) => ({ ...tx, signedBy: [...tx.signedBy, `account ${path}`] }),
+    signAsSponsorSigned: async (tx) => ({ ...tx, signedBy: [...tx.signedBy, `sponsor ${path}`] }),
+    submitSponsored: async (tx) => { transfers.push({ sponsored: tx.request, signedBy: tx.signedBy }); return { hash: 'c3'.repeat(32) }; },
   });
   return { transfers, balances, makeWallet: () => ({ getAccountByPath: async (path) => accountFor(path), dispose() {} }) };
 }
@@ -259,6 +265,7 @@ async function withIdentityReady(env, run) {
 test('step 4: Create account makes account 0 of the identity, with its CCDScan link', local, () => withIdentityReady(FUNDED, async (demo) => {
   assert.equal((await post(demo, '/api/create-account')).status, 202);
   const s = await until(demo, (x) => x.step === 'account');
+  assert.equal(s.fundingAddress, FUNDING_ADDRESS, 'the Receive card can name the sender before the click');
   assert.equal(s.account.address, ACCOUNT_0);
   assert.equal(s.account.path, `0/${RECORDED_IDENTITY}/0`);
   assert.equal(s.account.created, true);
@@ -295,4 +302,96 @@ test('steps happen in order, one at a time', local, () => withIdentityReady(FUND
   assert.equal((await post(demo, '/api/receive')).status, 400, 'no account yet');
   await post(demo, '/api/create-account');
   assert.equal((await post(demo, '/api/create-account')).status, 400, 'already running (or done)');
+}));
+
+// ---- Step 6: send, and the sponsored send (the fake wallet package; no network) ---------------------------------
+
+async function funded(demo) {
+  await post(demo, '/api/create-account');
+  await until(demo, (x) => x.step === 'account');
+  await post(demo, '/api/receive');
+  return until(demo, (x) => x.step === 'funded');
+}
+
+test('step 6: the fee is quoted first; the inputs are checked', local, () => withIdentityReady(FUNDED, async (demo) => {
+  const s = await funded(demo);
+  assert.equal(s.fundingAddress, FUNDING_ADDRESS, 'the page can offer the funding account as recipient');
+  const quote = await post(demo, '/api/quote', { token: 'CCD', recipient: FUNDING_ADDRESS, amount: '1' });
+  assert.deepEqual(quote.body, { fee: '3634187', feeText: '3.634187 CCD', enough: true, amountText: '1.000000 CCD', neededText: '4.634187 CCD' });
+  assert.equal((await post(demo, '/api/quote', { token: 'CIS-2', recipient: FUNDING_ADDRESS, amount: '100' })).body.feeText, '11.519139 CCD');
+  for (const [body, why] of [
+    [{ token: 'CCD', recipient: 'not-an-address', amount: '1' }, /not a valid Concordium address/],
+    [{ token: 'CCD', recipient: ACCOUNT_0, amount: '1' }, /own address/],
+    [{ token: 'CCD', recipient: FUNDING_ADDRESS, amount: 'abc' }, /as a number/],
+    [{ token: 'CIS-2', recipient: FUNDING_ADDRESS, amount: '1.5' }, /whole units/],
+    [{ token: 'BTC', recipient: FUNDING_ADDRESS, amount: '1' }, /CCD, TN or CIS-2/],
+  ]) {
+    const refused = await post(demo, '/api/quote', body);
+    assert.equal(refused.status, 400);
+    assert.match(refused.body.error, why);
+  }
+}));
+
+test('step 6: Send sends once through the wallet module, then the balances refresh', local, () => withIdentityReady(FUNDED, async (demo, wallet) => {
+  await funded(demo);
+  const before = wallet.transfers.length;
+  assert.equal((await post(demo, '/api/send', { token: 'TN', recipient: FUNDING_ADDRESS, amount: '1.5' })).status, 202);
+  const s = await until(demo, (x) => x.busy === null && x.activity.at(-1).text.startsWith('Sent'));
+  assert.deepEqual(wallet.transfers.slice(before), [{ token: 'TN', to: FUNDING_ADDRESS, amount: 1_500_000n }]);
+  assert.match(s.activity.at(-1).text, /^Sent 1.500000 TN to 3GEmZc57…, final in/);
+  assert.match(s.activity.at(-1).link, /dhash=b2/);
+  assert.equal(s.lastSend.status, 'sent', 'the Send card shows the result in place');
+  assert.match(s.lastSend.what, /^1.500000 TN to 3GEmZc57…$/);
+  assert.ok(s.lastSend.balances.plt, 'with the new balance');
+}));
+
+test('step 6: a send the account cannot pay the fee for is refused, nothing sent', local, () => withIdentityReady(FUNDED, async (demo, wallet) => {
+  await funded(demo);
+  wallet.balances.ccd = 2_000_000n; // 2 CCD left: not enough for a 3.63 CCD fee
+  assert.equal((await post(demo, '/api/quote', { token: 'CCD', recipient: FUNDING_ADDRESS, amount: '1' })).body.enough, false);
+  const before = wallet.transfers.length;
+  await post(demo, '/api/send', { token: 'CCD', recipient: FUNDING_ADDRESS, amount: '1' });
+  const s = await until(demo, (x) => x.busy === null && x.error);
+  assert.match(s.error, /Not enough CCD/);
+  assert.equal(s.lastSend, null, 'refused before sending: no result panel');
+  assert.equal(wallet.transfers.length, before);
+}));
+
+test('step 6b: the sponsored send: account 1 (TN, no CCD) sends to account 0, the sponsor signs and pays', local, () => withIdentityReady(FUNDED, async (demo, wallet) => {
+  await funded(demo);
+  const before = wallet.transfers.length;
+  assert.equal((await post(demo, '/api/sponsored')).status, 202);
+  const s = await until(demo, (x) => x.busy === null && x.sponsored?.link);
+  const [give, sponsored] = wallet.transfers.slice(before);
+  assert.equal(give.token, 'TN');
+  assert.equal(give.amount, 2_000_000n, 'the sender is given TN only');
+  assert.deepEqual(sponsored.sponsored, { token: 'TN', recipient: ACCOUNT_0, amount: 1_000_000n, sponsorAddress: FUNDING_ADDRESS });
+  assert.deepEqual(sponsored.signedBy, [`account 0/${RECORDED_IDENTITY}/1`, 'sponsor 0/1/0'], 'the sender signs, then the sponsor');
+  assert.equal(s.sponsored.sender.path, `0/${RECORDED_IDENTITY}/1`);
+  assert.equal(s.sponsored.recipient.address, ACCOUNT_0);
+  assert.equal(s.sponsored.sponsor.address, FUNDING_ADDRESS);
+  assert.ok(s.sponsored.sponsor.before && s.sponsored.sponsor.after, "the sponsor's balances before and after");
+  assert.match(s.sponsored.sponsor.feeText, / CCD$/, 'the fee it paid');
+  assert.ok(s.sponsored.sender.before && s.sponsored.sender.after);
+}));
+
+test('step 6b: with no funding account there is no sponsor', local, () => withIdentityReady({}, async (demo, wallet) => {
+  await post(demo, '/api/create-account');
+  await until(demo, (x) => x.step === 'account');
+  wallet.balances.ccd = 5_000_000n;
+  await until(demo, (x) => x.step === 'funded');
+  assert.equal((await post(demo, '/api/sponsored')).status, 400);
+}));
+
+test('step 6b: the sponsored send can be run again; account 1 is reused, the boxes start afresh', local, () => withIdentityReady(FUNDED, async (demo, wallet) => {
+  await funded(demo);
+  await post(demo, '/api/sponsored');
+  await until(demo, (x) => x.busy === null && x.sponsored?.link);
+  const before = wallet.transfers.length;
+  assert.equal((await post(demo, '/api/sponsored')).status, 202);
+  assert.equal((await state(demo)).sponsored, null, 'the previous run\'s boxes are cleared');
+  const s = await until(demo, (x) => x.busy === null && x.sponsored?.link);
+  assert.equal(wallet.transfers.length - before, 2, 'again: TN given, then the sponsored send');
+  // (On the real chain account 1 is found the second time; this fake wallet-proxy reports every account as new.)
+  assert.equal(s.activity.filter((l) => /^Account 1 /.test(l.text)).length, 2, 'account 1 is used by both runs');
 }));
