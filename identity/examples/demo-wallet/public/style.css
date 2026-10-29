@@ -31,3 +31,38 @@ h1 { font-size: 34px; line-height: 1.2; margin: 8px 0 12px; }
 .lead { font-size: 20px; color: var(--ink); }
 .note { color: var(--muted); font-size: 15px; }
 .status { margin-top: 24px; padding: 12px 16px; border-radius: 10px; background: var(--bg); color: var(--muted); }
+h2 { font-size: 26px; margin: 6px 0 10px; }
+button {
+  font: inherit; font-size: 16px; padding: 9px 18px; border-radius: 10px; cursor: pointer;
+  border: 1px solid var(--accent); background: #fff; color: var(--accent);
+}
+button.primary { background: var(--accent); color: #fff; margin-top: 12px; font-size: 18px; padding: 12px 28px; }
+button:disabled { opacity: .5; cursor: default; }
+.providers { list-style: none; padding: 0; margin: 18px 0 0; display: grid; gap: 10px; }
+.provider { display: flex; align-items: center; gap: 14px; padding: 14px 16px; border: 1px solid var(--line); border-radius: 12px; }
+.provider .name { flex: 1; font-weight: 600; }
+.online { font-size: 14px; padding: 2px 10px; border-radius: 999px; background: var(--bg); color: var(--muted); }
+.online.yes { background: #e3f5ef; color: #157a55; }
+.online.no { background: #fbeaea; color: #a33; }
+.stages { list-style: none; padding: 0; margin: 20px 0 0; }
+.stages li { padding: 8px 0 8px 34px; position: relative; color: var(--muted); }
+.stages li::before { content: ""; position: absolute; left: 6px; top: 13px; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--line); }
+.stages li.done { color: var(--ink); }
+.stages li.done::before { background: var(--accent); border-color: var(--accent); }
+.stages li.now { color: var(--ink); font-weight: 600; }
+.stages li.now::before { border-color: var(--accent); animation: pulse 1.2s infinite; }
+@keyframes pulse { 50% { box-shadow: 0 0 0 6px rgba(11, 143, 138, .18); } }
+.facts { display: grid; grid-template-columns: 190px 1fr; gap: 10px 18px; margin: 18px 0; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; }
+.error { margin-top: 18px; padding: 12px 16px; border-radius: 10px; background: #fbeaea; color: #8a1f1f; }
+/* Work in progress: a small spinning ring, on the "checking" badge and the "Checking…" button. */
+.spinner {
+  display: inline-block; width: 12px; height: 12px; margin-right: 7px; vertical-align: -1px;
+  border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.online.wait { color: var(--accent); background: #e6f4f3; }
+button.checking { opacity: .75; }
+@media (prefers-reduced-motion: reduce) { .spinner { animation-duration: 2.4s; } }

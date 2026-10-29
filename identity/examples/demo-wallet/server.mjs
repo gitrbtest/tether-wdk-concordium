@@ -14,12 +14,16 @@ import { randomBytes } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readSettings } from './settings.mjs';
+import DemoFlow, { VERIFY_STAGES } from './flow.mjs';
 
 const PUBLIC = new URL('./public/', import.meta.url);
 const STATIC_FILES = {
   '/': { file: 'index.html', type: 'text/html; charset=utf-8' },
   '/app.js': { file: 'app.js', type: 'text/javascript; charset=utf-8' },
   '/style.css': { file: 'style.css', type: 'text/css; charset=utf-8' },
+  // Where the identity provider sends the browser back to (it hands the reply to /api/callback).
+  '/return': { file: 'return.html', type: 'text/html; charset=utf-8' },
+  '/return.js': { file: 'return.js', type: 'text/javascript; charset=utf-8' },
 };
 const PAGE_HEADERS = {
   'Content-Security-Policy': "default-src 'self'; img-src 'self' data: https:; frame-ancestors 'none'; base-uri 'none'",
@@ -34,9 +38,11 @@ const MAX_BODY_BYTES = 64 * 1024;
  * @param {object} [options]
  * @param {ReturnType<typeof readSettings>} [options.settings]  defaults to the environment's
  * @param {number} [options.port]  overrides settings.port (0: any free port, for tests)
+ * @param {typeof fetch} [options.fetch]  HTTP for the packages (tests pass a fake)
+ * @param {boolean} [options.checkProviders]  run the live "online" check of the providers (default true)
  * @returns {Promise<{ url: string, token: string, state: object, close: () => Promise<void> }>}
  */
-export async function startDemoServer({ settings = readSettings(), port = settings.port } = {}) {
+export async function startDemoServer({ settings = readSettings(), port = settings.port, fetch: fetchFn, checkProviders } = {}) {
   const token = randomBytes(16).toString('hex');
   // Everything the page draws. It holds no secrets: no seeds, no keys.
   const state = {
@@ -45,7 +51,9 @@ export async function startDemoServer({ settings = readSettings(), port = settin
     identityIndex: settings.identityIndex,
     reuseIdentity: settings.reuseIdentity,
     step: 'start',
+    verifyStages: VERIFY_STAGES,
   };
+  const flow = new DemoFlow({ settings, state, ...(fetchFn ? { fetch: fetchFn } : {}), checkProviders });
   let host; // "127.0.0.1:<port>", known once listening
 
   const server = createServer(async (request, response) => {
@@ -62,7 +70,7 @@ export async function startDemoServer({ settings = readSettings(), port = settin
       const page = STATIC_FILES[pathname];
       if (!page || request.method !== 'GET') return send(response, 404, { error: 'Not found.' });
       let body = await readFile(new URL(page.file, PUBLIC), 'utf8');
-      if (page.file === 'index.html') body = body.replace('__DEMO_TOKEN__', token);
+      if (page.file.endsWith('.html')) body = body.replace('__DEMO_TOKEN__', token);
       response.writeHead(200, { 'Content-Type': page.type, ...PAGE_HEADERS });
       response.end(body);
     } catch (e) {
@@ -70,10 +78,22 @@ export async function startDemoServer({ settings = readSettings(), port = settin
     }
   });
 
-  /** The JSON API the page calls. More routes arrive with each step. */
+  /** The JSON API the page calls: the state, and one route per step. */
   async function api(request, response, pathname) {
     if (request.method === 'GET' && pathname === '/api/state') return send(response, 200, state);
-    return send(response, 404, { error: 'Not found.' });
+    if (request.method !== 'POST') return send(response, 404, { error: 'Not found.' });
+    const body = await readJson(request);
+    try {
+      switch (pathname) {
+        case '/api/start': await flow.start(); return send(response, 200, state);
+        case '/api/verify': return send(response, 200, await flow.verify(Number(body.providerIndex)));
+        case '/api/callback': flow.callback(String(body.url ?? '')); return send(response, 202, { ok: true });
+        default: return send(response, 404, { error: 'Not found.' });
+      }
+    } catch (e) {
+      state.error = e.message;
+      return send(response, 400, { error: e.message });
+    }
   }
 
   await new Promise((resolve, reject) => {
@@ -81,11 +101,12 @@ export async function startDemoServer({ settings = readSettings(), port = settin
     server.listen(port, '127.0.0.1', resolve);
   });
   host = `127.0.0.1:${server.address().port}`;
+  flow.setReturnUrl(`http://${host}/return`);
   return {
     url: `http://${host}/`,
     token,
     state,
-    close: () => new Promise((resolve) => server.close(() => resolve())),
+    close: () => new Promise((resolve) => { flow.dispose(); server.close(() => resolve()); }),
   };
 }
 
