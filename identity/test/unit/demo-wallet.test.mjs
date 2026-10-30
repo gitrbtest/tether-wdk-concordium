@@ -87,7 +87,7 @@ test('only its own address is answered (other hosts and DNS tricks are refused)'
 }));
 
 test('no seed ever leaves the server: not in the page, not in the state', local, () => withDemo(FUNDED, async (demo) => {
-  const everything = [(await get(demo.url)).body, (await get(`${demo.url}app.js`)).body,
+  const everything = [(await get(demo.url)).body, (await get(`${demo.url}app.js`)).body, (await get(`${demo.url}story.js`)).body,
     (await get(`${demo.url}api/state`, { token: demo.token })).body].join('\n');
   assert.ok(!everything.includes(FUNDED.FUNDING_SEED), 'the funding seed');
   assert.ok(!everything.includes('abandon'), 'the test seed phrase');
@@ -395,3 +395,58 @@ test('step 6b: the sponsored send can be run again; account 1 is reused, the box
   // (On the real chain account 1 is found the second time; this fake wallet-proxy reports every account as new.)
   assert.equal(s.activity.filter((l) => /^Account 1 /.test(l.text)).length, 2, 'account 1 is used by both runs');
 }));
+
+// ---- Piece 5: the story (approved wording), "Show the code", Start again ----------------------------------------
+
+test('the story: an opening card, a caption for every step, a closing card', async () => {
+  const { openingCard, closingCard, captionFor, codeFor, STEPS_WITH_CAPTIONS } = await import('../../examples/demo-wallet/public/story.js');
+  const opening = openingCard({ reuseIdentity: false, identityIndex: 5 });
+  for (const words of ['Phase 1 brought Concordium', 'The gap:', 'Phase 2 closes that gap', 'data-action="start"']) assert.ok(opening.includes(words), words);
+  const closing = closingCard();
+  for (const words of ['What you just saw', 'How it is built', 'What comes next', 'data-action="restart"']) assert.ok(closing.includes(words), words);
+  for (const step of ['choose-provider', 'verifying', 'identity', 'account', 'funded']) {
+    assert.match(captionFor({ step }), /class="caption"/, `a caption for ${step}`);
+  }
+  assert.match(captionFor({ step: 'account' }), /Step 4 of 6/);
+  assert.match(captionFor({ step: 'account', busy: 'receiving' }), /Step 5 of 6/, 'step 5 once receiving starts');
+  assert.equal(captionFor({ step: 'start' }), '', 'the opening card speaks for itself');
+  assert.ok(STEPS_WITH_CAPTIONS.length === 6);
+  // "Show the code" uses this run's real values.
+  const run = { step: 'account', identityIndex: 128286342, identity: { providerIndex: 0 }, account: { address: '4Wp7kYa4x', path: '0/128286342/0', created: true } };
+  const step4 = codeFor(run);
+  assert.match(step4, /Under the hood · Step 4/, 'each panel says which step it belongs to');
+  assert.match(step4, /createAccount\(\{ providerIndex: 0, identityIndex: 128286342, credNumber: 0 \}\)/);
+  assert.match(step4, /4Wp7kYa4x/);
+  assert.doesNotMatch(step4, /getAccountByPath/, 'step 5 is not shown before it happens');
+  const step5 = codeFor({ ...run, busy: 'receiving' });
+  assert.match(step5, /Under the hood · Step 5/);
+  assert.match(step5, /getAccountByPath\(&#39;0\/128286342\/0&#39;\)/);
+});
+
+test('Start again: back to the beginning with a fresh identity; a reused identity is kept', local, () => withIdentityReady(FUNDED, async (demo) => {
+  const before = await state(demo);
+  assert.equal(before.step, 'identity');
+  const reset = await post(demo, '/api/reset');
+  assert.equal(reset.status, 200);
+  assert.equal(reset.body.step, 'start');
+  assert.equal(reset.body.identity, null);
+  assert.deepEqual(reset.body.activity, []);
+  assert.notEqual(reset.body.identityIndex, before.identityIndex, 'a fresh identity');
+}));
+
+test('Show the code, step 6: what happened is marked done, with its values; what has not is marked not used yet', async () => {
+  const { codeFor } = await import('../../examples/demo-wallet/public/story.js');
+  const base = { step: 'funded', identityIndex: 1, balances: { text: { ccd: '40.000000 CCD', plt: '5.000000 TN', cis2: '500 units' } } };
+  const fresh = codeFor(base);
+  assert.match(fresh, /Under the hood · Steps 6 and 6b/);
+  assert.match(fresh, /Done on arrival: the balances/);
+  assert.match(fresh, /getBalance\(\);\s+\/\/ → 40\.000000 CCD/);
+  assert.match(fresh, /Send: not used yet\. When you press Send, it runs:/);
+  assert.match(fresh, /Step 6b · Sponsored send: not run yet/);
+  const afterSend = codeFor({ ...base, lastSend: { status: 'sent', what: '1.500000 TN to 3GEmZc57…', feeText: '4.736775 CCD', seconds: '5.8' } });
+  assert.match(afterSend, /Send: done/);
+  assert.match(afterSend, /→ sent 1\.500000 TN to 3GEmZc57… · fee 4\.736775 CCD · final in 5\.8 s/);
+  const afterSponsored = codeFor({ ...base, sponsored: { link: 'x', sender: { address: '4SM28rG3abc', after: { ccd: '0.000000 CCD' } }, recipient: { address: '4Wp7kYa4abc' }, sponsor: { address: '3GEmZc57abc', feeText: '4.77 CCD' } } });
+  assert.match(afterSponsored, /Sponsored send: done/);
+  assert.match(afterSponsored, /the sponsor paid 4\.77 CCD/);
+});

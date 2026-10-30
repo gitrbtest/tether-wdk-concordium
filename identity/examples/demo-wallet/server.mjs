@@ -20,6 +20,7 @@ const PUBLIC = new URL('./public/', import.meta.url);
 const STATIC_FILES = {
   '/': { file: 'index.html', type: 'text/html; charset=utf-8' },
   '/app.js': { file: 'app.js', type: 'text/javascript; charset=utf-8' },
+  '/story.js': { file: 'story.js', type: 'text/javascript; charset=utf-8' },
   '/style.css': { file: 'style.css', type: 'text/css; charset=utf-8' },
   // Where the identity provider sends the browser back to (it hands the reply to /api/callback).
   '/return': { file: 'return.html', type: 'text/html; charset=utf-8' },
@@ -97,6 +98,7 @@ export async function startDemoServer({ settings = readSettings(), port = settin
         case '/api/quote': return send(response, 200, await flow.quote(body));
         case '/api/send': flow.send(body); return send(response, 202, { ok: true });
         case '/api/sponsored': flow.sponsored(); return send(response, 202, { ok: true });
+        case '/api/reset': flow.reset(); return send(response, 200, state);
         default: return send(response, 404, { error: 'Not found.' });
       }
     } catch (e) {

@@ -1,6 +1,14 @@
 // The demo wallet page: draws the server's state and sends the clicks. It never sees a seed or a key.
 
+import { openingCard, closingCard, captionFor, codeFor } from './story.js';
+
 const token = document.querySelector('meta[name="demo-token"]').content;
+
+// The header switches: story mode (captions; on by default) and "Show the code" (off by default), remembered in this
+// browser when it allows it.
+const prefs = { story: true, code: false };
+try { Object.assign(prefs, JSON.parse(localStorage.getItem('demo-wallet-prefs') ?? '{}')); } catch { /* not stored: defaults */ }
+let closing = false; // the closing card (Act 4), shown by [Finish]
 const app = document.getElementById('app');
 
 /** Call the demo server's API (with the page's token: other sites cannot add it). */
@@ -36,17 +44,7 @@ function verifyButton(p) {
 // ---- One view per step ---------------------------------------------------------------------------------------
 
 const views = {
-  start: (s) => `
-    <section class="card title-card">
-      <p class="eyebrow">Tether WDK × Concordium</p>
-      <h1>One seed phrase, a complete Concordium wallet</h1>
-      <p class="lead">A verified identity and a new account without the Concordium ID App, then CCD and tokens moving
-        through Tether's Wallet Development Kit.</p>
-      <p class="note">Testnet only, with a public test seed. This page runs on your own computer.
-        ${s.reuseIdentity ? `Using the identity saved earlier (${s.identityIndex}).` : `A fresh identity will be verified (index ${s.identityIndex}).`}</p>
-      <button class="primary" data-action="start">Start</button>
-    </section>`,
-
+  start: (s) => openingCard(s),
   'choose-provider': (s) => `
     <section class="card">
       <p class="eyebrow">Step 1 · Identity · Phase 2</p>
@@ -130,6 +128,7 @@ const views = {
     </section>
     ${sendCard(s)}
     ${sponsoredCard(s)}
+    <div class="finish"><button class="primary" data-action="finish" ${s.busy ? 'disabled' : ''}>Finish</button></div>
     ${activity(s)}`,
 };
 
@@ -250,8 +249,17 @@ let verifyLink = null; // the provider link, kept on the page in case the new ta
 
 function draw(state) {
   if (state.verification) state.verification.link = verifyLink;
-  const html = (views[state.step] ?? views.start)(state)
-    + (state.error ? `<p class="error">${esc(state.error)}</p>` : '');
+  let html;
+  if (closing) {
+    html = closingCard();
+  } else {
+    html = (prefs.story ? captionFor(state) : '') + (views[state.step] ?? views.start)(state);
+    if (prefs.code) {
+      const panel = codeFor(state);
+      html = html.includes('<section class="history">') ? html.replace('<section class="history">', `${panel}<section class="history">`) : html + panel;
+    }
+    html += state.error ? `<p class="error">${esc(state.error)}</p>` : '';
+  }
   document.getElementById('network').textContent = state.network;
   document.getElementById('funding').textContent = `funding: ${state.funding}`;
   if (html !== lastDrawn) { app.innerHTML = html; lastDrawn = html; } // redraw only what changed: no flicker
@@ -281,6 +289,15 @@ app.addEventListener('click', async (event) => {
   button.disabled = true;
   try {
     if (button.dataset.action === 'start') await api('/api/start', { method: 'POST', body: {} });
+    if (button.dataset.action === 'finish') { closing = true; lastDrawn = ''; window.scrollTo(0, 0); }
+    if (button.dataset.action === 'back') { closing = false; lastDrawn = ''; }
+    if (button.dataset.action === 'restart') {
+      await api('/api/reset', { method: 'POST', body: {} });
+      closing = false; lastDrawn = '';
+      Object.assign(form, { token: 'CCD', recipient: '', amount: '1', quote: null });
+      verifyLink = null;
+      window.scrollTo(0, 0);
+    }
     if (button.dataset.action === 'create-account') await api('/api/create-account', { method: 'POST', body: {} });
     if (button.dataset.action === 'receive') await api('/api/receive', { method: 'POST', body: {} });
     if (button.dataset.action === 'use-funding') {
@@ -317,6 +334,17 @@ app.addEventListener('click', async (event) => {
     await refresh();
   }
 });
+
+for (const [id, key] of [['story-mode', 'story'], ['show-code', 'code']]) {
+  const box = document.getElementById(id);
+  box.checked = prefs[key];
+  box.addEventListener('change', () => {
+    prefs[key] = box.checked;
+    try { localStorage.setItem('demo-wallet-prefs', JSON.stringify(prefs)); } catch { /* fine: this session only */ }
+    lastDrawn = '';
+    refresh();
+  });
+}
 
 refresh();
 setInterval(refresh, 1000);

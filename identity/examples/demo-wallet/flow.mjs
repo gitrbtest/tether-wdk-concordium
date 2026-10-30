@@ -15,7 +15,7 @@ import {
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
 import { FileIdentityStore } from '@concordium/wdk-identity-concordium/node';
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomInt } from 'node:crypto';
 import { checkProvider } from '../../scripts/lib/provider-check.mjs';
 import WalletManagerConcordium, { CONCORDIUM_TESTNET_CONFIG } from '@concordium/wdk-wallet-concordium';
 import {
@@ -75,6 +75,17 @@ export default class DemoFlow {
     this.#identity.dispose();
     this.#wallet?.dispose();
     this.#funder?.dispose();
+  }
+
+  /** [Start again]: back to the beginning; a fresh identity unless a saved one is being reused. */
+  reset() {
+    if (this.state.busy) throw new Error('Please wait: the previous step is still running.');
+    clearInterval(this.#watchFunds);
+    if (!this.#settings.reuseIdentity) this.#settings.identityIndex = randomInt(1, 2 ** 31 - 1);
+    Object.assign(this.state, {
+      step: 'start', identityIndex: this.#settings.identityIndex, providers: null, verification: null, identity: null,
+      account: null, balances: null, activity: [], busy: null, error: null, sponsored: null, lastSend: null,
+    });
   }
 
   // ---- Start ------------------------------------------------------------------------------------------------
