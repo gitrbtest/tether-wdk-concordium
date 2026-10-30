@@ -8,7 +8,7 @@ const token = document.querySelector('meta[name="demo-token"]').content;
 // browser when it allows it.
 const prefs = { story: true, code: false };
 try { Object.assign(prefs, JSON.parse(localStorage.getItem('demo-wallet-prefs') ?? '{}')); } catch { /* not stored: defaults */ }
-let closing = false; // the closing card (Act 4), shown by [Finish]
+let closing = false; // the closing card, shown by [Finish]
 const app = document.getElementById('app');
 
 /** Call the demo server's API (with the page's token: other sites cannot add it). */

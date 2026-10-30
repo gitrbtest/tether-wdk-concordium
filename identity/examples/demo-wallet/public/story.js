@@ -3,7 +3,7 @@
 
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-// ---- Act 1: the opening card -------------------------------------------------------------------------------------
+// ---- The opening card (Phase 1, and the gap) -------------------------------------------------------------------------------------
 
 export function openingCard(s) {
   return `
@@ -28,15 +28,15 @@ export function openingCard(s) {
     </section>`;
 }
 
-// ---- Act 2 and 3: one caption per step -----------------------------------------------------------------------------
+// ---- One caption per step -----------------------------------------------------------------------------
 
 const CAPTIONS = {
-  'choose-provider': ['Act 2 · Phase 2 · Step 1 of 6', 'Identity providers are the companies that verify a person. The wallet lists the ones Concordium publishes and checks that each one is accepting requests right now.'],
-  verifying: ['Act 2 · Phase 2 · Step 2 of 6', "The wallet builds the identity request from its own seed and opens the provider's page. The person fills in the provider's form there; on testnet, the test provider accepts made-up details."],
-  identity: ['Act 2 · Phase 2 · Step 3 of 6', 'The provider issued the identity. The wallet checked it belongs to this seed and saved it encrypted, with a key that comes from the seed. Nothing has gone on the blockchain yet.'],
-  account: ['Act 2 · Phase 2 · Step 4 of 6', "An account is created from the identity. The wallet sends proofs, not the identity, and the chain opens the account in seconds: no ID App, no fee. Concordium's own explorer already shows it."],
-  receive: ['Act 3 · Phase 1 · Step 5 of 6', 'Now the Phase 1 module takes over: the new account is handed to it by its path, like any WDK account, and receives CCD, a protocol-level token and a CIS-2 token.'],
-  funded: ['Act 3 · Phase 1 · Step 6 of 6', 'The account is in use: it sends with the fee quoted first, and a second account with no CCD at all sends a token while a sponsor pays the fee.'],
+  'choose-provider': ['Phase 2 · Step 1 of 6', 'Identity providers are the companies that verify a person. The wallet lists the ones Concordium publishes and checks that each one is accepting requests right now.'],
+  verifying: ['Phase 2 · Step 2 of 6', "The wallet builds the identity request from its own seed and opens the provider's page. The person fills in the provider's form there; on testnet, the test provider accepts made-up details."],
+  identity: ['Phase 2 · Step 3 of 6', 'The provider issued the identity. The wallet checked it belongs to this seed and saved it encrypted, with a key that comes from the seed. Nothing has gone on the blockchain yet.'],
+  account: ['Phase 2 · Step 4 of 6', "An account is created from the identity. The wallet sends proofs, not the identity, and the chain opens the account in seconds: no ID App, no fee. Concordium's own explorer already shows it."],
+  receive: ['Phase 1 · Step 5 of 6', 'Now the Phase 1 module takes over: the new account is handed to it by its path, like any WDK account, and receives CCD, a protocol-level token and a CIS-2 token.'],
+  funded: ['Phase 1 · Step 6 of 6', 'The account is in use: it sends with the fee quoted first, and a second account with no CCD at all sends a token while a sponsor pays the fee.'],
 };
 
 /** The caption for where the story is: the account page shows step 4, and step 5 once receiving starts. */
@@ -49,7 +49,7 @@ export function captionFor(s) {
 
 export const STEPS_WITH_CAPTIONS = Object.keys(CAPTIONS);
 
-// ---- Act 4: the closing card ---------------------------------------------------------------------------------------
+// ---- The closing card ---------------------------------------------------------------------------------------
 
 export function closingCard() {
   return `
