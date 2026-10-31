@@ -124,3 +124,14 @@ a.link, .activity a { color: var(--accent); font-weight: 600; }
 .code-panel pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.55; }
 .code-panel code { background: none; padding: 0; color: inherit; }
 .code-where { margin: 10px 0 0; font-size: 13px; color: #9fb0c6; }
+/* Step 3b: the Storage panel. */
+.storage-card { margin-top: 20px; }
+.storage-card h3 { font-size: 18px; margin: 22px 0 0; }
+.store-choices { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 16px; }
+.store-choice { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+.store-choice .note { margin: 8px 0 0; font-size: 14px; }
+.store-choice.chosen { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(11, 143, 138, .18); }
+.store-choice.chosen button { background: var(--accent); color: #fff; }
+.good { color: #157a55; }
+.bad { color: #a33; }
+@media (max-width: 700px) { .store-choices { grid-template-columns: 1fr; } }

@@ -39,10 +39,13 @@ const CAPTIONS = {
   funded: ['Phase 1 · Step 6 of 6', 'The account is in use: it sends with the fee quoted first, and a second account with no CCD at all sends a token while a sponsor pays the fee.'],
 };
 
+// Step 3b (optional): shown on the identity page while the Storage panel is open.
+const STORAGE_CAPTION = ['Phase 2 · Step 3b', "Where the identity is kept is the wallet's choice: memory, a file, a database, a backend. The store only ever receives encrypted bytes; the key comes from the seed and is never stored."];
+
 /** The caption for where the story is: the account page shows step 4, and step 5 once receiving starts. */
 export function captionFor(s) {
   const key = s.step === 'account' && s.busy === 'receiving' ? 'receive' : s.step;
-  const caption = CAPTIONS[key];
+  const caption = s.step === 'identity' && s.storage ? STORAGE_CAPTION : CAPTIONS[key];
   if (!caption) return '';
   return `<div class="caption"><p class="caption-where">${esc(caption[0])}</p><p class="caption-text">${esc(caption[1])}</p></div>`;
 }
@@ -118,6 +121,27 @@ export function codeFor(s) {
         'const summary = await identity.retrieveIdentity(callbackUrl);   // collects it and checks it belongs to the seed',
       ], '@concordium/wdk-identity-concordium · ConcordiumIdentity.createIdentityRequest, retrieveIdentity');
     case 'identity':
+      if (s.storage) {
+        const store = {
+          memory: 'new MemoryIdentityStore()',
+          files: `new FileIdentityStore('./demo-identities')`,
+          database: 'new SqliteIdentityStore(db);   // your own { save, read, delete }: see examples/database-store.mjs',
+        }[s.storage.kind].replace(/^([^;]*)$/, '$1;');
+        const r = s.storage.result;
+        return code('Step 3b', [
+          `const store = ${store}`,
+          'const identity = new ConcordiumIdentity(seedPhrase, config, { store });',
+          `await identity.saveIdentity({ providerIndex: ${p}, identityIndex: ${i} });   // the store receives { slotName, encrypted bytes }`,
+          `// → slotName '${s.storage.slotName ?? '…'}', ${s.storage.holds?.bytes ? `${s.storage.holds.bytes} bytes` : '…'}`,
+          '',
+          '// Restart wallet:',
+          'const restarted = new ConcordiumIdentity(seedPhrase, config, { store });',
+          `await restarted.loadIdentity({ providerIndex: ${p}, identityIndex: ${i} });  // no network; decrypted with a key from the seed`,
+          ...(r?.outcome === 'loaded' ? [`// → { validTo: '${r.validTo}', … }`] : []),
+          ...(r?.outcome === 'nothing' ? ['// → null: nothing saved (the memory store was emptied)'] : []),
+          ...(r?.outcome === 'refused' ? [`// → throws IdentityStorageError, reason '${r.reason}': damaged bytes are never used`] : []),
+        ], '@concordium/wdk-identity-concordium · saveIdentity, loadIdentity, MemoryIdentityStore  ·  /node · FileIdentityStore');
+      }
       if (s.identity?.loaded) {
         return code('Step 3', [
           "const store = new FileIdentityStore('./demo-identities');   // or any store: a database, a backend, a phone's storage",

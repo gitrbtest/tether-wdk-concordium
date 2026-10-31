@@ -14,7 +14,9 @@ import {
   IdentityIssuanceError,
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
+import { MemoryIdentityStore, IdentityStorageError } from '@concordium/wdk-identity-concordium';
 import { FileIdentityStore } from '@concordium/wdk-identity-concordium/node';
+import { ChosenStore, openDatabaseStore } from './stores.mjs';
 import { randomBytes, randomInt } from 'node:crypto';
 import { checkProvider } from '../../scripts/lib/provider-check.mjs';
 import WalletManagerConcordium, { CONCORDIUM_TESTNET_CONFIG } from '@concordium/wdk-wallet-concordium';
@@ -38,6 +40,9 @@ export default class DemoFlow {
   #wallet = null;   // the demo seed's accounts, through the wallet package
   #funder = null;   // the funding account's wallet (its seed stays here, never in the state)
   #watchFunds = null;
+  #stores;          // step 3b: the stores to choose from (the database is opened when first chosen)
+  #store;           // the store the wallet uses: the chosen one
+  #database = null; // the opened SQLite database, or why it cannot be used
 
   /**
    * @param {{ settings: object, state: object, fetch?: typeof fetch, checkProviders?: boolean,
@@ -55,12 +60,12 @@ export default class DemoFlow {
     this.#fetch = fetchFn;
     this.state = state;
     this.checkProviders = checkProviders;
-    this.#identity = new ConcordiumIdentity(settings.seedPhrase, CONFIG, {
-      fetch: fetchFn, store: new FileIdentityStore(settings.storeFolder),
-    });
+    this.#stores = { files: new FileIdentityStore(settings.storeFolder), memory: new MemoryIdentityStore() };
+    this.#store = new ChosenStore(this.#stores.files);
+    this.#identity = new ConcordiumIdentity(settings.seedPhrase, CONFIG, { fetch: fetchFn, store: this.#store });
     Object.assign(state, {
       providers: null, verification: null, identity: null, account: null, balances: null, activity: [], busy: null, error: null,
-      fundingAddress: null, sponsored: null, lastSend: null,
+      fundingAddress: null, sponsored: null, lastSend: null, storage: null,
     });
   }
 
@@ -75,16 +80,19 @@ export default class DemoFlow {
     this.#identity.dispose();
     this.#wallet?.dispose();
     this.#funder?.dispose();
+    this.#database?.close?.();
   }
 
   /** [Start again]: back to the beginning; a fresh identity unless a saved one is being reused. */
-  reset() {
+  async reset() {
     if (this.state.busy) throw new Error('Please wait: the previous step is still running.');
     clearInterval(this.#watchFunds);
+    await this.#repairIfDamaged();
+    this.#store.current = this.#stores.files;
     if (!this.#settings.reuseIdentity) this.#settings.identityIndex = randomInt(1, 2 ** 31 - 1);
     Object.assign(this.state, {
       step: 'start', identityIndex: this.#settings.identityIndex, providers: null, verification: null, identity: null,
-      account: null, balances: null, activity: [], busy: null, error: null, sponsored: null, lastSend: null,
+      account: null, balances: null, activity: [], busy: null, error: null, sponsored: null, lastSend: null, storage: null,
     });
   }
 
@@ -183,6 +191,137 @@ export default class DemoFlow {
     }
   }
 
+  // ---- Step 3b: where the identity is kept (optional) --------------------------------------------------------
+
+  /**
+   * The Storage panel's buttons, each quick (no network):
+   *   open                 show the panel, with the store in use (files)
+   *   choose {kind}        memory | files | database: the wallet saves the identity there, through the package
+   *   restart              a new wallet object with the same seed and store loads the identity back
+   *                        (memory: the store is emptied, as a real restart would)
+   *   damage               one bit of the stored bytes is changed, then loading is tried again (it is refused)
+   *   repair               the wallet saves the identity it holds again, over the damaged copy
+   */
+  async storage({ action, kind } = {}) {
+    if (this.state.step !== 'identity') throw new Error('The storage panel needs an identity: verify or load one first.');
+    if (this.state.busy) throw new Error('Please wait: the previous step is still running.');
+    this.state.error = null;
+    const panel = this.state.storage ??= { kind: 'files', result: null, damaged: false, database: null };
+    if (action === 'open') {
+      // Saved in the files store already: saving the same identity again just gives its slot name.
+      await this.#repairIfDamaged();
+      this.#store.current = this.#stores.files;
+      Object.assign(panel, { kind: 'files', result: null });
+      panel.slotName =(await this.#identity.saveIdentity(this.#slot())).slotName;
+      panel.database = (await this.#openDatabase()).unavailable ?? 'available';
+    } else if (action === 'choose') {
+      if (!['memory', 'files', 'database'].includes(kind)) throw new Error('Choose memory, files or database.');
+      await this.#repairIfDamaged();
+      if (kind === 'database') {
+        const database = await this.#openDatabase();
+        if (database.unavailable) throw new Error(`The database store ${database.unavailable}.`);
+      }
+      this.#store.current = this.#stores[kind];
+      panel.kind = kind;
+      await this.#identity.saveIdentity({ ...this.#slot(), replace: true });
+      panel.result = null;
+    } else if (action === 'restart') {
+      if (panel.kind === 'memory') this.#store.current = this.#stores.memory = new MemoryIdentityStore();
+      panel.result = await this.#loadWithNewWallet();
+    } else if (action === 'damage') {
+      const bytes = await this.#store.read(this.#slotName());
+      if (!bytes) throw new Error('Nothing is saved in this store: choose it again to save the identity.');
+      bytes[bytes.length - 1] ^= 0x01; // the last bit of the stored bytes (inside the encryption's checksum)
+      await this.#store.save(this.#slotName(), bytes);
+      panel.damaged = true;
+      panel.result = await this.#loadWithNewWallet();
+    } else if (action === 'repair') {
+      if (!panel.damaged) throw new Error('Nothing to repair: the saved copy is not damaged.');
+      await this.#repairIfDamaged();
+      panel.result = { outcome: 'repaired' };
+    } else {
+      throw new Error('Unknown storage action.');
+    }
+    panel.holds = await this.#whatTheStoreHolds();
+  }
+
+  #slot() {
+    return { providerIndex: this.state.identity.providerIndex, identityIndex: this.state.identity.identityIndex };
+  }
+
+  #slotName() {
+    return this.state.storage.slotName;
+  }
+
+  /** As after an app restart: a new wallet object, the same seed and store, no network. */
+  async #loadWithNewWallet() {
+    const restarted = new ConcordiumIdentity(this.#settings.seedPhrase, CONFIG, { fetch: this.#fetch, store: this.#store.current });
+    try {
+      const summary = await restarted.loadIdentity(this.#slot());
+      return summary ? { outcome: 'loaded', validTo: summary.validTo } : { outcome: 'nothing' };
+    } catch (e) {
+      if (e instanceof IdentityStorageError) return { outcome: 'refused', reason: e.reason, message: e.message };
+      throw e;
+    } finally {
+      restarted.dispose();
+    }
+  }
+
+  /** Put back a damaged copy: the wallet still holds the identity, so it saves it again over it. */
+  async #repairIfDamaged() {
+    if (!this.state.storage?.damaged) return;
+    await this.#identity.saveIdentity({ ...this.#slot(), replace: true });
+    this.state.storage.damaged = false;
+  }
+
+  async #openDatabase() {
+    if (!this.#database) {
+      this.#database = await openDatabaseStore(this.#settings.storeFolder);
+      if (this.#database.store) this.#stores.database = this.#database.store;
+    }
+    return this.#database;
+  }
+
+  /**
+   * What the chosen store actually holds for this identity: its size, its first bytes, where it is, and whether
+   * any of the identity's own details can be found in it (they cannot: it is encrypted).
+   */
+  async #whatTheStoreHolds() {
+    const slotName = this.#slotName();
+    const bytes = await this.#store.read(slotName);
+    const kind = this.state.storage.kind;
+    const where = kind === 'files' ? `${this.#settings.storeFolder.replace(/\\/g, '/')}/${slotName}.bin`
+      : kind === 'database' ? `table identities, row slot = ${slotName}` : "this program's memory";
+    if (!bytes) return { slotName, where, bytes: 0 };
+    const asText = Buffer.from(bytes).toString('latin1');
+    const details = this.#identityDetails();
+    return {
+      slotName,
+      where,
+      bytes: bytes.length,
+      head: [...bytes.subarray(0, 5)].map((b) => b.toString(16).padStart(2, '0')).join(' '),
+      magic: asText.slice(0, 4),
+      version: bytes[4],
+      searched: details.length,
+      found: details.filter((detail) => asText.includes(detail)),
+    };
+  }
+
+  /**
+   * The identity's own details to search the stored bytes for: its attribute values (four characters or more, so a
+   * match cannot happen by chance) and the identity's field names. The demo reads them from the identity the
+   * wallet holds in memory (an internal of the package, used here for this check only).
+   */
+  #identityDetails() {
+    let attributes = {};
+    try {
+      const held = this.#identity._held.require(this.#slot().providerIndex, this.#slot().identityIndex);
+      attributes = (held.value ?? held).attributeList?.chosenAttributes ?? {};
+    } catch { /* not held: search the field names only */ }
+    const values = Object.values(attributes).map(String).filter((v) => v.length >= 4);
+    return [...new Set([...values, 'chosenAttributes', 'firstName', 'lastName', 'preIdentityObject'])];
+  }
+
   // ---- Step 4: create an account ------------------------------------------------------------------------------
 
   /** [Create account]: account 0 of the identity, on chain (or found, if it exists already). In the background. */
@@ -190,6 +329,7 @@ export default class DemoFlow {
     if (this.state.step !== 'identity') throw new Error('Verify or load an identity first.');
     this.#begin('creating-account');
     this.#run(async () => {
+      await this.#repairIfDamaged(); // a copy damaged in the Storage panel is put back first
       const { providerIndex, identityIndex } = this.state.identity;
       const line = this.#log("Sending the account's credential through the wallet-proxy, waiting until it is final");
       const started = Date.now();

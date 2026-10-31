@@ -88,9 +88,13 @@ const views = {
       <p class="note"><strong>Held by your wallet: not on the blockchain.</strong> The chain only sees proofs of it
         when an account is created, never the identity itself.</p>
       <p class="note">Checked to belong to this wallet's seed before it was kept. Next: create an account from it.</p>
-      <button class="primary" data-action="create-account" ${s.busy ? 'disabled' : ''}>${s.busy === 'creating-account'
-        ? '<span class="spinner"></span>Creating the account…' : 'Create account'}</button>
+      <div class="send-actions">
+        <button class="primary" data-action="create-account" ${s.busy ? 'disabled' : ''}>${s.busy === 'creating-account'
+          ? '<span class="spinner"></span>Creating the account…' : 'Create account'}</button>
+        ${s.storage ? '' : `<button data-action="storage-open" ${s.busy ? 'disabled' : ''}>Where is it kept? (Step 3b)</button>`}
+      </div>
     </section>
+    ${s.storage ? storageCard(s) : ''}
     ${activity(s)}`,
 
   account: (s) => `
@@ -131,6 +135,88 @@ const views = {
     <div class="finish"><button class="primary" data-action="finish" ${s.busy ? 'disabled' : ''}>Finish</button></div>
     ${activity(s)}`,
 };
+
+// ---- Step 3b: Storage: where the identity is kept ----------------------------------------------------------------
+
+const STORE_CHOICES = [
+  ['memory', 'Memory', 'kept in this program only: gone when it stops (for tests and short sessions)'],
+  ['files', 'Files', 'one encrypted file per identity, in a folder on this computer (desktop and server wallets)'],
+  ['database', 'Database', 'a table in a SQLite database: the same few lines work for any database or backend'],
+];
+
+function storageCard(s) {
+  const st = s.storage;
+  const h = st.holds;
+  const busy = Boolean(s.busy);
+  const choice = ([kind, name, description]) => {
+    const unavailable = kind === 'database' && st.database && st.database !== 'available';
+    return `
+      <div class="store-choice ${st.kind === kind ? 'chosen' : ''}">
+        <button data-action="storage-choose" data-kind="${kind}" ${busy || unavailable ? 'disabled' : ''}>${name}</button>
+        <p class="note">${esc(unavailable ? `${description}. Not available here: it ${st.database}` : description)}</p>
+      </div>`;
+  };
+  let holds = '';
+  if (h) {
+    holds = `
+      <dl class="facts">
+        <dt>Slot name</dt><dd><code>${esc(h.slotName)}</code> (says which identity; not secret)</dd>
+        ${h.bytes ? `
+          <dt>Saved bytes</dt><dd>${h.bytes.toLocaleString('en-GB')} bytes, starting <code>${esc(h.head)} …</code>
+            = "${esc(h.magic)}", format version ${esc(h.version)}, then encrypted</dd>
+          <dt>Personal data visible</dt><dd>${h.found.length ? `<strong class="bad">✖ found: ${esc(h.found.join(', '))}</strong>`
+            : '<strong class="good">none ✔</strong> (the page searches the bytes for the identity\'s own details and finds none)'}</dd>
+          ${st.kind === 'files' ? `<dt>File</dt><dd><code>${esc(h.where)}</code></dd>` : ''}
+          ${st.kind === 'database' ? `<dt>Table row</dt><dd><code>slot = ${esc(h.slotName)}</code>, <code>data = ${h.bytes.toLocaleString('en-GB')} bytes</code></dd>` : ''}`
+          : '<dt>Saved bytes</dt><dd>none: this store is empty</dd>'}
+      </dl>`;
+  }
+  return `
+    <section class="card storage-card">
+      <p class="eyebrow">Step 3b · Storage · Phase 2</p>
+      <h2>Where your identity is kept</h2>
+      <p class="note">The wallet decides where identities are stored. The package hands the store only a slot name and
+        encrypted bytes, so any store works, and none of them can read the identity. Choose a store to see what it
+        actually holds.</p>
+      <div class="store-choices">${STORE_CHOICES.map(choice).join('')}</div>
+      <h3>What the store holds</h3>
+      ${holds}
+      <div class="send-actions">
+        <button data-action="storage-restart" ${busy ? 'disabled' : ''}>Restart wallet</button>
+        <button data-action="storage-damage" ${busy || st.damaged || !h?.bytes ? 'disabled' : ''}>Damage one bit</button>
+        ${st.damaged ? `<button data-action="storage-repair" ${busy ? 'disabled' : ''}>Repair</button>` : ''}
+      </div>
+      ${storageResult(st, s.identity)}
+      <p class="note">The format is documented, so other wallets (e.g. a native mobile app) can read the same data with
+        the same seed.</p>
+    </section>`;
+}
+
+/** The last Restart / Damage / Repair, in place. */
+function storageResult(st, identity) {
+  const r = st.result;
+  if (!r) return '';
+  if (r.outcome === 'loaded') {
+    return `<div class="result sent">✔ A new wallet object with the same seed loaded the identity back from the store,
+      without the network: valid until ${yearMonth(r.validTo)}.</div>`;
+  }
+  if (r.outcome === 'nothing') {
+    return st.kind === 'memory'
+      ? `<div class="result failed">Nothing to load: the memory store was emptied when the wallet restarted. That is why
+          wallets use a lasting store.</div>`
+      : '<div class="result failed">Nothing to load: nothing is saved in this store.</div>';
+  }
+  if (r.outcome === 'refused') {
+    return `<div class="result failed">✖ One bit of the saved bytes was changed. Loading it again was refused: the
+      identity cannot be decrypted (another seed, another slot, or damaged data). A damaged or swapped identity is never
+      used.<br><code>IdentityStorageError · reason ${esc(r.reason)}</code></div>`;
+  }
+  if (r.outcome === 'repaired') {
+    return `<div class="result sent">✔ The saved copy was restored from the identity the wallet holds${identity
+      ? ` (valid until ${yearMonth(identity.validTo)})` : ''}.</div>`;
+  }
+  return '';
+}
 
 // ---- Step 6: Send (the form keeps what is typed in `form`, so redrawing never wipes it) ---------------------------
 
@@ -315,6 +401,9 @@ app.addEventListener('click', async (event) => {
       form.quote = null;
     }
     if (button.dataset.action === 'sponsored') await api('/api/sponsored', { method: 'POST', body: {} });
+    if (button.dataset.action.startsWith('storage-')) {
+      await api('/api/storage', { method: 'POST', body: { action: button.dataset.action.slice('storage-'.length), kind: button.dataset.kind } });
+    }
     if (button.dataset.action === 'verify') {
       // Open the tab now, in the click (browsers block tabs opened later), then send it to the provider.
       const tab = window.open('about:blank', '_blank');

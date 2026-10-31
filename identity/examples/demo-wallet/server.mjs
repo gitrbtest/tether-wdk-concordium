@@ -98,7 +98,8 @@ export async function startDemoServer({ settings = readSettings(), port = settin
         case '/api/quote': return send(response, 200, await flow.quote(body));
         case '/api/send': flow.send(body); return send(response, 202, { ok: true });
         case '/api/sponsored': flow.sponsored(); return send(response, 202, { ok: true });
-        case '/api/reset': flow.reset(); return send(response, 200, state);
+        case '/api/storage': await flow.storage({ action: String(body.action ?? ''), kind: body.kind }); return send(response, 200, state);
+        case '/api/reset': await flow.reset(); return send(response, 200, state);
         default: return send(response, 404, { error: 'Not found.' });
       }
     } catch (e) {

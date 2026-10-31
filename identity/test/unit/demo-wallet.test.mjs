@@ -450,3 +450,102 @@ test('Show the code, step 6: what happened is marked done, with its values; what
   assert.match(afterSponsored, /Sponsored send: done/);
   assert.match(afterSponsored, /the sponsor paid 4\.77 CCD/);
 });
+
+// ---- Piece 7: the Storage panel (step 3b) -------------------------------------------------------------------------
+
+const storage = (demo, action, kind) => post(demo, '/api/storage', { action, kind });
+const hasSqlite = await import('node:sqlite').then(() => true, () => false);
+
+test('step 3b: the panel shows what the files store holds: encrypted bytes, no personal data', local, () => withIdentityReady(FUNDED, async (demo) => {
+  const opened = await storage(demo, 'open');
+  assert.equal(opened.status, 200);
+  const { kind, slotName, holds, database } = opened.body.storage;
+  assert.equal(kind, 'files');
+  assert.equal(slotName, `concordium-identity/testnet/0/${RECORDED_IDENTITY}`);
+  assert.ok(holds.bytes > 1000);
+  assert.equal(holds.head.slice(0, 14), '43 57 49 44 01', '"CWID", format version 1');
+  assert.equal(holds.magic, 'CWID');
+  assert.ok(holds.searched >= 5, 'the identity\'s own details are searched for (John, 19700101, …)');
+  assert.deepEqual(holds.found, [], 'none of them is in the stored bytes');
+  assert.ok(holds.where.endsWith(`${slotName}.bin`));
+  assert.equal(database, hasSqlite ? 'available' : database, 'the database choice says whether it can be used');
+  if (!hasSqlite) assert.match(database, /22\.13/);
+}));
+
+test('step 3b: the panel needs an identity, and waits for a running step', local, () => withRecordedDemo({}, async (demo) => {
+  const early = await storage(demo, 'open');
+  assert.equal(early.status, 400);
+  assert.match(early.body.error, /needs an identity/);
+}));
+
+test('step 3b: Memory: saved, then a restart empties it and there is nothing to load', local, () => withIdentityReady(FUNDED, async (demo) => {
+  await storage(demo, 'open');
+  const chosen = await storage(demo, 'choose', 'memory');
+  assert.equal(chosen.body.storage.kind, 'memory');
+  assert.ok(chosen.body.storage.holds.bytes > 1000, 'the wallet saved it into memory');
+  const restarted = await storage(demo, 'restart');
+  assert.deepEqual(restarted.body.storage.result, { outcome: 'nothing' });
+  assert.equal(restarted.body.storage.holds.bytes, 0, 'the memory store is empty after the restart');
+  const damage = await storage(demo, 'damage');
+  assert.equal(damage.status, 400, 'nothing to damage in an empty store');
+  const again = await storage(demo, 'choose', 'memory');
+  assert.ok(again.body.storage.holds.bytes > 1000, 'choosing it again saves it again');
+}));
+
+test('step 3b: Files: a restart loads it back; one damaged bit is refused; Repair restores it', local, () => withIdentityReady(FUNDED, async (demo) => {
+  await storage(demo, 'open');
+  const restarted = await storage(demo, 'restart');
+  assert.equal(restarted.body.storage.result.outcome, 'loaded');
+  assert.equal(restarted.body.storage.result.validTo, '202709');
+  const damaged = await storage(demo, 'damage');
+  assert.equal(damaged.body.storage.result.outcome, 'refused');
+  assert.equal(damaged.body.storage.result.reason, 'unreadable-slot');
+  assert.equal(damaged.body.storage.damaged, true);
+  const repaired = await storage(demo, 'repair');
+  assert.equal(repaired.body.storage.result.outcome, 'repaired');
+  assert.equal(repaired.body.storage.damaged, false);
+  assert.equal((await storage(demo, 'repair')).status, 400, 'nothing left to repair');
+  assert.equal((await storage(demo, 'restart')).body.storage.result.outcome, 'loaded', 'it loads again after the repair');
+}));
+
+test('step 3b: Database (SQLite): saved as a table row, restart and damage behave the same', { ...local, skip: local.skip || (!hasSqlite && 'needs Node.js 22.13+ (built-in SQLite)') }, () => withIdentityReady(FUNDED, async (demo) => {
+  await storage(demo, 'open');
+  const chosen = await storage(demo, 'choose', 'database');
+  assert.equal(chosen.status, 200);
+  assert.equal(chosen.body.storage.kind, 'database');
+  assert.ok(chosen.body.storage.holds.bytes > 1000);
+  assert.deepEqual(chosen.body.storage.holds.found, []);
+  assert.equal((await storage(demo, 'restart')).body.storage.result.outcome, 'loaded');
+  assert.equal((await storage(demo, 'damage')).body.storage.result.outcome, 'refused');
+  // Choosing another store puts the damaged copy back first.
+  await storage(demo, 'choose', 'files');
+  const back = await storage(demo, 'choose', 'database');
+  assert.equal(back.body.storage.damaged, false);
+  assert.equal((await storage(demo, 'restart')).body.storage.result.outcome, 'loaded');
+}));
+
+test('step 3b: a damaged copy is put back before the account is created, so the run carries on', local, () => withIdentityReady(FUNDED, async (demo) => {
+  await storage(demo, 'open');
+  await storage(demo, 'damage');
+  await post(demo, '/api/create-account');
+  const s = await until(demo, (x) => x.step === 'account' || x.error);
+  assert.equal(s.error, null);
+  assert.equal(s.storage.damaged, false);
+}));
+
+test('step 3b: its caption and its "Show the code" panel, with this run\'s values', async () => {
+  const { captionFor, codeFor } = await import('../../examples/demo-wallet/public/story.js');
+  const run = {
+    step: 'identity', identityIndex: 42, identity: { providerIndex: 0 },
+    storage: { kind: 'memory', slotName: 'concordium-identity/testnet/0/42', holds: { bytes: 13909 }, result: { outcome: 'nothing' } },
+  };
+  assert.match(captionFor(run), /Phase 2 · Step 3b/);
+  assert.match(captionFor({ ...run, storage: null }), /Step 3 of 6/, 'step 3 while the panel is closed');
+  const panel = codeFor(run);
+  assert.match(panel, /Under the hood · Step 3b/);
+  assert.match(panel, /const store = new MemoryIdentityStore\(\);/);
+  assert.match(codeFor({ ...run, storage: { ...run.storage, kind: 'database' } }), /new SqliteIdentityStore\(db\);   \/\//, 'the statement ends before its comment');
+  assert.match(panel, /13909 bytes/);
+  assert.match(panel, /the memory store was emptied/);
+  assert.match(codeFor({ ...run, storage: { ...run.storage, kind: 'database', result: { outcome: 'refused', reason: 'unreadable-slot' } } }), /IdentityStorageError, reason &#39;unreadable-slot&#39;/);
+});
