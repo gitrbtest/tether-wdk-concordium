@@ -2,13 +2,22 @@
  * Getting an identity back from its provider with the seed alone, e.g. on a new device (scope part D).
  * Internal: ConcordiumIdentity is the public face and hands each call on to this.
  *
- *   recover ─► recovery request (seed's keys) ─► provider's recovery address ─► checked to be this
- *              wallet's ─► held (ready for saveIdentity / createAccount)
+ *   recover      ─► recovery request (seed's keys) ─► provider's recovery address ─► checked to be this
+ *                   wallet's ─► held (ready for saveIdentity / createAccount)
+ *   findAccounts ─► account 0, 1, 2 … : address from the seed ─► on chain? (wallet-proxy) ─► stop after
+ *                   `gap` missing numbers in a row
  */
 import { IdentityProviderError, IdentityRecoveryError } from '../shared/errors.js';
 import { requireIndex } from '../shared/inputs.js';
 import { identityContent, summaryOf } from '../issuance/identity-object.js';
 import { recoveryRequest, recoveryLink, askProviderForIdentity, cancelledRecovery } from './identity-recovery.js';
+import { accountAddressOf } from '../account/credential.js';
+import { sleep } from '../shared/sleep.js';
+
+/** findAccounts stops after this many account numbers in a row with no account (wallets number accounts 0, 1, 2 …). */
+export const DEFAULT_GAP = 3;
+const ATTEMPTS = 3;         // a wallet-proxy failure is tried this many times in all
+const RETRY_PAUSE_MS = 500;
 
 export default class IdentityRecovery {
   #providers;
@@ -58,5 +67,52 @@ export default class IdentityRecovery {
     }
     this.#held.hold(providerIndex, identityIndex, identityObject);
     return summaryOf(content, providerIndex, identityIndex);
+  }
+
+  /** See ConcordiumIdentity.findAccounts. */
+  async findAccounts({ providerIndex, identityIndex = 0, gap = DEFAULT_GAP, signal } = {}) {
+    requireIndex(providerIndex, 'providerIndex');
+    requireIndex(identityIndex, 'identityIndex');
+    if (!Number.isSafeInteger(gap) || gap < 1) throw new Error('gap must be a whole number of at least 1.');
+    if (signal?.aborted) throw cancelledRecovery();
+
+    const provider = await this.#providers.get(providerIndex);
+    const globalContext = await this.#walletProxy.globalContext();
+    const hdWallet = this.#hdWallet();
+    // An identity held here says how many accounts it allows; there is no point looking beyond that.
+    const limit = this.#held.has(providerIndex, identityIndex)
+      ? identityContent(this.#held.require(providerIndex, identityIndex), 'The identity held is in an unexpected format.')
+        .attributeList.maxAccounts
+      : Infinity;
+
+    const found = [];
+    let missingInARow = 0;
+    for (let credNumber = 0; credNumber < limit && missingInARow < gap; credNumber++) {
+      const address = accountAddressOf({ provider, globalContext, hdWallet, identityIndex, credNumber });
+      if (await this.#exists(address, signal)) {
+        found.push({ credNumber, address, path: `${providerIndex}/${identityIndex}/${credNumber}` });
+        missingInARow = 0;
+      } else {
+        missingInARow++;
+      }
+    }
+    return found;
+  }
+
+  /** Whether an account exists on chain. Brief wallet-proxy failures are tried again, up to ATTEMPTS times. */
+  async #exists(address, signal) {
+    for (let attempt = 1; ; attempt++) {
+      if (signal?.aborted) throw cancelledRecovery();
+      try {
+        return await this.#walletProxy.accountExists(address, { signal });
+      } catch (e) {
+        if (signal?.aborted) throw cancelledRecovery();
+        if (attempt >= ATTEMPTS) {
+          throw new IdentityRecoveryError(`The wallet-proxy could not say whether account ${address} exists: ${e.message}`,
+            { reason: 'wallet-proxy', detail: e.message });
+        }
+        await sleep(RETRY_PAUSE_MS, signal, cancelledRecovery);
+      }
+    }
   }
 }

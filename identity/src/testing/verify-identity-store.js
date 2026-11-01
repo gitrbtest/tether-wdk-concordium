@@ -24,7 +24,7 @@ const sameBytes = (a, b) => a instanceof Uint8Array && b instanceof Uint8Array
  *   4. the store keeps its own copy: changing the caller's array afterwards changes nothing
  *   5. two slots do not affect each other
  *   6. delete empties its slot, and only its slot
- *   7. deleting an empty slot is not an error
+ *   7. deleting a slot with nothing in it does nothing (does not throw)
  *
  * The slots are named 'concordium-identity-store-check/<time>-a' and '-b' (new names each run, never
  * a real identity's slot) and are deleted at the end, pass or fail. Run it against a test instance.
@@ -73,7 +73,7 @@ export async function verifyIdentityStore(store) {
     check(await store.read(slotA) === null, 'read after delete must return null');
     check(sameBytes(await store.read(slotB), other), 'delete must only remove its own slot');
 
-    // 7. Deleting an empty slot is not an error (if the store throws here, the catch reports it).
+    // 7. Deleting a slot with nothing in it must do nothing, not throw (if it throws, the catch reports it).
     await store.delete(slotA);
   } catch (e) {
     // Our own check failures pass through unchanged; anything the store itself threw is reported as such.

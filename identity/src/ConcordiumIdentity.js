@@ -32,7 +32,7 @@ export default class ConcordiumIdentity {
    * @param {string | Uint8Array} seed  the wallet's BIP-39 seed phrase, or its 64-byte seed
    * @param {{ useMainnetKeyDerivation: boolean, walletProxyUrl: string }} config
    *   e.g. CONCORDIUM_TESTNET_IDENTITY_CONFIG; use the same key derivation as the wallet package
-   * @param {{ fetch?: typeof fetch, store?: { save: Function, read: Function, delete: Function } }} [options]
+   * @param {{ fetch?: typeof fetch, store?: import('../types/index').IdentityStore }} [options]
    *   fetch: HTTP implementation (defaults to the global fetch);
    *   store: where saveIdentity / loadIdentity keep encrypted identities (any IdentityStore)
    */
@@ -183,6 +183,30 @@ export default class ConcordiumIdentity {
     return this._recovery.recover(options);
   }
 
+  /**
+   * Find the accounts an identity has on chain, e.g. after recoverIdentity on a new device. Each
+   * account's address comes from this wallet's seed (account 0, 1, 2 …) and the wallet-proxy says
+   * whether it exists; the search stops after `gap` account numbers in a row with no account, or at the
+   * identity's maxAccounts when the identity is held here. Read-only: it only asks whether each address
+   * exists, and sends no transaction (nothing changes on chain, no fee). The addresses come from the seed
+   * and the provider's public details, not from the identity itself, so this also works before (or
+   * without) recovering the identity.
+   *
+   * @param {object} options
+   * @param {number} options.providerIndex  the provider that issued the identity
+   * @param {number} [options.identityIndex=0]  which of the wallet's identities with this provider
+   * @param {number} [options.gap=3]  stop after this many missing account numbers in a row
+   * @param {AbortSignal} [options.signal]  cancels the search
+   * @returns {Promise<Array<{ credNumber: number, address: string, path: string }>>}  the accounts found,
+   *   in order; `path` is what the wallet package's getAccountByPath takes ('provider/identity/credNumber')
+   * @throws {IdentityProviderError} If the provider is not published.
+   * @throws {IdentityRecoveryError} reason 'wallet-proxy' or 'cancelled'.
+   */
+  async findAccounts(options) {
+    this._requireNotDisposed();
+    return this._recovery.findAccounts(options);
+  }
+
   // ---- Saving identities ----
 
   /**
@@ -212,7 +236,8 @@ export default class ConcordiumIdentity {
 
   /**
    * Load a saved identity from the configured store and hold it inside this object again (e.g. after
-   * an app restart), ready for account creation. No network call.
+   * an app restart), ready for account creation. No call to the identity provider, the wallet-proxy or the
+   * chain: only the configured store is read (which may itself be remote, e.g. a backend).
    *
    * @param {{ providerIndex: number, identityIndex: number }} options
    * @returns {Promise<{ providerIndex: number, identityIndex: number, createdAt: string, validTo: string,
@@ -233,7 +258,7 @@ export default class ConcordiumIdentity {
 
   /**
    * Delete the saved identity for a provider and identity index from the configured store. An identity
-   * held inside this object is kept (dispose() clears those). Nothing saved is not an error.
+   * held inside this object is kept (dispose() clears those). If nothing is saved for it, this does nothing (no error).
    *
    * @param {{ providerIndex: number, identityIndex: number }} options
    */
@@ -244,7 +269,11 @@ export default class ConcordiumIdentity {
     await vault.delete({ providerIndex, identityIndex });
   }
 
-  /** Not disposed, and a store configured: the vault to save to and load from. */
+  /**
+   * The checks before any save, load or delete, then the vault (the part that encrypts and talks to the
+   * store). Stops with an error if this object was disposed (its seed is wiped, so no key can be made),
+   * or if no store was given when it was created (there is nowhere to save to or load from).
+   */
   _ready() {
     this._requireNotDisposed();
     if (!this._vault) {

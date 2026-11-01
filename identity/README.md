@@ -194,7 +194,9 @@ await identity.deleteIdentity({ providerIndex: 0, identityIndex: 0 });          
 
 - **The encryption key comes from the seed** each time it is needed and is wiped after use; it is never
   stored. No password, nothing extra for the user to remember.
-- **Loading needs no network call.** Decrypting proves the identity was saved with this seed for this slot.
+- **Loading needs no identity provider, wallet-proxy or chain.** Only the store is read (a local file, or a
+  remote backend if that is the store you chose). Decrypting proves the identity was saved with this seed for this
+  slot.
 - **Saved and held are separate.** `saveIdentity` saves the identity this object holds (collected or
   loaded); `loadIdentity` holds a saved one again, ready for the next steps. `deleteIdentity` removes
   the saved copy only; `dispose()` zeroes everything the object holds.
@@ -230,7 +232,7 @@ A store is any object with three async methods:
 const store = {
   async save(slotName, bytes) { … },  // save the bytes (Uint8Array), replacing anything saved under that name
   async read(slotName) { … },         // the bytes saved under that name, or null
-  async delete(slotName) { … },       // remove them; nothing saved there is not an error
+  async delete(slotName) { … },       // remove them; if nothing is saved there, do nothing (do not throw)
 };
 ```
 

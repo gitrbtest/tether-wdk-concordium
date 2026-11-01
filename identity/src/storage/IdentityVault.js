@@ -10,14 +10,23 @@ import { requireIdentityStore } from './identity-store-contract.js';
 import { storageSlotName, encryptIdentity, decryptIdentity } from './storage-format.js';
 import { IdentityStorageError } from '../shared/errors.js';
 
+/** @typedef {import('../../types/index').IdentityStore} IdentityStore */
+
 export default class IdentityVault {
+  /**
+   * Where the encrypted identities are kept: whichever store the wallet chose (MemoryIdentityStore,
+   * FileIdentityStore, a database or backend store of its own …). Any object with save / read / delete
+   * following the store contract (identity-store-contract.js); so an editor cannot jump to one
+   * implementation, only to the contract.
+   * @type {IdentityStore}
+   */
   #store;
   #derivationNetwork;
   #storageKey;
 
   /**
    * @param {object} options
-   * @param {{ save: Function, read: Function, delete: Function }} options.store  any IdentityStore
+   * @param {IdentityStore} options.store  any IdentityStore (save / read / delete)
    * @param {string} options.derivationNetwork  'Testnet' or 'Mainnet': part of every slot name
    * @param {() => Uint8Array} options.storageKey  gives a fresh copy of the 32-byte encryption key; the vault wipes it after use
    */
@@ -32,7 +41,18 @@ export default class IdentityVault {
     return storageSlotName(this.#derivationNetwork, providerIndex, identityIndex);
   }
 
-  /** Run `use(key)` with a fresh encryption key, and wipe the key afterwards, whatever happens. */
+  /**
+   * Lend the encryption key to a piece of work, then wipe it.
+   *
+   * `use` is a small function the caller passes in: the work that needs the key (encrypting or
+   * decrypting). This method makes a fresh copy of the key from the seed, hands it to `use`, and
+   * afterwards overwrites the key with zeros, so it does not stay in memory. The `finally` block
+   * makes sure the wipe happens even if the work fails with an error. Whatever `use` returns (e.g.
+   * the decrypted identity) is passed back to the caller.
+   *
+   * Example, in load():  this.#withKey((key) => decryptIdentity(key, slotName, bytes))
+   *   → the key is made, decryptIdentity runs with it, the key is wiped, the identity is returned.
+   */
   async #withKey(use) {
     const key = this.#storageKey();
     try {
@@ -59,7 +79,20 @@ export default class IdentityVault {
     return slotName;
   }
 
-  /** Throws unless the slot is empty or already holds this same identity. */
+  /**
+   * A safety check before saving: never overwrite something else by accident.
+   *
+   * It looks at what is already saved in the slot (the place this identity is saved under) and lets
+   * the save go ahead only in two cases:
+   *   - the slot is empty: nothing to lose;
+   *   - the slot already holds this very same identity: saving again changes nothing.
+   * Otherwise it stops the save with an IdentityStorageError, and the saved copy stays as it was:
+   *   - 'unreadable-slot': what is there cannot be decrypted with this wallet's seed (another
+   *     wallet's identity, or damaged data), so we cannot tell what we would be destroying;
+   *   - 'slot-in-use': it is a different identity (e.g. an older one), which the user might still need.
+   * The wallet can pass { replace: true } to saveIdentity when it really means to overwrite (e.g. the
+   * user verified again because the saved identity expired); then this check is skipped.
+   */
   async #refuseToReplace(key, slotName, identityObject, providerIndex, identityIndex) {
     const existing = await this.#store.read(slotName);
     if (existing === null || existing === undefined) return;
@@ -79,8 +112,8 @@ export default class IdentityVault {
   }
 
   /**
-   * Load a saved identity. No network call: decrypting proves it was saved with this wallet's seed
-   * for this slot.
+   * Load a saved identity. Only the store is read (no provider, wallet-proxy or chain call): decrypting
+   * proves it was saved with this wallet's seed for this slot.
    *
    * @returns {Promise<object | null>}  the identity object, or null if nothing is saved in the slot
    * @throws {IdentityStorageError} reason 'unreadable-slot' if the saved bytes cannot be decrypted
@@ -97,7 +130,7 @@ export default class IdentityVault {
     return record.identityObject;
   }
 
-  /** Delete a saved identity. Nothing saved is not an error. */
+  /** Delete a saved identity. If nothing is saved for it, this does nothing (no error). */
   async delete({ providerIndex, identityIndex }) {
     await this.#store.delete(this.slotName(providerIndex, identityIndex));
   }

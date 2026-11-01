@@ -205,3 +205,119 @@ test('recoverIdentity: cancelled before it starts; refused once disposed', async
   wallet.dispose();
   await assert.rejects(wallet.recoverIdentity({ providerIndex: 0 }), /disposed/);
 });
+
+// ---- Piece 3: findAccounts ------------------------------------------------------------------------------------
+
+const ACCOUNT_0 = '3Z4WkEMb5msvBRPAZyneFcntHWqceHf7Q9JitSjBAegvQXSB5t'; // account 0 of the recorded identity, on testnet
+const { accountAddressOf } = await import('../../src/account/credential.js');
+
+/** The address of account n of the recorded identity, worked out from the seed. */
+function addressOf(credNumber, identityIndex = RECORDED_IDENTITY) {
+  return accountAddressOf({
+    provider: provider0(), globalContext: globalFixture('testnet').value,
+    hdWallet: sdk.ConcordiumHdWallet.fromSeedPhrase(PHRASE, 'Testnet'), identityIndex, credNumber,
+  });
+}
+
+/**
+ * The network with a scripted wallet-proxy account check: `existing` lists the account numbers that exist;
+ * `failures` makes the first few checks fail (HTTP 502). `checked` notes each address asked about, in order.
+ */
+function networkWithAccounts(existing, { failures = 0, recovery = [] } = {}) {
+  const recorded = walletProxyFetch('testnet');
+  const provider = scriptedProvider(...recovery);
+  const existingAddresses = new Set(existing.map((n) => addressOf(n)));
+  const checked = [];
+  const fetch = async (url, options) => {
+    const text = String(url);
+    if (text.startsWith(`${RECOVERY_START}?`)) return provider.fetch(url, options);
+    if (text.includes('/v0/accBalance/')) {
+      if (failures > 0) { failures--; return { ok: false, status: 502, json: async () => ({}) }; }
+      const address = text.split('/v0/accBalance/')[1];
+      checked.push(address);
+      const body = existingAddresses.has(address) ? { finalizedBalance: { accountAmount: '1000000' } } : {};
+      return { ok: true, status: 200, json: async () => body };
+    }
+    return recorded.fetch(url, options);
+  };
+  return { fetch, checked };
+}
+
+const newWallet = (network) => new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: network.fetch });
+
+test('findAccounts: accounts 0 and 1 exist: both found, with their paths; it stops after 3 missing in a row', async () => {
+  const network = networkWithAccounts([0, 1]);
+  const wallet = newWallet(network);
+  const accounts = await wallet.findAccounts({ providerIndex: 0, identityIndex: RECORDED_IDENTITY });
+  assert.deepEqual(accounts, [
+    { credNumber: 0, address: ACCOUNT_0, path: `0/${RECORDED_IDENTITY}/0` },
+    { credNumber: 1, address: addressOf(1), path: `0/${RECORDED_IDENTITY}/1` },
+  ]);
+  assert.equal(accounts[0].address, ACCOUNT_0, 'account 0 is the real testnet account of this identity');
+  assert.deepEqual(network.checked, [0, 1, 2, 3, 4].map((n) => addressOf(n)), 'asked about 0 to 4, then stopped');
+  wallet.dispose();
+});
+
+test('findAccounts: a hole shorter than the gap is skipped over (0 and 2 exist)', async () => {
+  const network = networkWithAccounts([0, 2]);
+  const wallet = newWallet(network);
+  const accounts = await wallet.findAccounts({ providerIndex: 0, identityIndex: RECORDED_IDENTITY });
+  assert.deepEqual(accounts.map((a) => a.credNumber), [0, 2]);
+  assert.equal(network.checked.length, 6, '0 to 5: three missing in a row after account 2');
+  wallet.dispose();
+});
+
+test('findAccounts: no accounts: an empty list after 3 checks; the gap can be changed', async () => {
+  const network = networkWithAccounts([]);
+  const wallet = newWallet(network);
+  assert.deepEqual(await wallet.findAccounts({ providerIndex: 0, identityIndex: RECORDED_IDENTITY }), []);
+  assert.equal(network.checked.length, 3);
+  const narrow = networkWithAccounts([0, 2]);
+  const other = newWallet(narrow);
+  assert.deepEqual((await other.findAccounts({ providerIndex: 0, identityIndex: RECORDED_IDENTITY, gap: 1 })).map((a) => a.credNumber), [0],
+    'gap 1: stops at the first missing number');
+  await assert.rejects(other.findAccounts({ providerIndex: 0, gap: 0 }), /gap must be/);
+  wallet.dispose();
+  other.dispose();
+});
+
+test('findAccounts: with the identity held, it never looks beyond the identity\'s maxAccounts', async () => {
+  const allowsTwo = issued();
+  allowsTwo.value.attributeList.maxAccounts = 2;
+  const network = networkWithAccounts([0, 1, 2, 3], { recovery: [{ status: 200, body: allowsTwo }] });
+  const wallet = newWallet(network);
+  await wallet.recoverIdentity({ providerIndex: 0, identityIndex: RECORDED_IDENTITY });
+  const accounts = await wallet.findAccounts({ providerIndex: 0, identityIndex: RECORDED_IDENTITY });
+  assert.deepEqual(accounts.map((a) => a.credNumber), [0, 1]);
+  assert.equal(network.checked.length, 2, 'accounts 2 and 3 are never asked about');
+  wallet.dispose();
+});
+
+test('findAccounts: a brief wallet-proxy failure is tried again; three in a row: wallet-proxy', async () => {
+  const blip = networkWithAccounts([0], { failures: 2 });
+  const wallet = newWallet(blip);
+  assert.deepEqual((await wallet.findAccounts({ providerIndex: 0, identityIndex: RECORDED_IDENTITY })).map((a) => a.credNumber), [0]);
+  wallet.dispose();
+
+  const down = networkWithAccounts([0], { failures: 3 });
+  const other = newWallet(down);
+  await assert.rejects(other.findAccounts({ providerIndex: 0, identityIndex: RECORDED_IDENTITY }), (e) => {
+    assert.ok(e instanceof IdentityRecoveryError);
+    assert.equal(e.reason, 'wallet-proxy');
+    assert.match(e.detail, /HTTP 502/);
+    return true;
+  });
+  other.dispose();
+});
+
+test('findAccounts: inputs checked; cancelled; refused once disposed', async () => {
+  const network = networkWithAccounts([0]);
+  const wallet = newWallet(network);
+  await assert.rejects(wallet.findAccounts({}), /providerIndex is required/);
+  const cancelled = new AbortController();
+  cancelled.abort();
+  await rejectsWith(wallet.findAccounts({ providerIndex: 0, signal: cancelled.signal }), 'cancelled');
+  assert.equal(network.checked.length, 0, 'nothing asked');
+  wallet.dispose();
+  await assert.rejects(wallet.findAccounts({ providerIndex: 0 }), /disposed/);
+});

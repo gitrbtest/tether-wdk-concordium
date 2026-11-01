@@ -67,7 +67,7 @@ export default class FileIdentityStore {
     }
   }
 
-  /** Remove what is saved under the slot name. Nothing saved there is not an error. */
+  /** Remove what is saved under the slot name. If nothing is saved there, this does nothing (no error). */
   async delete(slotName) {
     await rm(this.#fileFor(slotName), { force: true });
   }

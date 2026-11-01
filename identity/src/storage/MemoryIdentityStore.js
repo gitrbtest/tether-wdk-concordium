@@ -20,7 +20,7 @@ export default class MemoryIdentityStore {
     return bytes ? Uint8Array.from(bytes) : null; // a copy: the caller cannot change what is stored
   }
 
-  /** Remove what is saved under the slot name. Nothing saved there is not an error. */
+  /** Remove what is saved under the slot name. If nothing is saved there, this does nothing (no error). */
   async delete(slotName) {
     requireSlotName(slotName);
     this.#slots.delete(slotName);

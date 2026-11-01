@@ -6,7 +6,7 @@
  *
  *   save(slotName, bytes)   save the bytes (Uint8Array) under the name, replacing anything there
  *   read(slotName)          the bytes saved under the name, or null if there are none
- *   delete(slotName)        remove them; nothing saved there is not an error
+ *   delete(slotName)        remove them; if nothing is saved there, do nothing (do not throw)
  *
  * Operators can check their own store with verifyIdentityStore, from the testing entry point
  * (@concordium/wdk-identity-concordium/testing).

@@ -51,12 +51,13 @@ export class IdentityIssuanceError extends Error {
 }
 
 /**
- * Thrown when an identity cannot be recovered from its provider. "Not found" is not an error: recovery returns null.
+ * Thrown when an identity cannot be recovered from its provider. If the provider has no such identity, recovery returns null instead of throwing.
  */
 export class IdentityRecoveryError extends Error {
   /** provider-error: the provider answered with an error or not an identity; not-yours: the identity does not belong
- *  to this seed; network: the provider could not be reached; cancelled: the AbortSignal fired. */
-  reason: 'provider-error' | 'not-yours' | 'network' | 'cancelled';
+ *  to this seed; network: the provider could not be reached; wallet-proxy: finding accounts, the wallet-proxy failed;
+ *  cancelled: the AbortSignal fired. */
+  reason: 'provider-error' | 'not-yours' | 'network' | 'wallet-proxy' | 'cancelled';
   /** The provider's HTTP status, for provider-error. */
   status?: number;
   /** The provider's explanation, if it gave one. */
@@ -111,7 +112,7 @@ export interface IdentityStore {
   save(slotName: string, bytes: Uint8Array): Promise<void>;
   /** The bytes saved under the slot name, or null if there are none. */
   read(slotName: string): Promise<Uint8Array | null>;
-  /** Remove what is saved under the slot name. Nothing saved there is not an error. */
+  /** Remove what is saved under the slot name. If nothing is saved there, this does nothing (no error). */
   delete(slotName: string): Promise<void>;
 }
 
@@ -199,6 +200,28 @@ export interface RecoverIdentityOptions {
   signal?: AbortSignal;
 }
 
+/** Options for ConcordiumIdentity.findAccounts. */
+export interface FindAccountsOptions {
+  /** The provider that issued the identity. */
+  providerIndex: number;
+  /** Which of the wallet's identities with this provider (default 0). */
+  identityIndex?: number;
+  /** Stop after this many missing account numbers in a row (default 3). */
+  gap?: number;
+  /** Cancels the search. */
+  signal?: AbortSignal;
+}
+
+/** An account found on chain by ConcordiumIdentity.findAccounts. */
+export interface FoundAccount {
+  /** The account number under the identity (0, 1, 2 …). */
+  credNumber: number;
+  /** The account address. */
+  address: string;
+  /** What the wallet package's getAccountByPath takes: 'provider/identity/credNumber'. */
+  path: string;
+}
+
 export interface SavedIdentitySummary extends IdentitySummary {
   /** e.g. 'concordium-identity/testnet/0/0' */
   slotName: string;
@@ -281,6 +304,13 @@ export class ConcordiumIdentity {
    */
   recoverIdentity(options: RecoverIdentityOptions): Promise<IdentitySummary | null>;
   /**
+   * Find the accounts an identity has on chain (account 0, 1, 2 … from the seed; stops after `gap` missing in a row,
+   * or at the identity's maxAccounts if it is held). Read-only: asks whether each address exists; sends no transaction.
+   * @throws {IdentityProviderError} If the provider is not published.
+   * @throws {IdentityRecoveryError} reason 'wallet-proxy' or 'cancelled'.
+   */
+  findAccounts(options: FindAccountsOptions): Promise<FoundAccount[]>;
+  /**
    * Save the identity held for a provider and identity index, encrypted, in the configured store. The store
    * receives only encrypted bytes and the slot name. A different identity already saved there is not
    * replaced unless { replace: true }.
@@ -289,7 +319,8 @@ export class ConcordiumIdentity {
    */
   saveIdentity(options: SaveIdentityOptions): Promise<SavedIdentitySummary>;
   /**
-   * Load a saved identity from the configured store and hold it inside this object again. No network call.
+   * Load a saved identity from the configured store and hold it inside this object again. No call to the provider,
+   * the wallet-proxy or the chain: only the store is read (which may itself be remote).
    * @returns The summary, or null if nothing is saved for that slot.
    * @throws {IdentityStorageError} reason 'unreadable-slot' if the saved bytes cannot be decrypted.
    */
