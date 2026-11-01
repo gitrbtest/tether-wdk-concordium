@@ -34,6 +34,29 @@ export class IdentityIssuanceError extends Error {
 }
 
 /**
+ * Thrown when an identity cannot be recovered from its provider. "Not found" is not an error (recovery
+ * returns null). `reason` says what went wrong:
+ * - provider-error: the provider answered with an error, or with something that is not an identity
+ *   (`status` and `detail` carry what it said)
+ * - not-yours: the provider returned an identity that does not belong to this wallet's seed
+ * - network: the provider could not be reached (after a few tries)
+ * - cancelled: the wallet cancelled it (its AbortSignal)
+ */
+export class IdentityRecoveryError extends Error {
+  /**
+   * @param {string} message
+   * @param {{ reason: 'provider-error' | 'not-yours' | 'network' | 'cancelled', status?: number, detail?: string }} info
+   */
+  constructor(message, { reason, status, detail } = {}) {
+    super(message);
+    this.name = 'IdentityRecoveryError';
+    this.reason = reason;
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+/**
  * Thrown when an account is not created from an identity. `reason` says why. Found before anything is sent:
  * - 'identity-expired': the identity's validTo month has passed (verify again for a new identity)
  * - 'max-accounts': the account number is not below the identity's maxAccounts

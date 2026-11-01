@@ -51,6 +51,19 @@ export class IdentityIssuanceError extends Error {
 }
 
 /**
+ * Thrown when an identity cannot be recovered from its provider. "Not found" is not an error: recovery returns null.
+ */
+export class IdentityRecoveryError extends Error {
+  /** provider-error: the provider answered with an error or not an identity; not-yours: the identity does not belong
+ *  to this seed; network: the provider could not be reached; cancelled: the AbortSignal fired. */
+  reason: 'provider-error' | 'not-yours' | 'network' | 'cancelled';
+  /** The provider's HTTP status, for provider-error. */
+  status?: number;
+  /** The provider's explanation, if it gave one. */
+  detail?: string;
+}
+
+/**
  * Thrown when a saved identity cannot be used or saved: the bytes in a storage slot cannot be decrypted
  * with this wallet's seed, are not identity data, or use an unknown format version; or a different
  * identity is already saved where saveIdentity was asked to save.
