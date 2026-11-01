@@ -189,6 +189,16 @@ export interface SaveIdentityOptions extends IdentitySlot {
 }
 
 /** An identity's summary and the slot it was saved in. */
+/** Options for ConcordiumIdentity.recoverIdentity. */
+export interface RecoverIdentityOptions {
+  /** The provider that issued the identity. */
+  providerIndex: number;
+  /** Which of the wallet's identities with this provider (default 0). */
+  identityIndex?: number;
+  /** Cancels the request. */
+  signal?: AbortSignal;
+}
+
 export interface SavedIdentitySummary extends IdentitySummary {
   /** e.g. 'concordium-identity/testnet/0/0' */
   slotName: string;
@@ -263,6 +273,13 @@ export class ConcordiumIdentity {
    * @throws {IdentityIssuanceError} reason 'provider-error', 'rejected', 'timeout' or 'cancelled'.
    */
   retrieveIdentity(callbackUrl: string, options?: WaitForIdentityOptions): Promise<IdentitySummary>;
+  /**
+   * Get an identity back from its provider with the seed alone (e.g. on a new device): no verification, no browser.
+   * Checked to be this wallet's and held, as after retrieveIdentity. null if the provider has none for it.
+   * @throws {IdentityProviderError} If the provider is not published, or publishes no recovery address.
+   * @throws {IdentityRecoveryError} reason 'provider-error', 'not-yours', 'network' or 'cancelled'.
+   */
+  recoverIdentity(options: RecoverIdentityOptions): Promise<IdentitySummary | null>;
   /**
    * Save the identity held for a provider and identity index, encrypted, in the configured store. The store
    * receives only encrypted bytes and the slot name. A different identity already saved there is not

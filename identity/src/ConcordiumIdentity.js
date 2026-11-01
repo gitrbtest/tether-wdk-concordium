@@ -6,6 +6,7 @@ import HeldIdentities from './shared/HeldIdentities.js';
 import IdentityProviders from './providers/IdentityProviders.js';
 import WalletProxy from './providers/WalletProxy.js';
 import IdentityIssuance from './issuance/IdentityIssuance.js';
+import IdentityRecovery from './recovery/IdentityRecovery.js';
 import { identityContent, summaryOf } from './issuance/identity-object.js';
 import IdentityVault from './storage/IdentityVault.js';
 import { deriveStorageKey } from './storage/storage-format.js';
@@ -19,6 +20,7 @@ import AccountCreator, { readAccountOptions } from './account/AccountCreator.js'
  *
  *   ConcordiumIdentity   seed, dispose, the public methods
  *     ├─ IdentityIssuance   request link, collect + ownership check        (issuance/)
+ *     ├─ IdentityRecovery   get an identity back with the seed alone        (recovery/)
  *     ├─ HeldIdentities     the identities held in memory, as bytes        (shared/)
  *     ├─ IdentityVault      save / load / delete, encrypted                 (storage/)
  *     └─ AccountCreator     checks, "exists?", build, send + wait           (account/)
@@ -44,6 +46,7 @@ export default class ConcordiumIdentity {
 
     this._held = new HeldIdentities();
     this._issuance = new IdentityIssuance({ providers, walletProxy, fetch: fetchVia, hdWallet, held: this._held });
+    this._recovery = new IdentityRecovery({ providers, walletProxy, fetch: fetchVia, hdWallet, held: this._held });
     this._accounts = new AccountCreator({ providers, walletProxy, hdWallet });
     // Saving identities: the vault asks for the key through _storageKey() and never sees the seed.
     this._vault = store === undefined ? undefined : new IdentityVault({
@@ -156,6 +159,28 @@ export default class ConcordiumIdentity {
   async retrieveIdentity(callbackUrl, options) {
     this._requireNotDisposed();
     return this._issuance.retrieveIdentity(callbackUrl, options);
+  }
+
+  // ---- Getting an identity back ----
+
+  /**
+   * Get an identity back from its provider with the seed alone, e.g. on a new device or after the
+   * saved copy was lost: no verification, no browser. The provider looks the identity up by a request
+   * built from this wallet's seed; the identity is checked to be this wallet's and kept inside this
+   * object, as after retrieveIdentity (save it with saveIdentity, create accounts with createAccount).
+   *
+   * @param {object} options
+   * @param {number} options.providerIndex  the provider that issued it
+   * @param {number} [options.identityIndex=0]  which of the wallet's identities with this provider
+   * @param {AbortSignal} [options.signal]  cancels the request
+   * @returns {Promise<{ providerIndex: number, identityIndex: number, createdAt: string, validTo: string,
+   *   maxAccounts: number } | null>}  the identity's summary, or null if the provider has none for it
+   * @throws {IdentityProviderError} If the provider is not published, or publishes no recovery address.
+   * @throws {IdentityRecoveryError} reason 'provider-error', 'not-yours', 'network' or 'cancelled'.
+   */
+  async recoverIdentity(options) {
+    this._requireNotDisposed();
+    return this._recovery.recover(options);
   }
 
   // ---- Saving identities ----
