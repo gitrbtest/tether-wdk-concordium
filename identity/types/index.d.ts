@@ -222,6 +222,26 @@ export interface FoundAccount {
   path: string;
 }
 
+/** Options for ConcordiumIdentity.recoverAll. */
+export interface RecoverAllOptions {
+  /** Only these providers (default: every provider that publishes a recovery address). */
+  providerIndexes?: number[];
+  /** Stop after this many missing identity numbers in a row, per provider (default 3). */
+  identityGap?: number;
+  /** Stop after this many missing account numbers in a row, per identity (default 3). */
+  accountGap?: number;
+  /** Cancels it. */
+  signal?: AbortSignal;
+}
+
+/** What ConcordiumIdentity.recoverAll found. */
+export interface RecoverAllResult {
+  /** Every identity got back (held, ready for saveIdentity), with its accounts; accounts is null if they could not be looked up. */
+  identities: Array<{ providerIndex: number; identityIndex: number; summary: IdentitySummary; accounts: FoundAccount[] | null }>;
+  /** What could not be done; identityIndex is null when the provider itself could not be used. */
+  problems: Array<{ providerIndex: number; identityIndex: number | null; error: Error }>;
+}
+
 export interface SavedIdentitySummary extends IdentitySummary {
   /** e.g. 'concordium-identity/testnet/0/0' */
   slotName: string;
@@ -310,6 +330,13 @@ export class ConcordiumIdentity {
    * @throws {IdentityRecoveryError} reason 'wallet-proxy' or 'cancelled'.
    */
   findAccounts(options: FindAccountsOptions): Promise<FoundAccount[]>;
+  /**
+   * Get everything back from the seed alone (a new device): for each provider, identity 0, 1, 2 … until
+   * `identityGap` missing in a row, each with its accounts. Every identity found is held, ready for saveIdentity.
+   * A provider that cannot be asked is noted in `problems`; the others are still asked.
+   * @throws {IdentityRecoveryError} reason 'cancelled'.
+   */
+  recoverAll(options?: RecoverAllOptions): Promise<RecoverAllResult>;
   /**
    * Save the identity held for a provider and identity index, encrypted, in the configured store. The store
    * receives only encrypted bytes and the slot name. A different identity already saved there is not

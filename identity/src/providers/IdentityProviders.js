@@ -61,6 +61,19 @@ export default class IdentityProviders {
     if (!entry) {
       throw new IdentityProviderError(`No identity provider ${index} is published on this network.`, index);
     }
-    return { ...summary(entry), ipInfo: entry.ipInfo, arsInfos: entry.arsInfos };
+    return withDetails(entry);
   }
+
+  /**
+   * Every provider with its details (as get gives for one), from a single download of the list.
+   * Internal: recoverAll uses it so the list is downloaded once for all the providers it works through.
+   */
+  async _allWithDetails() {
+    return (await this._entries()).map(withDetails);
+  }
+}
+
+/** A provider's summary plus the keys (ipInfo) and anonymity revokers (arsInfos) requests are built from. */
+function withDetails(entry) {
+  return { ...summary(entry), ipInfo: entry.ipInfo, arsInfos: entry.arsInfos };
 }

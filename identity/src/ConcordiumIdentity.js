@@ -207,6 +207,40 @@ export default class ConcordiumIdentity {
     return this._recovery.findAccounts(options);
   }
 
+  /**
+   * Get everything back from the seed alone, in one call: what a wallet does on a new device.
+   *
+   * For each identity provider (every one that publishes a recovery address, or the ones listed in
+   * `providerIndexes`), it tries identity 0, 1, 2 … with recoverIdentity, until `identityGap` numbers in
+   * a row have no identity; for each identity it gets back, it finds its accounts with findAccounts.
+   * Every identity found is held inside this object, ready for saveIdentity (call it for each one you
+   * want to keep). Expired identities come back too: check `summary.validTo`.
+   *
+   * If one provider cannot be asked (it is down, or refuses), that is noted in `problems` and the others
+   * are still asked, so nothing found is lost. Cancelling (`signal`) stops everything.
+   *
+   * Identities made with unusual identity numbers (far apart, or random as in the demo wallet) cannot be
+   * found by counting 0, 1, 2 …; recover those with recoverIdentity and their number.
+   *
+   * @param {object} [options]
+   * @param {number[]} [options.providerIndexes]  only these providers (default: all with a recovery address)
+   * @param {number} [options.identityGap=3]  stop after this many missing identity numbers in a row, per provider
+   * @param {number} [options.accountGap=3]  stop after this many missing account numbers in a row, per identity
+   * @param {AbortSignal} [options.signal]  cancels it
+   * @returns {Promise<{
+   *   identities: Array<{ providerIndex: number, identityIndex: number,
+   *     summary: { providerIndex: number, identityIndex: number, createdAt: string, validTo: string, maxAccounts: number },
+   *     accounts: Array<{ credNumber: number, address: string, path: string }> | null }>,
+   *   problems: Array<{ providerIndex: number, identityIndex: number | null, error: Error }> }>}
+   *   `accounts` is null when the identity came back but its accounts could not be looked up (see problems);
+   *   a problem's `identityIndex` is null when the provider itself could not be used
+   * @throws {IdentityRecoveryError} reason 'cancelled'
+   */
+  async recoverAll(options) {
+    this._requireNotDisposed();
+    return this._recovery.recoverAll(options);
+  }
+
   // ---- Saving identities ----
 
   /**

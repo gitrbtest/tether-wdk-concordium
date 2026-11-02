@@ -6,6 +6,8 @@
  *                   wallet's ─► held (ready for saveIdentity / createAccount)
  *   findAccounts ─► account 0, 1, 2 … : address from the seed ─► on chain? (wallet-proxy) ─► stop after
  *                   `gap` missing numbers in a row
+ *   recoverAll   ─► for each provider: identity 0, 1, 2 … (recover, then findAccounts) until
+ *                   `identityGap` missing numbers in a row; a provider that fails is noted, not fatal
  */
 import { IdentityProviderError, IdentityRecoveryError } from '../shared/errors.js';
 import { requireIndex } from '../shared/inputs.js';
@@ -18,6 +20,15 @@ import { sleep } from '../shared/sleep.js';
 export const DEFAULT_GAP = 3;
 const ATTEMPTS = 3;         // a wallet-proxy failure is tried this many times in all
 const RETRY_PAUSE_MS = 500;
+
+/** The provider, checked to publish a recovery address (else IdentityProviderError). */
+function requireRecoveryAddress(provider) {
+  if (!provider.recoveryStart) {
+    throw new IdentityProviderError(
+      `Identity provider ${provider.index} publishes no recovery address on this network.`, provider.index);
+  }
+  return provider;
+}
 
 export default class IdentityRecovery {
   #providers;
@@ -45,11 +56,17 @@ export default class IdentityRecovery {
     requireIndex(identityIndex, 'identityIndex');
     if (signal?.aborted) throw cancelledRecovery();
 
-    const provider = await this.#providers.get(providerIndex);
-    if (!provider.recoveryStart) {
-      throw new IdentityProviderError(
-        `Identity provider ${providerIndex} publishes no recovery address on this network.`, providerIndex);
-    }
+    return this.#recoverFrom(await this.#recoverableProvider(providerIndex), identityIndex, signal);
+  }
+
+  /** A provider by its number, checked to publish a recovery address. */
+  async #recoverableProvider(providerIndex) {
+    return requireRecoveryAddress(await this.#providers.get(providerIndex));
+  }
+
+  /** recover, for a provider already looked up (recoverAll takes it from the list it downloaded once). */
+  async #recoverFrom(provider, identityIndex, signal) {
+    const providerIndex = provider.index;
     const globalContext = await this.#walletProxy.globalContext();
     const request = recoveryRequest({ provider, globalContext, hdWallet: this.#hdWallet(), identityIndex });
     const identityObject = await askProviderForIdentity({
@@ -69,6 +86,66 @@ export default class IdentityRecovery {
     return summaryOf(content, providerIndex, identityIndex);
   }
 
+  /** See ConcordiumIdentity.recoverAll. */
+  async recoverAll({ providerIndexes, identityGap = DEFAULT_GAP, accountGap = DEFAULT_GAP, signal } = {}) {
+    if (!Number.isSafeInteger(identityGap) || identityGap < 1) throw new Error('identityGap must be a whole number of at least 1.');
+    if (!Number.isSafeInteger(accountGap) || accountGap < 1) throw new Error('accountGap must be a whole number of at least 1.');
+    if (providerIndexes !== undefined) {
+      if (!Array.isArray(providerIndexes)) throw new Error('providerIndexes must be a list of provider numbers.');
+      providerIndexes.forEach((index) => requireIndex(index, 'providerIndexes entry'));
+    }
+    if (signal?.aborted) throw cancelledRecovery();
+
+    // Download the provider list ONCE for this whole call, and take each provider's details from it.
+    // (Nothing is kept after the call: the next recoverAll downloads a fresh list.)
+    const published = await this.#providers._allWithDetails();
+    // Which providers to ask: the ones given, or every provider that publishes a recovery address.
+    const toAsk = providerIndexes ?? published.filter((p) => p.recoveryStart).map((p) => p.index);
+
+    const identities = [];
+    const problems = [];
+    for (const providerIndex of toAsk) {
+      let provider;
+      try {
+        const found = published.find((p) => p.index === providerIndex);
+        if (!found) throw new IdentityProviderError(`No identity provider ${providerIndex} is published on this network.`, providerIndex);
+        provider = requireRecoveryAddress(found);
+      } catch (error) {
+        problems.push({ providerIndex, identityIndex: null, error }); // e.g. not published, or no recovery address
+        continue;
+      }
+      // Identity 0, 1, 2 … with this provider, until `identityGap` numbers in a row have none.
+      let missingInARow = 0;
+      for (let identityIndex = 0; missingInARow < identityGap; identityIndex++) {
+        let summary;
+        try {
+          summary = await this.#recoverFrom(provider, identityIndex, signal);
+        } catch (error) {
+          if (error instanceof IdentityRecoveryError && error.reason === 'cancelled') throw error;
+          // This provider cannot be asked now (down, refusing, not published …): note it and move on, so
+          // the identities found with the other providers are not lost.
+          problems.push({ providerIndex, identityIndex, error });
+          break;
+        }
+        if (summary === null) {
+          missingInARow++;
+          continue;
+        }
+        missingInARow = 0;
+        try {
+          const accounts = await this.#findAccountsFrom(provider, identityIndex, accountGap, signal);
+          identities.push({ providerIndex, identityIndex, summary, accounts });
+        } catch (error) {
+          if (error instanceof IdentityRecoveryError && error.reason === 'cancelled') throw error;
+          // The identity is back (and held), but its accounts could not be looked up now.
+          identities.push({ providerIndex, identityIndex, summary, accounts: null });
+          problems.push({ providerIndex, identityIndex, error });
+        }
+      }
+    }
+    return { identities, problems };
+  }
+
   /** See ConcordiumIdentity.findAccounts. */
   async findAccounts({ providerIndex, identityIndex = 0, gap = DEFAULT_GAP, signal } = {}) {
     requireIndex(providerIndex, 'providerIndex');
@@ -76,7 +153,12 @@ export default class IdentityRecovery {
     if (!Number.isSafeInteger(gap) || gap < 1) throw new Error('gap must be a whole number of at least 1.');
     if (signal?.aborted) throw cancelledRecovery();
 
-    const provider = await this.#providers.get(providerIndex);
+    return this.#findAccountsFrom(await this.#providers.get(providerIndex), identityIndex, gap, signal);
+  }
+
+  /** findAccounts, for a provider already looked up. */
+  async #findAccountsFrom(provider, identityIndex, gap, signal) {
+    const providerIndex = provider.index;
     const globalContext = await this.#walletProxy.globalContext();
     const hdWallet = this.#hdWallet();
     // An identity held here says how many accounts it allows; there is no point looking beyond that.
