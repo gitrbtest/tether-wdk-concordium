@@ -31,9 +31,14 @@ const providerIndex = Number(process.env.PROVIDER_INDEX ?? 0);
 const identityIndex = Number(process.env.IDENTITY_INDEX ?? 0);
 const storeFolder = process.env.IDENTITY_STORE || './demo-identities';
 
+// The identity package, given the wallet's seed phrase. Every key it needs (for the identity request, and later
+// to encrypt the saved identity) is worked out from the seed; nothing secret is stored. The store is where the
+// identity will be saved: here, a folder of encrypted files.
 const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG, {
   store: new FileIdentityStore(storeFolder),
 });
+
+// A "cancel switch" (a standard AbortController): pressing Ctrl+C flips it, and the waits below stop cleanly.
 const cancel = new AbortController();
 process.once('SIGINT', () => cancel.abort()); // Ctrl+C cancels the wait
 
@@ -56,15 +61,20 @@ async function openInBrowser(link) {
 }
 
 try {
-  // 1. Listen on this machine for the provider's return.
+  // 1. Get ready to be called back. When the user finishes on the provider's page, the provider sends their
+  //    browser to a "return address" with its reply in it. The built-in listener is a tiny local web server on
+  //    this machine that waits for exactly that visit. (A phone app or web wallet would catch it its own way.)
   const listener = await listenForIdentityCallback({ signal: cancel.signal });
 
-  // 2. Build the request from the seed, with the listener as the return address.
+  // 2. Build the identity request. It is made from the seed's keys for this provider and identity number, and
+  //    proves to the provider that the wallet holds them, without revealing them. The result is one long link
+  //    to the provider's verification page, carrying the request and the listener's return address.
   const { issuanceUrl } = await identity.createIdentityRequest({
     providerIndex, identityIndex, redirectUri: listener.redirectUri,
   });
 
-  // 3. The user verifies in a browser.
+  // 3. The person verifies, in a browser, on the provider's own page: documents and selfie with a real
+  //    provider; on testnet, Concordium's test provider shows a form with made-up details instead.
   console.log('Open this link in a browser to verify (Ctrl+C to cancel):\n');
   console.log(issuanceUrl, '\n');
   if (process.env.OPEN_BROWSER === '1') {
@@ -73,13 +83,17 @@ try {
   }
   console.log('Waiting for the provider to send the browser back...');
 
-  // 4. The browser comes back; collect the identity.
+  // 4. The browser comes back to the listener, carrying the provider's reply (where to collect the identity).
+  //    retrieveIdentity collects it, waiting if the provider is still checking, then makes sure it really was
+  //    issued to this seed's keys before keeping it. Only a summary is returned (dates, number of accounts
+  //    allowed): the person's details stay inside the package.
   const callbackUrl = await listener.callback;
   console.log('Back from the provider. Collecting the identity...');
   const summary = await identity.retrieveIdentity(callbackUrl, { signal: cancel.signal });
   console.log('\nIdentity issued:', summary);
 
-  // 5. Save it, encrypted, so it survives a restart.
+  // 5. Save it, encrypted, so it survives a restart. The encryption key is made from the seed and never stored;
+  //    the store only ever receives a slot name and encrypted bytes. Next time: loadIdentity (see load-identity).
   const { slotName } = await identity.saveIdentity({ providerIndex, identityIndex });
   console.log(`\nSaved encrypted to ${storeFolder} (slot ${slotName}).`);
 } catch (e) {
@@ -90,5 +104,6 @@ try {
   }
   process.exitCode = 1;
 } finally {
+  // Wipe the seed (and the identity held in memory) whatever happened above.
   identity.dispose();
 }

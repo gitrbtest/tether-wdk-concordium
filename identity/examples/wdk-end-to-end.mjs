@@ -153,16 +153,24 @@ if (!FUNDING_SEED || !FUNDING_PATH) {
   process.exit(1);
 }
 
+// Three objects, as a wallet app with a funding source would have:
+// - `identity` (this package): the wallet's identity, and creating accounts from it;
+// - `wallet` (the Phase 1 WDK wallet package, same seed): using those new accounts, i.e. balances, sending, tokens;
+// - `funder` (the wallet package, another seed): the funding account that gives the new accounts something to send,
+//   standing in for an exchange or a friend; later it is also the sponsor that pays a fee.
 const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { store: new FileIdentityStore(storeFolder) });
 const wallet = new WalletManagerConcordium(seedPhrase, { ...CONCORDIUM_TESTNET_CONFIG });   // the new accounts, through WDK
 const funder = new WalletManagerConcordium(FUNDING_SEED, { ...CONCORDIUM_TESTNET_CONFIG }); // the funding account
 
 try {
+  // 1. Load the identity verify-identity saved (decrypted with a key made from the seed). Accounts are made from it.
   step(1, `Load the saved identity ${identityIndex} (provider ${providerIndex})          [this package]`);
   const summary = await identity.loadIdentity({ providerIndex, identityIndex });
   if (summary === null) throw new Error(`Nothing saved in ${storeFolder}: run npm run example:verify-identity first, or set IDENTITY_INDEX.`);
   done(`valid to ${summary.validTo}, up to ${summary.maxAccounts} accounts`);
 
+  // 2. Create a new account from the identity (as create-account does): the first unused account number from 10
+  //    up. Only proofs from the identity go to the chain, never the person's details. Free, and final in seconds.
   step(2, 'Create a new account from it: no ID App, no fee                       [this package]');
   waiting('sending the account\'s credential and waiting until it is final');
   let started = Date.now();
@@ -170,6 +178,8 @@ try {
   done(`account ${created.credNumber}: ${created.address}  (final in ${seconds(started)})`);
   console.log(`   ${accountLink(created.address)}`);
 
+  // 3. The hand-over to Tether's WDK: the wallet package opens the new account by its path ('provider/identity/
+  //    account'), exactly as it would any WDK account. From here on, everything goes through the wallet package.
   step(3, `Hand it to Tether's WDK: getAccountByPath('${created.path}')        [wallet package]`);
   const account = await walletAccount(wallet, created.path);
   const funding = await walletAccount(funder, FUNDING_PATH);
@@ -177,6 +187,9 @@ try {
   done(`the wallet package sees ${await read('the address', () => account.getAddress())}`);
   showBalances(await balances(account));
 
+  // 4. Receive: the funding account sends the new account some CCD (Concordium's own coin, which also pays fees), a
+  //    protocol-level token (TN) and a CIS-2 smart-contract token. Each transfer is sent once and waited on until
+  //    final; sendOnce makes sure a transfer is never sent twice, even if the node hiccups.
   step(4, `Receive: the funding account sends ${ccd(AMOUNTS.fund.ccd)}, ${plt(AMOUNTS.fund.plt)} and ${AMOUNTS.fund.cis2} CIS-2 units`);
   for (const [token, amount] of [['CCD', AMOUNTS.fund.ccd], [PLT, AMOUNTS.fund.plt], [CIS2, AMOUNTS.fund.cis2]]) {
     const name = token === 'CCD' ? 'CCD' : tokenName(token);
@@ -189,6 +202,8 @@ try {
   }
   showBalances(await balances(account));
 
+  // 5. Send: the new account sends some of each back. For each one, the fee is asked for first (quote...), checked
+  //    against the account's CCD, and only then is the transfer sent: what a wallet shows its user before "Send".
   step(5, 'Send from the new account: some of each back, the fee quoted first   [wallet package]');
   for (const [token, amount] of [['CCD', AMOUNTS.back.ccd], [PLT, AMOUNTS.back.plt], [CIS2, AMOUNTS.back.cis2]]) {
     const name = token === 'CCD' ? 'CCD' : tokenName(token);
@@ -205,8 +220,11 @@ try {
   }
   showBalances(await balances(account));
 
-  // Three roles, three accounts: the SENDER (a second new account, with TN but no CCD), the RECIPIENT (the
-  // first new account) and the SPONSOR (the funding account, standing in for the wallet operator).
+  // 6. A sponsored send: a brand-new user who holds a token but no CCD cannot pay a fee, so someone else pays it.
+  //    Three roles, three accounts: the SENDER (a second new account, with TN but no CCD), the RECIPIENT (the
+  //    first new account) and the SPONSOR (the funding account, standing in for the wallet operator).
+  //    The transfer is built by the sender, signed by the sender (agreeing to the transfer), then signed by the
+  //    sponsor (agreeing to pay the fee), and sent. The sender ends with the same CCD it started with: none.
   step(6, `Sponsored: a second new account holding ${PLT} but NO CCD sends ${plt(AMOUNTS.sponsored.send)} to the first; a sponsor pays the fee`);
   waiting('creating a second account and giving it some TN (no CCD)');
   const second = await nextNewAccount(identity);
@@ -235,6 +253,7 @@ try {
   else console.error(`\nStopped: ${e.message}`);
   process.exitCode = 1;
 } finally {
+  // Wipe the seeds (and the identity held in memory) from all three objects, whatever happened above.
   identity.dispose();
   wallet.dispose();
   funder.dispose();

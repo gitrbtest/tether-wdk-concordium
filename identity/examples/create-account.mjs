@@ -28,11 +28,14 @@ const identityIndex = Number(process.env.IDENTITY_INDEX ?? 0);
 const credNumber = Number(process.env.CRED_NUMBER ?? 0);
 const storeFolder = process.env.IDENTITY_STORE || './demo-identities';
 
+// The identity package with the wallet's seed phrase and the folder verify-identity saved the identity into.
 const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG, {
   store: new FileIdentityStore(storeFolder),
 });
 
 try {
+  // 1. Load the saved identity (as load-identity does): an account can only be made from an identity the
+  //    wallet holds. null means nothing is saved for this provider and identity number.
   console.log(`1. Load identity ${identityIndex} (provider ${providerIndex}) from ${storeFolder}`);
   const summary = await identity.loadIdentity({ providerIndex, identityIndex });
   if (summary === null) {
@@ -42,6 +45,12 @@ try {
   } else {
     console.log(`   loaded: valid to ${summary.validTo}, up to ${summary.maxAccounts} accounts\n`);
 
+    // 2. Create the account. createAccount first checks the identity is not expired and that the account number
+    //    is allowed, and asks the chain whether this account already exists (then it just returns it, sending
+    //    nothing). Otherwise it builds the account's "credential" from the identity: the new account's public key
+    //    plus mathematical proofs that a provider verified this person. The identity itself and the person's
+    //    details are NOT sent. It sends that through the wallet-proxy and waits until the chain has accepted it
+    //    for good ("final"). Creating an account is free.
     console.log(`2. Create account ${credNumber} on testnet (sent through the wallet-proxy; usually a few seconds)`);
     const started = Date.now();
     const account = await identity.createAccount({ providerIndex, identityIndex, credNumber });
@@ -50,10 +59,14 @@ try {
       ? `   created in ${seconds} s, final on chain (transaction ${account.transactionHash})`
       : '   it already exists on chain: nothing was sent');
     console.log(`   address: ${account.address}`);
+    // The path ('provider/identity/account') is how Tether's WDK wallet package finds this account: see
+    // wdk-end-to-end for using it to receive and send.
     console.log(`   path:    ${account.path}   (for the wallet package: getAccountByPath('${account.path}'))`);
     console.log(`   see it:  https://testnet.ccdscan.io/?dcount=1&dentity=account&daddress=${account.address}`);
   }
 } catch (e) {
+  // AccountCreationError says why no account was made (e.g. identity-expired, rejected by the chain, timeout);
+  // IdentityStorageError, why the saved identity could not be loaded.
   if (e instanceof AccountCreationError) {
     console.error(`AccountCreationError (${e.reason}): ${e.message}`);
   } else if (e instanceof IdentityStorageError) {
@@ -63,5 +76,6 @@ try {
   }
   process.exitCode = 1;
 } finally {
+  // Wipe the seed (and the identity held in memory) whatever happened above.
   identity.dispose();
 }

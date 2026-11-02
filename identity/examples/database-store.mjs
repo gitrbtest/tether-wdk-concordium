@@ -16,7 +16,14 @@ import { verifyIdentityStore } from '@concordium/wdk-identity-concordium/testing
 
 // ---- The store: any object with save / read / delete works ----------------------------------
 
-/** An identity store on a SQLite table. In production this would be your own database. */
+/**
+ * An identity store on a SQLite table. In production this would be your own database.
+ *
+ * A store is any object with three methods, save / read / delete, each working on a "slot name" (a short text
+ * saying which identity, e.g. 'concordium-identity/testnet/0/0') and bytes. The identity package calls them; it
+ * only ever hands the store encrypted bytes, so the database never sees anything readable. One table with two
+ * columns is enough: the slot name as the key, and the bytes.
+ */
 class SqliteIdentityStore {
   #db;
 
@@ -31,11 +38,13 @@ class SqliteIdentityStore {
       + 'ON CONFLICT (slot) DO UPDATE SET data = excluded.data').run(slotName, bytes);
   }
 
+  // read: the bytes saved under that name, or null if there are none (null tells the package "nothing saved").
   async read(slotName) {
     const row = this.#db.prepare('SELECT data FROM identities WHERE slot = ?').get(slotName);
     return row ? new Uint8Array(row.data) : null;
   }
 
+  // delete: remove the row; if there is none, this simply does nothing (no error).
   async delete(slotName) {
     this.#db.prepare('DELETE FROM identities WHERE slot = ?').run(slotName);
   }
@@ -58,6 +67,9 @@ const db = new DatabaseSync(file);
 const store = new SqliteIdentityStore(db);
 
 // ---- Recorded testnet data, so the example runs offline -----------------------------------
+// Instead of asking the real wallet-proxy and identity provider, this sample answers from data recorded from
+// testnet earlier: the provider list, the network's parameters, and a real identity the test provider issued.
+// `offlineFetch` stands in for the internet: the package asks it for a web address and gets the recorded answer.
 
 const fixture = (name) => JSON.parse(readFileSync(new URL(`../test/fixtures/${name}`, import.meta.url), 'utf8'));
 const CODE_URI = 'https://id-service.testnet.concordium.com/api/v1/identity/51cf6074722e6685934b4d06fba5baf0045d1d8130ead5ba7fac04dabff9ba3a';
@@ -74,10 +86,16 @@ const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon 
 const SLOT = { providerIndex: 0, identityIndex: 334563111 }; // the identity the recorded one was issued for
 
 try {
+  // 1. Before trusting a store you wrote yourself, check it follows the rules (the "store contract"): save then
+  //    read gives the same bytes back, reading an empty slot gives null, deleting works, and so on.
+  //    verifyIdentityStore runs those checks and throws if one fails.
   console.log('1. Check the database store against the identity store contract');
   await verifyIdentityStore(store);
   console.log('   passed\n');
 
+  // 2. A wallet using the database store: collect the identity (from the recorded reply), then save it.
+  //    saveIdentity encrypts it with a key made from the seed and calls the store's save with the slot name and
+  //    the encrypted bytes, which become a row in the table.
   console.log('2. Collect an identity (recorded testnet reply) and save it in the database');
   const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: offlineFetch, store });
   await wallet.waitForIdentity(CODE_URI, { ...SLOT, intervalMs: 1 });
@@ -85,6 +103,9 @@ try {
   wallet.dispose();
   console.log(`   saved in slot ${saved.slotName}\n`);
 
+  // 3. Look inside the database directly, as an attacker who stole it would: each row starts with the format
+  //    marker "CWID" and a version number, and the rest is encrypted. The sample searches the bytes for the
+  //    identity's details (the test name "John Doe", the birth date, field names) and finds none.
   console.log('3. What the database holds');
   for (const { slot, data } of db.prepare('SELECT slot, data FROM identities').all()) {
     const bytes = new Uint8Array(data);
@@ -97,11 +118,14 @@ try {
   }
   console.log();
 
+  // 4. As after an app restart: a new wallet object, the same seed, the same database. loadIdentity reads the
+  //    row and decrypts it with a key made from the seed again; nothing else was needed.
   console.log('4. A new wallet object (as after a restart) loads it back from the database');
   const restarted = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: offlineFetch, store });
   console.log('  ', await restarted.loadIdentity(SLOT));
   restarted.dispose();
 } finally {
+  // Close the database and delete its temporary file: this sample leaves nothing behind.
   db.close();
   rmSync(file, { force: true });
 }

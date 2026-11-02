@@ -20,3 +20,5 @@ identity-request.json
 .zshrc
 # Identity demo runs (examples/verify-identity.mjs) save encrypted identities here
 demo-identities/
+# The recovery example (examples/recover-identity.mjs) saves recovered identities here
+recovered-identities/
