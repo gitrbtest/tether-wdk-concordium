@@ -25,8 +25,15 @@ User-facing changes to `@concordium/wdk-identity-concordium` are recorded here.
 - Example `create-account` (`npm run example:create-account`): create an account on testnet from a saved identity, and see it on CCDScan.
 - Example `wdk-end-to-end` (`npm run example:wdk-end-to-end`): an account created from the saved identity, used through `@concordium/wdk-wallet-concordium`: receives CCD, a PLT and a CIS-2 token, sends some back with the fee quoted first, and a second account with no CCD sends a PLT with its fee paid by a sponsor. The wallet package is a development-only dependency, for this example.
 - Dependency `@concordium/rust-bindings`, pinned to the exact version `@concordium/web-sdk` uses (a test keeps them in step), for the signed credential in the form the wallet-proxy takes.
+- Recovery from the seed alone, e.g. on a new device: `ConcordiumIdentity.recoverIdentity` asks the provider's published recovery address for one identity (by provider and identity number), checks it belongs to the seed and holds it, as after verifying; `null` if the provider has none. `findAccounts` lists an identity's accounts on chain (account 0, 1, 2 … from the seed, until `gap` missing in a row, default 3), each with the `path` for `getAccountByPath`. `recoverAll` does both for every provider with a recovery address and identity 0, 1, 2 … (`identityGap`, `accountGap`), returning `{ identities, problems }` so one provider failing does not lose the others. Read-only: no transactions, no fees.
+- `IdentityRecoveryError`, with `reason` `'provider-error'`, `'not-yours'`, `'network'`, `'wallet-proxy'` or `'cancelled'`, and the provider's `status` and `detail` when given.
+- Example `recover-identity` (`npm run example:recover-identity`): recovery on a new device on testnet with `recoverAll` alone, then the accounts' balances through the wallet package. Read-only.
+- Live test (read-only, run with the other live tests): the recorded test identity comes back from the testnet provider, with its account 0; an identity never issued comes back as `null`.
+- "What you can build" in the README: short stories of what the package makes possible, each with a demo to run.
 
 ### Changed
 
 - The main entry no longer uses Node.js-only features, so it is meant to run outside Node.js too; a test keeps it that way.
 - The network's cryptographic parameters are read once per `ConcordiumIdentity` instead of for every request.
+- Every example now explains each step in plain English in its code comments.
+- Clearer wording in the docs and code comments: loading an identity reads only the store (no provider, wallet-proxy or chain call; the store itself may be remote), and deleting what is not saved does nothing.

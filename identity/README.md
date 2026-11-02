@@ -8,7 +8,8 @@ own seed, without the Concordium ID App:
 
 - start identity verification with an identity provider and collect the issued identity,
 - keep the identity in encrypted storage that the wallet chooses,
-- create Concordium accounts from the stored identity.
+- create Concordium accounts from the stored identity,
+- get the identity and its accounts back from the seed phrase alone, e.g. on a new phone.
 
 Accounts created this way are then used through `@concordium/wdk-wallet-concordium`
 like any other account.
@@ -16,7 +17,28 @@ like any other account.
 > **Status: in development.** The package is not published yet, and its API
 > may change until the first release. Available today: listing identity
 > providers, starting identity verification, collecting the issued identity,
-> saving it encrypted, and creating accounts from it (tested on testnet).
+> saving it encrypted, creating accounts from it, and recovering it from the
+> seed (tested on testnet).
+
+## What you can build
+
+Short stories of what a wallet, or a business working with wallets, can do with this package. Each one has
+a demo you can run on testnet. (All names are made up; everything runs on Concordium's testnet.)
+
+**Add Concordium to a multi-chain wallet, without sending users elsewhere.** A wallet built with Tether's
+WDK already holds stablecoins on several chains. With this package, a new user who taps "Add Concordium"
+chooses an identity provider, verifies once on the provider's page, and comes back to a verified identity
+and a new Concordium account, inside the same wallet. No second app, no fee for the account; and a sponsor
+can pay their first transaction fees, so they can move tokens before owning any CCD.
+Try it: `npm run demo-wallet` (a step-by-step page in your browser; see [the demo wallet](examples/demo-wallet/)).
+
+**A new phone, and nothing lost.** A user drops their phone in the sea. On the new one, they type their seed
+phrase, and the wallet asks the identity providers for their identities and the chain for their accounts:
+everything comes back, with no documents, no new verification and nothing else to remember.
+Try it: `npm run example:recover-identity`.
+
+More stories will follow as the package grows (proving facts such as "over 18" without revealing anything
+else; tokens that only verified people may hold).
 
 ## Requirements
 
@@ -348,6 +370,96 @@ to Concordium's SDK. The SDK takes the derived keys as hex text, which JavaScrip
 key is held as bytes and zeroed straight after use, and short-lived text copies of the other keys exist until
 garbage collection, as noted in the [storage threat model](docs/storage-format.md#threat-model).
 
+## Getting the identity back (recovery)
+
+The seed phrase is the user's backup. The store holds the everyday copy of the identity, read on every app
+start; recovery is for when that copy is gone, for example on a new phone or after the app was reinstalled.
+From the seed alone, the wallet asks the identity provider for the identity it issued, and the chain for the
+identity's accounts. The user verifies nothing again.
+
+How it works, briefly: the seed gives the same keys every time, so the wallet can rebuild the request for
+"identity N with provider P" and prove it holds that identity's key, without sending the key. The provider
+answers with the identity it issued for that key (or "none"), and the package checks it really belongs to
+this seed before keeping it. Account addresses also come from the seed (account 0, 1, 2 …), so the wallet
+works each one out and asks the chain whether it exists. Recovery only reads: it sends no transaction and
+costs nothing.
+
+### Everything at once: `recoverAll`
+
+What a wallet calls on a new device:
+
+```js
+const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { store });
+const wallet = new WalletManagerConcordium(seedPhrase, CONCORDIUM_TESTNET_CONFIG);   // the same seed
+
+const { identities, problems } = await identity.recoverAll();
+for (const { providerIndex, identityIndex, summary, accounts } of identities) {
+  await identity.saveIdentity({ providerIndex, identityIndex });   // keep it, encrypted, as usual
+  for (const { path } of accounts ?? []) {
+    const account = await wallet.getAccountByPath(path);           // @concordium/wdk-wallet-concordium
+  }
+}
+```
+
+For each identity provider that publishes a recovery address, it asks for identity 0, 1, 2 … until three
+numbers in a row have none, and finds each identity's accounts. Every identity found is held, ready for
+`saveIdentity` and `createAccount`, exactly as after verifying.
+
+- **`identities`**: each with its `summary` (dates, `maxAccounts`) and `accounts` (`credNumber`, `address`,
+  `path`). `accounts` is `null` if the identity came back but its accounts could not be looked up just now:
+  call `findAccounts` later.
+- **`problems`**: anything that could not be done, as `{ providerIndex, identityIndex, error }`. A provider
+  that is down is noted here and the others are still asked, so one failure never loses the rest.
+  (`identityIndex` is `null` when the provider itself could not be used.)
+- **Expired identities come back too.** Check `summary.validTo`: `createAccount` refuses an expired identity
+  (`identity-expired`), and the user verifies again for a new one.
+- Options: `providerIndexes` (only these providers), `identityGap` and `accountGap` (how many missing numbers
+  in a row end the search; default 3 each), and `signal` (cancel).
+
+### One identity, or its accounts: `recoverIdentity`, `findAccounts`
+
+```js
+const summary = await identity.recoverIdentity({ providerIndex: 0, identityIndex: 0 });
+// → { providerIndex, identityIndex, createdAt, validTo, maxAccounts }, held; or null if the provider has none
+
+const accounts = await identity.findAccounts({ providerIndex: 0, identityIndex: 0 });
+// → [{ credNumber: 0, address: '4qXq…', path: '0/0/0' }, …]   (options: gap, signal)
+```
+
+`findAccounts` does not need the identity itself (addresses come from the seed and the provider's public
+details), so it also works before or without recovering the identity. When the identity is held, it never
+looks beyond the identity's `maxAccounts`.
+
+### Number identities 0, 1, 2 …
+
+Recovery finds identities by counting, so give each provider's identities the numbers 0, 1, 2 … in order,
+and accounts 0, 1, 2 … under each identity. A wallet that does so gets everything back with `recoverAll`
+alone. An identity given a number far from the others (for example a random one, as the demo wallet does
+on its shared test phrase) is not found by counting; `recoverIdentity` with its number still gets it back.
+If your app leaves bigger gaps (an identity started but never finished, accounts skipped), raise
+`identityGap` or `accountGap`. Keep your own list of the numbers you use: stores do not list their contents.
+
+### When it fails
+
+`IdentityRecoveryError` with a `reason`. "Not found" is not an error: `recoverIdentity` returns `null`.
+
+| `reason` | Meaning | What a wallet does |
+|---|---|---|
+| `provider-error` | the provider answered with an error, or with something that is not an identity (`status`, `detail`) | show it; try again later |
+| `network` | the provider could not be reached (after three tries) | check the connection; try again |
+| `wallet-proxy` | finding accounts: the wallet-proxy failed (`detail`) | try `findAccounts` again later |
+| `not-yours` | the provider returned an identity that does not belong to this seed; it is never kept | should not happen: report it |
+| `cancelled` | cancelled through `signal` | nothing |
+
+`IdentityProviderError` if the provider is not published, or publishes no recovery address.
+
+### Try it
+
+`npm run example:recover-identity` (`examples/recover-identity.mjs`), read-only on testnet: a "new phone"
+with only the public test phrase recovers its identities with `recoverAll`, saves them, finds their
+accounts and reads their balances through the wallet package. Because that phrase is public and shared,
+it may also find identities other people made with it (one is shown as expired).
+
 ## Optional: built-in callback listener (Node.js desktop and server wallets)
 
 Wallets that catch the provider's return themselves (a mobile app's own scheme,
@@ -397,7 +509,7 @@ A runnable example of the whole flow on testnet, saving the identity encrypted i
 cd identity
 npm ci
 npm test                  # unit tests, offline
-npm run test:integration  # live: the testnet identity provider accepts our request
+npm run test:integration  # live: the testnet provider accepts our request, and recovery works (read-only)
 WRITE=1 npm run test:integration   # also creates a real account on testnet (free, but permanent; see below)
 npm run check:providers   # live: report on every provider, testnet and mainnet
 npm run fixtures          # re-capture the recorded wallet-proxy data used by the tests
