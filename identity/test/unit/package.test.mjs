@@ -36,11 +36,12 @@ test('the optional Node.js extras load from their own entry point, and the main 
 
 test('the main entry uses no Node.js-only features, so it can run in browsers and mobile runtimes too', async () => {
   const { readdirSync } = await import('node:fs');
-  // Everything the main entry loads: index.js and all of src/, except the optional Node extras and the testing tools.
+  // Everything the main entry loads: index.js and all of src/, except the optional Node extras, the testing tools and
+  // the website's side of proofs (src/verify: servers only).
   const sourcesIn = (dir) => readdirSync(new URL(dir, packageRoot), { withFileTypes: true })
     .flatMap((entry) => (entry.isDirectory() ? sourcesIn(`${dir}${entry.name}/`) : [`${dir}${entry.name}`]));
   const mainEntryFiles = ['index.js', ...sourcesIn('src/')
-    .filter((file) => !file.startsWith('src/node/') && !file.startsWith('src/testing/'))];
+    .filter((file) => !file.startsWith('src/node/') && !file.startsWith('src/testing/') && !file.startsWith('src/verify/'))];
   assert.ok(mainEntryFiles.includes('src/storage/storage-format.js'), 'the check reaches files in subfolders');
   const nodeOnly = [
     [/\bBuffer\b/, 'Node\'s Buffer (use Uint8Array, and @noble/hashes/utils for hex)'],
@@ -52,6 +53,19 @@ test('the main entry uses no Node.js-only features, so it can run in browsers an
       .replace(/\/\*[\s\S]*?\*\//g, '') // ignore comments: only code counts
       .replace(/(^|\s)\/\/.*$/gm, '$1');
     for (const [pattern, what] of nodeOnly) assert.doesNotMatch(code, pattern, `${file} uses ${what}`);
+  }
+});
+
+test('the website side of proofs loads from its own entry point (/verify), and the main entry does not load it', async () => {
+  const verify = await import('@concordium/wdk-identity-concordium/verify');
+  assert.equal(typeof verify.requestFor, 'function');
+  const main = await import('@concordium/wdk-identity-concordium');
+  assert.equal(main.requestFor, undefined, 'requestFor is for websites, not wallets');
+  const { readdirSync } = await import('node:fs');
+  const sourcesIn = (dir) => readdirSync(new URL(dir, packageRoot), { withFileTypes: true })
+    .flatMap((entry) => (entry.isDirectory() ? sourcesIn(`${dir}${entry.name}/`) : [`${dir}${entry.name}`]));
+  for (const file of ['index.js', ...sourcesIn('src/').filter((f) => !f.startsWith('src/verify/'))]) {
+    assert.doesNotMatch(readFileSync(new URL(file, packageRoot), 'utf8'), /\/verify\//, `${file} does not import src/verify`);
   }
 });
 

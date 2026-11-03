@@ -367,3 +367,50 @@ export class ConcordiumIdentity {
   /** Zero the seed and any collected identities, and drop them; later calls that need the seed throw. */
   dispose(): void;
 }
+
+// ---- Proofs (scope part E) ----
+
+/** One fact asked about an attribute, in Concordium's request format (version 0). Range: lower ≤ value < upper. */
+export type ProofStatement =
+  | { type: 'RevealAttribute'; attributeTag: string }
+  | { type: 'AttributeInRange'; attributeTag: string; lower: string; upper: string }
+  | { type: 'AttributeInSet'; attributeTag: string; set: string[] }
+  | { type: 'AttributeNotInSet'; attributeTag: string; set: string[] };
+
+/** What a website asks: facts about an identity from one of the accepted providers. */
+export interface CredentialStatement {
+  idQualifier: { type: 'cred'; issuers: number[] };
+  statement: ProofStatement[];
+}
+
+/** A website's proof request: as a WalletConnect `request_verifiable_presentation` carries it. */
+export interface ProofRequest {
+  /** Hex chosen by the website: the answer is tied to it, so it cannot be reused for another request. */
+  challenge: string;
+  credentialStatements: CredentialStatement[];
+}
+
+/** One item for a consent screen, from describeProofRequest. */
+export interface ProofAsk {
+  kind: 'reveal' | 'range' | 'in-set' | 'not-in-set';
+  attribute: string;
+  /** Plain English, e.g. "prove you were born before 4 Nov 2008 (at least 18 years old), without showing your date of birth". */
+  text: string;
+}
+
+/**
+ * Describe a website's proof request in plain English, for the person's consent screen (no network, no secrets).
+ * Accepts the request, or WalletConnect's `{ paramsJson }` wrapper. One entry per credential statement.
+ * @throws {ProofError} reason 'invalid-request' or 'unknown-attribute'.
+ */
+export function describeProofRequest(request: ProofRequest | { paramsJson: string }, options?: { now?: Date }): Array<{ providers: number[]; asks: ProofAsk[] }>;
+
+/**
+ * Thrown when a proof cannot be asked for or made. cannot-prove: the identity's details do not satisfy the request
+ * (nothing is built, so a wallet never produces a false proof).
+ */
+export class ProofError extends Error {
+  reason: 'invalid-request' | 'unknown-attribute' | 'not-held' | 'provider-not-accepted' | 'cannot-prove';
+  /** More detail, e.g. the attribute named. */
+  detail?: string;
+}

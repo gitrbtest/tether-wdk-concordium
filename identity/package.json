@@ -15,6 +15,10 @@
       "types": "./types/node.d.ts",
       "default": "./node-extras.js"
     },
+    "./verify": {
+      "types": "./types/verify.d.ts",
+      "default": "./verify.js"
+    },
     "./testing": {
       "types": "./types/testing.d.ts",
       "default": "./testing.js"
@@ -24,6 +28,7 @@
     "index.js",
     "node-extras.js",
     "testing.js",
+    "verify.js",
     "docs",
     "src",
     "types",

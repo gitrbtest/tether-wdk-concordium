@@ -58,6 +58,29 @@ export class IdentityRecoveryError extends Error {
 }
 
 /**
+ * Thrown when a proof cannot be asked for or made. `reason` says why:
+ * - invalid-request: the website's request is not one the package understands (it says what is wrong)
+ * - unknown-attribute: the request names an attribute an identity does not have
+ * - not-held: no identity is held for that provider and identity number (verify, load or recover it first)
+ * - provider-not-accepted: the request does not accept identities from this account's provider
+ * - cannot-prove: the identity's details do not satisfy the request (e.g. under the age asked for); nothing is
+ *   built, so a wallet never produces a false proof
+ */
+export class ProofError extends Error {
+  /**
+   * @param {string} message
+   * @param {{ reason: 'invalid-request' | 'unknown-attribute' | 'not-held' | 'provider-not-accepted' | 'cannot-prove',
+   *   detail?: string }} info
+   */
+  constructor(message, { reason, detail } = {}) {
+    super(message);
+    this.name = 'ProofError';
+    this.reason = reason;
+    this.detail = detail;
+  }
+}
+
+/**
  * Thrown when an account is not created from an identity. `reason` says why. Found before anything is sent:
  * - 'identity-expired': the identity's validTo month has passed (verify again for a new identity)
  * - 'max-accounts': the account number is not below the identity's maxAccounts
