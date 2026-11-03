@@ -406,11 +406,13 @@ export interface ProofAsk {
 export function describeProofRequest(request: ProofRequest | { paramsJson: string }, options?: { now?: Date }): Array<{ providers: number[]; asks: ProofAsk[] }>;
 
 /**
- * Thrown when a proof cannot be asked for or made. cannot-prove: the identity's details do not satisfy the request
- * (nothing is built, so a wallet never produces a false proof).
+ * Thrown when a proof cannot be asked for, made or checked. cannot-prove: the identity's details do not satisfy the
+ * request (nothing is built, so a wallet never produces a false proof). node: checking an answer, the node could not
+ * be asked (a refused answer does not throw: checkPresentation returns ok: false).
  */
 export class ProofError extends Error {
-  reason: 'invalid-request' | 'unknown-attribute' | 'not-held' | 'identity-expired' | 'provider-not-accepted' | 'cannot-prove';
+  reason: 'invalid-request' | 'unknown-attribute' | 'not-held' | 'identity-expired' | 'provider-not-accepted' | 'cannot-prove'
+    | 'node';
   /** More detail, e.g. the attribute named. */
   detail?: string;
 }

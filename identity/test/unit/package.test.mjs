@@ -47,6 +47,7 @@ test('the main entry uses no Node.js-only features, so it can run in browsers an
     [/\bBuffer\b/, 'Node\'s Buffer (use Uint8Array, and @noble/hashes/utils for hex)'],
     [/\bprocess\.(env|argv|exit|cwd|platform|version|versions|nextTick|on)\b/, 'Node\'s process'],
     [/from ['"](node:[\w/]+|fs|path|os|http|https|net|crypto)['"]/, 'a Node.js built-in module'],
+    [/@concordium\/web-sdk\/nodejs/, 'the SDK\'s Node.js node connection (gRPC)'],
   ];
   for (const file of mainEntryFiles) {
     const code = readFileSync(new URL(file, packageRoot), 'utf8')
@@ -58,9 +59,11 @@ test('the main entry uses no Node.js-only features, so it can run in browsers an
 
 test('the website side of proofs loads from its own entry point (/verify), and the main entry does not load it', async () => {
   const verify = await import('@concordium/wdk-identity-concordium/verify');
-  assert.equal(typeof verify.requestFor, 'function');
+  for (const name of ['requestFor', 'checkPresentation', 'connectToNode']) assert.equal(typeof verify[name], 'function', name);
   const main = await import('@concordium/wdk-identity-concordium');
-  assert.equal(main.requestFor, undefined, 'requestFor is for websites, not wallets');
+  for (const name of ['requestFor', 'checkPresentation', 'connectToNode']) {
+    assert.equal(main[name], undefined, `${name} is for websites, not wallets`);
+  }
   const { readdirSync } = await import('node:fs');
   const sourcesIn = (dir) => readdirSync(new URL(dir, packageRoot), { withFileTypes: true })
     .flatMap((entry) => (entry.isDirectory() ? sourcesIn(`${dir}${entry.name}/`) : [`${dir}${entry.name}`]));

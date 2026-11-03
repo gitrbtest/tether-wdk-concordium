@@ -67,12 +67,14 @@ export class IdentityRecoveryError extends Error {
  * - provider-not-accepted: the request does not accept identities from this account's provider
  * - cannot-prove: the identity's details do not satisfy the request (e.g. under the age asked for); nothing is
  *   built, so a wallet never produces a false proof
+ * - node: checking an answer (checkPresentation), the Concordium node could not be asked (`detail` has what it said).
+ *   A refused answer is not an error: checkPresentation returns ok: false with the reasons
  */
 export class ProofError extends Error {
   /**
    * @param {string} message
    * @param {{ reason: 'invalid-request' | 'unknown-attribute' | 'not-held' | 'identity-expired' | 'provider-not-accepted'
-   *   | 'cannot-prove',
+   *   | 'cannot-prove' | 'node',
    *   detail?: string }} info
    */
   constructor(message, { reason, detail } = {}) {
