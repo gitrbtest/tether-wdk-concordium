@@ -62,6 +62,8 @@ export class IdentityRecoveryError extends Error {
  * - invalid-request: the website's request is not one the package understands (it says what is wrong)
  * - unknown-attribute: the request names an attribute an identity does not have
  * - not-held: no identity is held for that provider and identity number (verify, load or recover it first)
+ * - identity-expired: the identity has expired; websites refuse its proofs (Concordium reports them as expired):
+ *   the person verifies again for a new identity
  * - provider-not-accepted: the request does not accept identities from this account's provider
  * - cannot-prove: the identity's details do not satisfy the request (e.g. under the age asked for); nothing is
  *   built, so a wallet never produces a false proof
@@ -69,7 +71,8 @@ export class IdentityRecoveryError extends Error {
 export class ProofError extends Error {
   /**
    * @param {string} message
-   * @param {{ reason: 'invalid-request' | 'unknown-attribute' | 'not-held' | 'provider-not-accepted' | 'cannot-prove',
+   * @param {{ reason: 'invalid-request' | 'unknown-attribute' | 'not-held' | 'identity-expired' | 'provider-not-accepted'
+   *   | 'cannot-prove',
    *   detail?: string }} info
    */
   constructor(message, { reason, detail } = {}) {

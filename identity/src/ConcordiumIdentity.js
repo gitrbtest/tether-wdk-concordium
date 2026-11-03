@@ -7,6 +7,7 @@ import IdentityProviders from './providers/IdentityProviders.js';
 import WalletProxy from './providers/WalletProxy.js';
 import IdentityIssuance from './issuance/IdentityIssuance.js';
 import IdentityRecovery from './recovery/IdentityRecovery.js';
+import IdentityProofs from './proofs/IdentityProofs.js';
 import { identityContent, summaryOf } from './issuance/identity-object.js';
 import IdentityVault from './storage/IdentityVault.js';
 import { deriveStorageKey } from './storage/storage-format.js';
@@ -21,6 +22,7 @@ import AccountCreator, { readAccountOptions } from './account/AccountCreator.js'
  *   ConcordiumIdentity   seed, dispose, the public methods
  *     ├─ IdentityIssuance   request link, collect + ownership check        (issuance/)
  *     ├─ IdentityRecovery   get an identity back with the seed alone        (recovery/)
+ *     ├─ IdentityProofs     answer a website's question with a proof        (proofs/)
  *     ├─ HeldIdentities     the identities held in memory, as bytes        (shared/)
  *     ├─ IdentityVault      save / load / delete, encrypted                 (storage/)
  *     └─ AccountCreator     checks, "exists?", build, send + wait           (account/)
@@ -47,6 +49,10 @@ export default class ConcordiumIdentity {
     this._held = new HeldIdentities();
     this._issuance = new IdentityIssuance({ providers, walletProxy, fetch: fetchVia, hdWallet, held: this._held });
     this._recovery = new IdentityRecovery({ providers, walletProxy, fetch: fetchVia, hdWallet, held: this._held });
+    this._proofs = new IdentityProofs({
+      walletProxy, hdWallet, held: this._held, network: this._config.derivationNetwork,
+      findAccounts: (options) => this._recovery.findAccounts(options),
+    });
     this._accounts = new AccountCreator({ providers, walletProxy, hdWallet });
     // Saving identities: the vault asks for the key through _storageKey() and never sees the seed.
     this._vault = store === undefined ? undefined : new IdentityVault({
@@ -205,6 +211,52 @@ export default class ConcordiumIdentity {
   async findAccounts(options) {
     this._requireNotDisposed();
     return this._recovery.findAccounts(options);
+  }
+
+  // ---- Answering a website's question (proofs) ----
+
+  /**
+   * Answer a website's question with a proof, from the identity held here and one of its accounts (version 0:
+   * account-based, the format Concordium's apps and WalletConnect's request_verifiable_presentation use).
+   *
+   * The website's question comes in as it arrived: `challenge` and `credentialStatements` (or WalletConnect's
+   * `paramsJson`). The identity itself never leaves the wallet: the proof shows only what was asked (e.g. "born
+   * before …"), plus any detail the question asks to show. Show the person describeProofRequest's wording and get
+   * their agreement first.
+   *
+   * Refuses before building anything if the answer would not be true (e.g. under the age asked for), so a wallet
+   * never sends a proof that cannot be right.
+   *
+   * @param {object} options
+   * @param {number} options.providerIndex  the identity's provider
+   * @param {number} [options.identityIndex=0]  which of the wallet's identities with that provider
+   * @param {number} [options.credNumber=0]  which of the identity's accounts answers (see accountsThatCanAnswer)
+   * @param {string} [options.challenge]  from the website's question
+   * @param {object[]} [options.credentialStatements]  from the website's question
+   * @param {string} [options.paramsJson]  or the question as WalletConnect wraps it
+   * @returns {Promise<object>}  the proof (a VerifiablePresentation); its toString() is the JSON to send back
+   *   (WalletConnect's verifiablePresentationJson)
+   * @throws {ProofError} reason 'invalid-request', 'unknown-attribute', 'not-held', 'identity-expired',
+   *   'provider-not-accepted' or 'cannot-prove'
+   */
+  async prove(options) {
+    this._requireNotDisposed();
+    return this._proofs.prove(options);
+  }
+
+  /**
+   * Which of the identity's accounts on chain can answer a website's question: none if the identity cannot truly
+   * answer it (expired, provider not accepted, or its details do not satisfy it), otherwise its accounts (as findAccounts
+   * finds them). Read-only. The wallet picks one (or lets the person pick) and passes its credNumber to prove.
+   *
+   * @param {object} options  providerIndex, identityIndex (default 0), the question (challenge and
+   *   credentialStatements, or paramsJson), and optionally gap and signal as for findAccounts
+   * @returns {Promise<Array<{ credNumber: number, address: string, path: string }>>}
+   * @throws {ProofError} reason 'invalid-request', 'unknown-attribute' or 'not-held'
+   */
+  async accountsThatCanAnswer(options) {
+    this._requireNotDisposed();
+    return this._proofs.accountsThatCanAnswer(options);
   }
 
   /**

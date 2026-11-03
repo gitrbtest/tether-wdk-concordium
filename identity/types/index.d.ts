@@ -410,7 +410,7 @@ export function describeProofRequest(request: ProofRequest | { paramsJson: strin
  * (nothing is built, so a wallet never produces a false proof).
  */
 export class ProofError extends Error {
-  reason: 'invalid-request' | 'unknown-attribute' | 'not-held' | 'provider-not-accepted' | 'cannot-prove';
+  reason: 'invalid-request' | 'unknown-attribute' | 'not-held' | 'identity-expired' | 'provider-not-accepted' | 'cannot-prove';
   /** More detail, e.g. the attribute named. */
   detail?: string;
 }
