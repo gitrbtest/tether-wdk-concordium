@@ -37,8 +37,13 @@ phrase, and the wallet asks the identity providers for their identities and the 
 everything comes back, with no documents, no new verification and nothing else to remember.
 Try it: `npm run example:recover-identity`.
 
-More stories will follow as the package grows (proving facts such as "over 18" without revealing anything
-else; tokens that only verified people may hold).
+**"Over 18?", without showing a date of birth.** A website selling age-restricted goods asks the wallet a
+question. The wallet shows the user what is asked, and answers with a proof that the date of birth sealed
+in their account's record on chain is before the date asked. The website checks the proof against the
+chain and lets them in. It never sees the date of birth, and the same answer cannot be used twice.
+Try it: `npm run example:age-check` (both sides, the website and the wallet, in one run).
+
+More stories will follow as the package grows (tokens that only verified people may hold).
 
 ## Requirements
 

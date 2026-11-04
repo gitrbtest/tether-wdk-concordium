@@ -47,6 +47,7 @@
     "example:create-account": "node examples/create-account.mjs",
     "example:wdk-end-to-end": "node examples/wdk-end-to-end.mjs",
     "example:recover-identity": "node examples/recover-identity.mjs",
+    "example:age-check": "node examples/age-check.mjs",
     "demo-wallet": "node examples/demo-wallet/server.mjs"
   },
   "keywords": [
