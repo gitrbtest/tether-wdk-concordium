@@ -52,7 +52,8 @@ async function identityHolding({ exists = false, submit = json(200, { submission
   await identity.waitForIdentity(CODE_URI, { ...ISSUED_FOR, intervalMs: 1 });
   return { identity, requests, sent: () => requests.filter((r) => r.url.includes('/v0/submitCredential')) };
 }
-const create = (identity, options = {}) => identity.createAccount({ ...ISSUED_FOR, intervalMs: 1, ...options });
+// Account 0 unless a test names another: always passed explicitly, as the package has no default account number.
+const create = (identity, options = {}) => identity.createAccount({ ...ISSUED_FOR, credNumber: 0, intervalMs: 1, ...options });
 const rejectsWith = (promise, reason, check = () => true) => assert.rejects(promise, (e) => {
   assert.ok(e instanceof AccountCreationError, e.message);
   assert.equal(e.reason, reason, e.message);
@@ -160,6 +161,9 @@ test('clear errors: no identity held, bad inputs, a disposed identity', async ()
   const empty = new ConcordiumIdentity(TEST_PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: async () => { throw new Error('no network'); } });
   await assert.rejects(create(empty), /No identity is held for provider 0, identity 334563111/);
   await assert.rejects(create(empty, { credNumber: -1 }), /credNumber/);
+  // No default account number: leaving it out is an error that says how to find one.
+  await assert.rejects(empty.createAccount({ ...ISSUED_FOR }), /credNumber is required: .*nextCredNumber/);
+  await assert.rejects(empty.createAccount({ providerIndex: 0, credNumber: 0 }), /identityIndex is required/);
   await assert.rejects(create(empty, { revealAttributes: 'dob' }), /revealAttributes/);
   empty.dispose();
   await assert.rejects(create(empty), /disposed/);

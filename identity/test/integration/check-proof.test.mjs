@@ -26,7 +26,7 @@ test('checkPresentation: the testnet chain accepts a true "over 18" answer from 
     await wallet.waitForIdentity(CODE_URI, { ...RECORDED, intervalMs: 1 });
     const node = connectToNode('testnet');
     const request = requestFor({ providers: [0, 1, 2], adult: true, reveal: ['countryOfResidence'] });
-    const answer = await wallet.prove({ ...RECORDED, ...request });
+    const answer = await wallet.prove({ ...RECORDED, credNumber: 0, ...request });
 
     const result = await checkPresentation(answer, request, { node, network: 'testnet' });
     assert.equal(result.ok, true, JSON.stringify(result.reasons));

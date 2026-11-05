@@ -39,6 +39,7 @@ User-facing changes to `@concordium/wdk-identity-concordium` are recorded here.
 
 ### Changed
 
+- **No default identity or account number** (Concordium's feedback): `identityIndex` is required by `createIdentityRequest`, `recoverIdentity`, `findAccounts`, `prove` and `accountsThatCanAnswer` (and by `waitForIdentity` together with `providerIndex`), and `credNumber` by `createAccount` and `prove`. They used to default to 0, which could quietly use the wrong identity or account (for example, `createAccount` returning an existing account 0 instead of creating a new one). A missing number is an error that says how to find it. New helpers: `nextIdentityIndex` (the number for a new identity with a provider) and `nextCredNumber` (the number for a new account under an identity). The verify-identity and create-account examples use them when no number is given.
 - The main entry no longer uses Node.js-only features, so it is meant to run outside Node.js too; a test keeps it that way.
 - The network's cryptographic parameters are read once per `ConcordiumIdentity` instead of for every request.
 - Every example now explains each step in plain English in its code comments.

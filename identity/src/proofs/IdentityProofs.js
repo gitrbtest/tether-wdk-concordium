@@ -11,7 +11,7 @@
 import * as sdk from '@concordium/web-sdk';
 import { bytesToHex } from '@noble/hashes/utils';
 import { ProofError } from '../shared/errors.js';
-import { requireIndex } from '../shared/inputs.js';
+import { requireIndex, IDENTITY_INDEX_HINT } from '../shared/inputs.js';
 import { identityContent, hasExpired } from '../issuance/identity-object.js';
 import { readProofRequest, attributeLabel } from './proof-request.js';
 
@@ -35,10 +35,10 @@ export default class IdentityProofs {
   }
 
   /** See ConcordiumIdentity.prove. */
-  async prove({ providerIndex, identityIndex = 0, credNumber = 0, ...request } = {}) {
+  async prove({ providerIndex, identityIndex, credNumber, ...request } = {}) {
     requireIndex(providerIndex, 'providerIndex');
-    requireIndex(identityIndex, 'identityIndex');
-    requireIndex(credNumber, 'credNumber');
+    requireIndex(identityIndex, 'identityIndex', IDENTITY_INDEX_HINT);
+    requireIndex(credNumber, 'credNumber', 'say which account answers (accountsThatCanAnswer lists the ones that can).');
     const { challenge, credentialStatements } = readProofRequest(request);
     const attributeList = this.#attributesOf(providerIndex, identityIndex);
     // An expired identity's proof still adds up mathematically, but Concordium reports its account's credential as
@@ -68,9 +68,9 @@ export default class IdentityProofs {
   }
 
   /** See ConcordiumIdentity.accountsThatCanAnswer. */
-  async accountsThatCanAnswer({ providerIndex, identityIndex = 0, gap, signal, ...request } = {}) {
+  async accountsThatCanAnswer({ providerIndex, identityIndex, gap, signal, ...request } = {}) {
     requireIndex(providerIndex, 'providerIndex');
-    requireIndex(identityIndex, 'identityIndex');
+    requireIndex(identityIndex, 'identityIndex', IDENTITY_INDEX_HINT);
     const { credentialStatements } = readProofRequest(request);
     const attributeList = this.#attributesOf(providerIndex, identityIndex);
     if (hasExpired({ attributeList })) return []; // an expired identity's accounts cannot answer acceptably

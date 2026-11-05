@@ -53,7 +53,7 @@ test('the beer store: our wallet reads its question, answers it, and both checke
   assert.match(part.asks[0].text, /at least 18 years old/);
   assert.deepEqual(part.providers, [0, 1, 2, 3, 4, 5]);
 
-  const answer = await wallet.prove({ ...RECORDED_IDENTITY, ...question });
+  const answer = await wallet.prove({ ...RECORDED_IDENTITY, credNumber: 0, ...question });
   assert.equal(concordiumChecks(answer).challenge, question.challenge.toLowerCase(), 'Concordium writes the challenge back in small letters');
   const ours = await checkPresentation(answer, question, { node: await pretendNode(), network: 'testnet' });
   assert.equal(ours.ok, true, JSON.stringify(ours.reasons));
@@ -66,7 +66,7 @@ test('the reward shop: our wallet answers its four statements over WalletConnect
   assert.deepEqual(describeProofRequest(question)[0].asks.map((a) => a.kind), ['reveal', 'reveal', 'range', 'not-in-set']);
 
   // As WalletConnect delivers it: the question as JSON text in paramsJson.
-  const answer = await wallet.prove({ ...RECORDED_IDENTITY, paramsJson: JSON.stringify(question) });
+  const answer = await wallet.prove({ ...RECORDED_IDENTITY, credNumber: 0, paramsJson: JSON.stringify(question) });
   assert.equal(concordiumChecks(answer).challenge, question.challenge);
   const ours = await checkPresentation(answer, question, { node: await pretendNode(), network: 'testnet' });
   assert.equal(ours.ok, true, JSON.stringify(ours.reasons));
@@ -84,7 +84,7 @@ test('the reward shop: our wallet answers its four statements over WalletConnect
 
 test('the reward shop: a resident of the US cannot answer, and the wallet says so before making anything', async () => {
   const wallet = await walletWithRecordedIdentity({ details: { countryOfResidence: 'US' } });
-  await assert.rejects(wallet.prove({ ...RECORDED_IDENTITY, ...rewardShopQuestion() }), (e) => {
+  await assert.rejects(wallet.prove({ ...RECORDED_IDENTITY, credNumber: 0, ...rewardShopQuestion() }), (e) => {
     assert.ok(e instanceof ProofError);
     assert.equal(e.reason, 'cannot-prove');
     assert.match(e.message, /country of residence/);
@@ -98,8 +98,8 @@ test('an answer for one shop does not pass at the other', async () => {
   const wallet = await walletWithRecordedIdentity();
   const beer = beerStoreQuestion();
   const reward = rewardShopQuestion();
-  const forBeer = await wallet.prove({ ...RECORDED_IDENTITY, ...beer });
-  const forReward = await wallet.prove({ ...RECORDED_IDENTITY, ...reward });
+  const forBeer = await wallet.prove({ ...RECORDED_IDENTITY, credNumber: 0, ...beer });
+  const forReward = await wallet.prove({ ...RECORDED_IDENTITY, credNumber: 0, ...reward });
   const node = await pretendNode();
   const reasons = async (answer, question) => (await checkPresentation(answer, question, { node, network: 'testnet' })).reasons.map((r) => r.reason);
   assert.deepEqual(await reasons(forBeer, reward), ['challenge-mismatch', 'statements-mismatch']);
@@ -114,7 +114,7 @@ test('the same questions in another order of letters or list: the check compares
   const wallet = await walletWithRecordedIdentity();
   const question = { challenge: 'AB'.repeat(32), credentialStatements: [{ idQualifier: { type: 'cred', issuers: [0] },
     statement: [{ type: 'AttributeInSet', attributeTag: 'nationality', set: ['SE', 'DK', 'NO'] }] }] };
-  const answer = await wallet.prove({ ...RECORDED_IDENTITY, ...question });
+  const answer = await wallet.prove({ ...RECORDED_IDENTITY, credNumber: 0, ...question });
   const node = await pretendNode();
   assert.equal((await checkPresentation(answer, question, { node, network: 'testnet' })).ok, true);
   // A different list is still a different question.

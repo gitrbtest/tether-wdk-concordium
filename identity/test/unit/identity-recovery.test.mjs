@@ -169,13 +169,14 @@ test('recoverIdentity: an identity that is not this seed\'s is refused (not-your
   wallet.dispose();
 });
 
-test('recoverIdentity: identityIndex defaults to 0; providerIndex is required', async () => {
+test('recoverIdentity: providerIndex and identityIndex are required (no default number)', async () => {
   const network = networkWithRecovery({ status: 404, body: {} });
   const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: network.fetch });
   await assert.rejects(wallet.recoverIdentity({}), /providerIndex is required/);
   await assert.rejects(wallet.recoverIdentity({ providerIndex: 0, identityIndex: -1 }), /identityIndex/);
+  await assert.rejects(wallet.recoverIdentity({ providerIndex: 0 }), /identityIndex is required: .*recoverAll/);
   assert.equal(network.recoveryCalls.length, 0, 'bad input is refused before anything is sent');
-  assert.equal(await wallet.recoverIdentity({ providerIndex: 0 }), null);
+  assert.equal(await wallet.recoverIdentity({ providerIndex: 0, identityIndex: 0 }), null);
   const expected = recoveryRequest({
     provider: provider0(), globalContext: globalFixture('testnet').value,
     hdWallet: sdk.ConcordiumHdWallet.fromSeedPhrase(PHRASE, 'Testnet'), identityIndex: 0,
@@ -189,9 +190,9 @@ test('recoverIdentity: a provider that publishes no recovery address is reported
   delete ipInfo.find((entry) => entry.ipInfo.ipIdentity === 0).metadata.recoveryStart;
   const recorded = walletProxyFetch('testnet', { ipInfo });
   const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: recorded.fetch });
-  await assert.rejects(wallet.recoverIdentity({ providerIndex: 0 }),
+  await assert.rejects(wallet.recoverIdentity({ providerIndex: 0, identityIndex: 0 }),
     (e) => e instanceof IdentityProviderError && /no recovery address/.test(e.message) && e.providerIndex === 0);
-  await assert.rejects(wallet.recoverIdentity({ providerIndex: 99 }), (e) => e instanceof IdentityProviderError);
+  await assert.rejects(wallet.recoverIdentity({ providerIndex: 99, identityIndex: 0 }), (e) => e instanceof IdentityProviderError);
   wallet.dispose();
 });
 
@@ -203,7 +204,7 @@ test('recoverIdentity: cancelled before it starts; refused once disposed', async
   await rejectsWith(wallet.recoverIdentity({ providerIndex: 0, identityIndex: RECORDED_IDENTITY, signal: cancelled.signal }), 'cancelled');
   assert.equal(network.recoveryCalls.length, 0);
   wallet.dispose();
-  await assert.rejects(wallet.recoverIdentity({ providerIndex: 0 }), /disposed/);
+  await assert.rejects(wallet.recoverIdentity({ providerIndex: 0, identityIndex: 0 }), /disposed/);
 });
 
 // ---- Piece 3: findAccounts ------------------------------------------------------------------------------------
@@ -276,7 +277,7 @@ test('findAccounts: no accounts: an empty list after 3 checks; the gap can be ch
   const other = newWallet(narrow);
   assert.deepEqual((await other.findAccounts({ providerIndex: 0, identityIndex: RECORDED_IDENTITY, gap: 1 })).map((a) => a.credNumber), [0],
     'gap 1: stops at the first missing number');
-  await assert.rejects(other.findAccounts({ providerIndex: 0, gap: 0 }), /gap must be/);
+  await assert.rejects(other.findAccounts({ providerIndex: 0, identityIndex: RECORDED_IDENTITY, gap: 0 }), /gap must be/);
   wallet.dispose();
   other.dispose();
 });
@@ -314,12 +315,13 @@ test('findAccounts: inputs checked; cancelled; refused once disposed', async () 
   const network = networkWithAccounts([0]);
   const wallet = newWallet(network);
   await assert.rejects(wallet.findAccounts({}), /providerIndex is required/);
+  await assert.rejects(wallet.findAccounts({ providerIndex: 0 }), /identityIndex is required/); // no default number
   const cancelled = new AbortController();
   cancelled.abort();
-  await rejectsWith(wallet.findAccounts({ providerIndex: 0, signal: cancelled.signal }), 'cancelled');
+  await rejectsWith(wallet.findAccounts({ providerIndex: 0, identityIndex: RECORDED_IDENTITY, signal: cancelled.signal }), 'cancelled');
   assert.equal(network.checked.length, 0, 'nothing asked');
   wallet.dispose();
-  await assert.rejects(wallet.findAccounts({ providerIndex: 0 }), /disposed/);
+  await assert.rejects(wallet.findAccounts({ providerIndex: 0, identityIndex: RECORDED_IDENTITY }), /disposed/);
 });
 
 // ---- Piece 4: recoverAll --------------------------------------------------------------------------------------
@@ -462,4 +464,31 @@ test('recoverAll: cancelled stops everything; refused once disposed', async () =
   assert.deepEqual(world.asked, { 0: [], 3: [], 5: [] });
   wallet.dispose();
   await assert.rejects(wallet.recoverAll(), /disposed/);
+});
+
+// ---- No default numbers: the next free identity and account numbers (Concordium feedback, 5 Nov) -------------
+
+test('nextIdentityIndex: one after the highest identity this seed has with the provider; 0 if none; nothing kept', async () => {
+  const world = recoveryWorld({ 0: { 0: [0], 1: [], 3: [0] } }); // identities 0, 1 and 3 (2 is a hole)
+  const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: world.fetch });
+  assert.equal(await wallet.nextIdentityIndex({ providerIndex: 0 }), 4, 'past the hole at 2, so 3 is not reused');
+  assert.deepEqual(world.asked[0], [0, 1, 2, 3, 4, 5, 6], 'asked until 3 numbers in a row had none');
+  assert.equal(await wallet.nextIdentityIndex({ providerIndex: 3 }), 0, 'none with provider 3');
+  assert.equal(await wallet.nextIdentityIndex({ providerIndex: 0, gap: 1 }), 2, 'gap 1: stops at the hole');
+  await assert.rejects(wallet.createAccount({ providerIndex: 0, identityIndex: 0, credNumber: 0 }), /No identity is held/,
+    'asking does not hold the identities');
+  await assert.rejects(wallet.nextIdentityIndex({}), /providerIndex is required/);
+  await assert.rejects(wallet.nextIdentityIndex({ providerIndex: 0, gap: 0 }), /gap must be/);
+  wallet.dispose();
+  await assert.rejects(wallet.nextIdentityIndex({ providerIndex: 0 }), /disposed/);
+});
+
+test('nextCredNumber: one after the highest account the identity has on chain; 0 if none', async () => {
+  const world = recoveryWorld({ 0: { 1: [0, 1], 2: [] } });
+  const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: world.fetch });
+  assert.equal(await wallet.nextCredNumber({ providerIndex: 0, identityIndex: 1 }), 2);
+  assert.equal(await wallet.nextCredNumber({ providerIndex: 0, identityIndex: 2 }), 0);
+  await assert.rejects(wallet.nextCredNumber({ providerIndex: 0 }), /identityIndex is required/);
+  wallet.dispose();
+  await assert.rejects(wallet.nextCredNumber({ providerIndex: 0, identityIndex: 1 }), /disposed/);
 });

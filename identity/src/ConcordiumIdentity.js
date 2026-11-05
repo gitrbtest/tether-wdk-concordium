@@ -100,7 +100,8 @@ export default class ConcordiumIdentity {
    *
    * @param {object} options
    * @param {number} options.providerIndex  the provider's index on this network (see IdentityProviders)
-   * @param {number} [options.identityIndex=0]  which of the wallet's identities with this provider
+   * @param {number} options.identityIndex  which of the wallet's identities with this provider (0, 1, 2 …; no default:
+   *   nextIdentityIndex gives the number for a new identity)
    * @param {string} options.redirectUri  where the provider sends the browser afterwards
    * @returns {Promise<{ issuanceUrl: string, providerIndex: number, identityIndex: number }>}
    * @throws {IdentityProviderError} If the provider is not published, or publishes no issuance address.
@@ -135,13 +136,13 @@ export default class ConcordiumIdentity {
    * this object for storage and account creation; only a summary is returned.
    *
    * The provider and identity index default to those of the last
-   * createIdentityRequest on this object. Pass them when resuming in a new
+   * createIdentityRequest on this object. Pass both when resuming in a new
    * object, e.g. after an app restart.
    *
    * @param {string} codeUri  from parseIdentityCallback
    * @param {object} [options]
    * @param {number} [options.providerIndex]  the provider the request was made to
-   * @param {number} [options.identityIndex=0]  the identity index the request was made for
+   * @param {number} [options.identityIndex]  the identity index the request was made for (required with providerIndex)
    * @param {number} [options.timeoutMs=900000]  give up after this long (default 15 minutes)
    * @param {number} [options.intervalMs=3000]  wait this long between polls
    * @param {AbortSignal} [options.signal]  cancels the wait
@@ -177,7 +178,8 @@ export default class ConcordiumIdentity {
    *
    * @param {object} options
    * @param {number} options.providerIndex  the provider that issued it
-   * @param {number} [options.identityIndex=0]  which of the wallet's identities with this provider
+   * @param {number} options.identityIndex  which of the wallet's identities with this provider (0, 1, 2 …; no default:
+   *   nextIdentityIndex gives the number for a new identity)
    * @param {AbortSignal} [options.signal]  cancels the request
    * @returns {Promise<{ providerIndex: number, identityIndex: number, createdAt: string, validTo: string,
    *   maxAccounts: number } | null>}  the identity's summary, or null if the provider has none for it
@@ -200,7 +202,8 @@ export default class ConcordiumIdentity {
    *
    * @param {object} options
    * @param {number} options.providerIndex  the provider that issued the identity
-   * @param {number} [options.identityIndex=0]  which of the wallet's identities with this provider
+   * @param {number} options.identityIndex  which of the wallet's identities with this provider (0, 1, 2 …; no default:
+   *   nextIdentityIndex gives the number for a new identity)
    * @param {number} [options.gap=3]  stop after this many missing account numbers in a row
    * @param {AbortSignal} [options.signal]  cancels the search
    * @returns {Promise<Array<{ credNumber: number, address: string, path: string }>>}  the accounts found,
@@ -211,6 +214,44 @@ export default class ConcordiumIdentity {
   async findAccounts(options) {
     this._requireNotDisposed();
     return this._recovery.findAccounts(options);
+  }
+
+  /**
+   * The identity number to use for a NEW identity with a provider: the number after the highest identity this wallet
+   * already has with it, or 0 if it has none. Found by asking the provider's recovery address for identity 0, 1, 2 …
+   * (as recoverAll does) until `gap` numbers in a row have none. Nothing is kept or changed. Pass the result to
+   * createIdentityRequest, so a new identity never lands on the number of an existing one.
+   *
+   * @param {object} options
+   * @param {number} options.providerIndex  the provider to verify with
+   * @param {number} [options.gap=3]  stop after this many missing identity numbers in a row
+   * @param {AbortSignal} [options.signal]  cancels the search
+   * @returns {Promise<number>}
+   * @throws {IdentityProviderError} If the provider is not published, or publishes no recovery address.
+   * @throws {IdentityRecoveryError} reason 'provider-error', 'not-yours', 'network' or 'cancelled'.
+   */
+  async nextIdentityIndex(options) {
+    this._requireNotDisposed();
+    return this._recovery.nextIdentityIndex(options);
+  }
+
+  /**
+   * The account number to use for a NEW account under an identity: the number after the highest account the identity
+   * has on chain (as findAccounts finds them), or 0 if it has none. Read-only. Pass the result to createAccount, so a
+   * new account never lands on an existing one (createAccount would then return that existing account).
+   *
+   * @param {object} options
+   * @param {number} options.providerIndex
+   * @param {number} options.identityIndex
+   * @param {number} [options.gap=3]  stop after this many missing account numbers in a row
+   * @param {AbortSignal} [options.signal]  cancels the search
+   * @returns {Promise<number>}
+   * @throws {IdentityProviderError} If the provider is not published.
+   * @throws {IdentityRecoveryError} reason 'wallet-proxy' or 'cancelled'.
+   */
+  async nextCredNumber(options) {
+    this._requireNotDisposed();
+    return this._recovery.nextCredNumber(options);
   }
 
   // ---- Answering a website's question (proofs) ----
@@ -229,8 +270,9 @@ export default class ConcordiumIdentity {
    *
    * @param {object} options
    * @param {number} options.providerIndex  the identity's provider
-   * @param {number} [options.identityIndex=0]  which of the wallet's identities with that provider
-   * @param {number} [options.credNumber=0]  which of the identity's accounts answers (see accountsThatCanAnswer)
+   * @param {number} options.identityIndex  which of the wallet's identities with that provider
+   * @param {number} options.credNumber  which of the identity's accounts answers (accountsThatCanAnswer lists the ones
+   *   that can; no default)
    * @param {string} [options.challenge]  from the website's question
    * @param {object[]} [options.credentialStatements]  from the website's question
    * @param {string} [options.paramsJson]  or the question as WalletConnect wraps it
@@ -249,7 +291,7 @@ export default class ConcordiumIdentity {
    * answer it (expired, provider not accepted, or its details do not satisfy it), otherwise its accounts (as findAccounts
    * finds them). Read-only. The wallet picks one (or lets the person pick) and passes its credNumber to prove.
    *
-   * @param {object} options  providerIndex, identityIndex (default 0), the question (challenge and
+   * @param {object} options  providerIndex, identityIndex (required), the question (challenge and
    *   credentialStatements, or paramsJson), and optionally gap and signal as for findAccounts
    * @returns {Promise<Array<{ credNumber: number, address: string, path: string }>>}
    * @throws {ProofError} reason 'invalid-request', 'unknown-attribute' or 'not-held'
@@ -387,7 +429,8 @@ export default class ConcordiumIdentity {
    * @param {object} options
    * @param {number} options.providerIndex
    * @param {number} options.identityIndex
-   * @param {number} [options.credNumber=0]  which account under this identity
+   * @param {number} options.credNumber  which account under this identity (0, 1, 2 …; no default: nextCredNumber gives
+   *   the number for a new account, findAccounts lists the existing ones)
    * @param {string[]} [options.revealAttributes=[]]  attribute names to show publicly on the account
    * @param {number} [options.timeoutMs=300000]  stop waiting after this long (default 5 minutes); the account may still be created
    * @param {number} [options.intervalMs=2000]  wait this long between status checks

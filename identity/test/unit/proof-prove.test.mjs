@@ -65,7 +65,7 @@ test('prove: "over 18" from account 0: Concordium\'s verifier accepts it, tied t
 test('prove: a detail the question asks to show is revealed; the rest stays hidden', async () => {
   const wallet = await walletWithIdentity();
   const request = requestFor({ providers: [0], residentIn: ['DK', 'SE'], reveal: ['nationality'] });
-  const presentation = await wallet.prove({ ...RECORDED, ...request });
+  const presentation = await wallet.prove({ ...RECORDED, credNumber: 0, ...request });
   websiteChecks(presentation);
   const proofs = presentation.verifiableCredential[0].credentialSubject.proof.proofValue;
   assert.deepEqual(proofs.map((p) => p.type), ['AttributeInSet', 'RevealAttribute']);
@@ -76,7 +76,7 @@ test('prove: a detail the question asks to show is revealed; the rest stays hidd
 test('prove: a copy of the proof does not pass for another question (another challenge)', async () => {
   const wallet = await walletWithIdentity();
   const request = requestFor({ providers: [0], adult: true });
-  const presentation = await wallet.prove({ ...RECORDED, ...request });
+  const presentation = await wallet.prove({ ...RECORDED, credNumber: 0, ...request });
   const other = requestFor({ providers: [0], adult: true });
   const copied = sdk.VerifiablePresentation.fromString(presentation.toString().replace(request.challenge, other.challenge));
   assert.throws(() => sdk.verifyPresentation(copied, globalFixture('testnet').value,
@@ -87,7 +87,7 @@ test('prove: a copy of the proof does not pass for another question (another cha
 test('prove: the question can come as WalletConnect delivers it ({ paramsJson })', async () => {
   const wallet = await walletWithIdentity();
   const request = requestFor({ providers: [0], adult: true });
-  const presentation = await wallet.prove({ ...RECORDED, paramsJson: JSON.stringify(request) });
+  const presentation = await wallet.prove({ ...RECORDED, credNumber: 0, paramsJson: JSON.stringify(request) });
   assert.equal(websiteChecks(presentation).challenge, request.challenge);
   wallet.dispose();
 });
@@ -95,21 +95,28 @@ test('prove: the question can come as WalletConnect delivers it ({ paramsJson })
 test('prove: refuses BEFORE building anything when the answer would not be true', async () => {
   const wallet = await walletWithIdentity();
   // Born 1970: not "at least 100".
-  await rejectsWith(wallet.prove({ ...RECORDED, ...requestFor({ providers: [0], minAge: 100 }) }), 'cannot-prove', /date of birth/);
+  await rejectsWith(wallet.prove({ ...RECORDED, credNumber: 0, ...requestFor({ providers: [0], minAge: 100 }) }), 'cannot-prove', /date of birth/);
   // Lives in DK: not one of GB, DE.
-  await rejectsWith(wallet.prove({ ...RECORDED, ...requestFor({ providers: [0], residentIn: ['GB', 'DE'] }) }), 'cannot-prove', /country of residence/);
+  await rejectsWith(wallet.prove({ ...RECORDED, credNumber: 0, ...requestFor({ providers: [0], residentIn: ['GB', 'DE'] }) }), 'cannot-prove', /country of residence/);
   // Provider 0 is not among those accepted.
-  await rejectsWith(wallet.prove({ ...RECORDED, ...requestFor({ providers: [3, 5], adult: true }) }), 'provider-not-accepted', /not from provider 0/);
+  await rejectsWith(wallet.prove({ ...RECORDED, credNumber: 0, ...requestFor({ providers: [3, 5], adult: true }) }), 'provider-not-accepted', /not from provider 0/);
   wallet.dispose();
 });
 
 test('prove: no identity held for that number: not-held; a bad question: invalid-request', async () => {
   const wallet = await walletWithIdentity();
-  await rejectsWith(wallet.prove({ providerIndex: 0, identityIndex: 7, ...requestFor({ providers: [0], adult: true }) }), 'not-held');
-  await rejectsWith(wallet.prove({ ...RECORDED, challenge: 'xyz', credentialStatements: [] }), 'invalid-request');
+  await rejectsWith(wallet.prove({ providerIndex: 0, identityIndex: 7, credNumber: 0, ...requestFor({ providers: [0], adult: true }) }), 'not-held');
+  await rejectsWith(wallet.prove({ ...RECORDED, credNumber: 0, challenge: 'xyz', credentialStatements: [] }), 'invalid-request');
   await assert.rejects(wallet.prove({ ...requestFor({ providers: [0], adult: true }) }), /providerIndex is required/);
+  // No default numbers: the wallet says which identity and which account, every time.
+  await assert.rejects(wallet.prove({ providerIndex: 0, credNumber: 0, ...requestFor({ providers: [0], adult: true }) }),
+    /identityIndex is required: .*nextIdentityIndex/);
+  await assert.rejects(wallet.prove({ ...RECORDED, ...requestFor({ providers: [0], adult: true }) }),
+    /credNumber is required: .*accountsThatCanAnswer/);
+  await assert.rejects(wallet.accountsThatCanAnswer({ providerIndex: 0, ...requestFor({ providers: [0], adult: true }) }),
+    /identityIndex is required/);
   wallet.dispose();
-  await assert.rejects(wallet.prove({ ...RECORDED, ...requestFor({ providers: [0], adult: true }) }), /disposed/);
+  await assert.rejects(wallet.prove({ ...RECORDED, credNumber: 0, ...requestFor({ providers: [0], adult: true }) }), /disposed/);
 });
 
 test('accountsThatCanAnswer: the identity\'s accounts on chain if it can answer; none if it cannot', async () => {
@@ -124,7 +131,7 @@ test('accountsThatCanAnswer: the identity\'s accounts on chain if it can answer;
 
 test('prove: an expired identity is refused up front (Concordium reports its credential as Expired; websites refuse it)', async () => {
   const wallet = await walletWithIdentity({ validTo: '202601' }); // valid until the end of January 2026: expired
-  await rejectsWith(wallet.prove({ ...RECORDED, ...requestFor({ providers: [0], adult: true }) }), 'identity-expired', /2026-01.*verify again/);
+  await rejectsWith(wallet.prove({ ...RECORDED, credNumber: 0, ...requestFor({ providers: [0], adult: true }) }), 'identity-expired', /2026-01.*verify again/);
   assert.deepEqual(await wallet.accountsThatCanAnswer({ ...RECORDED, ...requestFor({ providers: [0], adult: true }) }), []);
   wallet.dispose();
 });

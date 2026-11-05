@@ -8,12 +8,25 @@ import { hexToBytes } from '@noble/hashes/utils';
 
 const SEED_BYTES = 64;
 
-/** A provider or identity index. Same rule and wording as the wallet package's identity coordinates. */
-export function requireIndex(value, name) {
+/**
+ * A provider, identity or account number. Same rule and wording as the wallet package's identity coordinates.
+ * There is never a default: a missing number is an error, so the package never quietly picks the wrong identity or
+ * account. `hint`, if given, is added when the number is missing, to say how to find it.
+ */
+export function requireIndex(value, name, hint) {
+  if (value === undefined && hint) throw new Error(`${name} is required: ${hint}`);
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new Error(`${name} is required and must be a non-negative safe integer.`);
   }
 }
+
+/** How to find an identity number, for the error when it is missing. */
+export const IDENTITY_INDEX_HINT = 'say which of the wallet\'s identities with this provider (nextIdentityIndex gives the '
+  + 'number for a new one; recoverAll finds the existing ones).';
+
+/** How to find an account number, for the error when it is missing. */
+export const CRED_NUMBER_HINT = 'say which account under the identity (nextCredNumber gives the number for a new one; '
+  + 'findAccounts lists the existing ones).';
 
 /** A timeout or interval in milliseconds. */
 export function requirePositive(value, name) {

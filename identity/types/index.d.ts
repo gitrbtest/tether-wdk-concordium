@@ -139,8 +139,8 @@ export class IdentityProviders {
 export interface CreateIdentityRequestOptions {
   /** The provider's index on this network (see IdentityProviders). */
   providerIndex: number;
-  /** Which of the wallet's identities with this provider. Defaults to 0. */
-  identityIndex?: number;
+  /** Which of the wallet's identities with this provider (0, 1, 2 …; no default: nextIdentityIndex gives a new one). */
+  identityIndex: number;
   /** Absolute URL the provider sends the browser to when verification finishes; passed on exactly as given. */
   redirectUri: string;
 }
@@ -156,7 +156,7 @@ export interface IdentityRequest {
 export interface WaitForIdentityOptions {
   /** The provider the identity request was made to. Defaults to that of the last createIdentityRequest on this object. */
   providerIndex?: number;
-  /** The identity index the request was made for. Defaults to 0. */
+  /** The identity index the request was made for. Required with providerIndex; both default to the last createIdentityRequest on this object. */
   identityIndex?: number;
   /** Give up after this many milliseconds. Defaults to 15 minutes. */
   timeoutMs?: number;
@@ -194,8 +194,8 @@ export interface SaveIdentityOptions extends IdentitySlot {
 export interface RecoverIdentityOptions {
   /** The provider that issued the identity. */
   providerIndex: number;
-  /** Which of the wallet's identities with this provider (default 0). */
-  identityIndex?: number;
+  /** Which of the wallet's identities with this provider (no default). */
+  identityIndex: number;
   /** Cancels the request. */
   signal?: AbortSignal;
 }
@@ -204,8 +204,8 @@ export interface RecoverIdentityOptions {
 export interface FindAccountsOptions {
   /** The provider that issued the identity. */
   providerIndex: number;
-  /** Which of the wallet's identities with this provider (default 0). */
-  identityIndex?: number;
+  /** Which of the wallet's identities with this provider (no default). */
+  identityIndex: number;
   /** Stop after this many missing account numbers in a row (default 3). */
   gap?: number;
   /** Cancels the search. */
@@ -249,8 +249,8 @@ export interface SavedIdentitySummary extends IdentitySummary {
 
 /** Options for creating an account from a held identity. */
 export interface CreateAccountOptions extends IdentitySlot {
-  /** Which account under this identity: 0, 1, 2… below the identity's maxAccounts. Defaults to 0. */
-  credNumber?: number;
+  /** Which account under this identity: 0, 1, 2… below the identity's maxAccounts. No default: nextCredNumber gives the number for a new account. */
+  credNumber: number;
   /**
    * Attribute names to show publicly on the account, e.g. ['countryOfResidence']. Defaults to none:
    * nothing about the person is revealed. Revealed values are public on chain.
@@ -331,6 +331,20 @@ export class ConcordiumIdentity {
    */
   findAccounts(options: FindAccountsOptions): Promise<FoundAccount[]>;
   /**
+   * The identity number for a NEW identity with a provider: one after the highest this wallet has with it (asking the
+   * provider's recovery address for 0, 1, 2 … until `gap` in a row have none), or 0. Nothing is kept or changed.
+   * @throws {IdentityProviderError} If the provider is not published, or publishes no recovery address.
+   * @throws {IdentityRecoveryError} reason 'provider-error', 'not-yours', 'network' or 'cancelled'.
+   */
+  nextIdentityIndex(options: { providerIndex: number; gap?: number; signal?: AbortSignal }): Promise<number>;
+  /**
+   * The account number for a NEW account under an identity: one after the highest it has on chain (as findAccounts
+   * finds them), or 0. Read-only.
+   * @throws {IdentityProviderError} If the provider is not published.
+   * @throws {IdentityRecoveryError} reason 'wallet-proxy' or 'cancelled'.
+   */
+  nextCredNumber(options: FindAccountsOptions): Promise<number>;
+  /**
    * Get everything back from the seed alone (a new device): for each provider, identity 0, 1, 2 … until
    * `identityGap` missing in a row, each with its accounts. Every identity found is held, ready for saveIdentity.
    * A provider that cannot be asked is noted in `problems`; the others are still asked.
@@ -409,16 +423,16 @@ export interface ProofRequest {
 export type ProveOptions = {
   /** The identity's provider. */
   providerIndex: number;
-  /** Which of the wallet's identities with that provider. Default 0. */
-  identityIndex?: number;
-  /** Which of the identity's accounts answers (see accountsThatCanAnswer). Default 0. */
-  credNumber?: number;
+  /** Which of the wallet's identities with that provider (no default). */
+  identityIndex: number;
+  /** Which of the identity's accounts answers (accountsThatCanAnswer lists the ones that can; no default). */
+  credNumber: number;
 } & (ProofRequest | { paramsJson: string });
 
 /** The identity, plus the website's question; gap and signal as for findAccounts. */
 export type AccountsThatCanAnswerOptions = {
   providerIndex: number;
-  identityIndex?: number;
+  identityIndex: number;
   gap?: number;
   signal?: AbortSignal;
 } & (ProofRequest | { paramsJson: string });

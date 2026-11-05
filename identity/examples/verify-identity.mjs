@@ -9,7 +9,8 @@
  * form with test details instead of asking for documents. Settings:
  *   SEED_PHRASE      the wallet's seed phrase (default: a public demonstration phrase)
  *   PROVIDER_INDEX   identity provider index on the network (default 0)
- *   IDENTITY_INDEX   the wallet's identity number with that provider (default 0)
+ *   IDENTITY_INDEX   the wallet's identity number with that provider (default: the next free one, from
+ *                    nextIdentityIndex: one after the highest this seed already has with the provider)
  *   IDENTITY_STORE   folder for the encrypted identity (default ./demo-identities)
  *   OPEN_BROWSER     set to 1 to open the verification page in the default browser
  *
@@ -28,7 +29,6 @@ import { listenForIdentityCallback, FileIdentityStore } from '@concordium/wdk-id
 const DEMO_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const seedPhrase = process.env.SEED_PHRASE || DEMO_PHRASE;
 const providerIndex = Number(process.env.PROVIDER_INDEX ?? 0);
-const identityIndex = Number(process.env.IDENTITY_INDEX ?? 0);
 const storeFolder = process.env.IDENTITY_STORE || './demo-identities';
 
 // The identity package, given the wallet's seed phrase. Every key it needs (for the identity request, and later
@@ -65,6 +65,14 @@ try {
   //    browser to a "return address" with its reply in it. The built-in listener is a tiny local web server on
   //    this machine that waits for exactly that visit. (A phone app or web wallet would catch it its own way.)
   const listener = await listenForIdentityCallback({ signal: cancel.signal });
+
+  // Which identity number: the one given, or the next free one with this provider. nextIdentityIndex asks the
+  // provider (as recovery does) which numbers this seed already has, so a new identity never reuses one.
+  const identityIndex = process.env.IDENTITY_INDEX !== undefined
+    ? Number(process.env.IDENTITY_INDEX)
+    : await identity.nextIdentityIndex({ providerIndex });
+  console.log(`Identity number ${identityIndex} with provider ${providerIndex}`
+    + `${process.env.IDENTITY_INDEX === undefined ? ' (the next free one); later samples: set IDENTITY_INDEX to it' : ''}\n`);
 
   // 2. Build the identity request. It is made from the seed's keys for this provider and identity number, and
   //    proves to the provider that the wallet holds them, without revealing them. The result is one long link

@@ -6,7 +6,7 @@
  *   createRequest ─► (user verifies in the browser) ─► parseCallback ─► waitForIdentity ─► held
  */
 import { IdentityIssuanceError, IdentityProviderError } from '../shared/errors.js';
-import { requireIndex, requirePositive, requireRedirectUri, httpUrlOrNull } from '../shared/inputs.js';
+import { requireIndex, requirePositive, requireRedirectUri, httpUrlOrNull, IDENTITY_INDEX_HINT } from '../shared/inputs.js';
 import { buildIdentityRequest, issuanceLink, expectedIdCredPub } from './identity-request.js';
 import { pollIdentityProvider, cancelledError, DEFAULT_TIMEOUT_MS, DEFAULT_INTERVAL_MS } from './identity-polling.js';
 import { parseIdentityCallback } from './identity-callback.js';
@@ -46,9 +46,9 @@ export default class IdentityIssuance {
   // ---- Starting verification ----
 
   /** See ConcordiumIdentity.createIdentityRequest. */
-  async createRequest({ providerIndex, identityIndex = 0, redirectUri } = {}) {
+  async createRequest({ providerIndex, identityIndex, redirectUri } = {}) {
     requireIndex(providerIndex, 'providerIndex');
-    requireIndex(identityIndex, 'identityIndex');
+    requireIndex(identityIndex, 'identityIndex', IDENTITY_INDEX_HINT);
     requireRedirectUri(redirectUri);
 
     const provider = await this.#providers.get(providerIndex);
@@ -110,7 +110,7 @@ export default class IdentityIssuance {
     if (!pollUrl) throw new Error('codeUri must be an absolute HTTP(S) URL.');
     const { providerIndex, identityIndex } = this.#identityToCollect(options);
     requireIndex(providerIndex, 'providerIndex');
-    requireIndex(identityIndex, 'identityIndex');
+    requireIndex(identityIndex, 'identityIndex', 'the identity number the request was made for.');
     requirePositive(timeoutMs, 'timeoutMs');
     requirePositive(intervalMs, 'intervalMs');
     if (signal?.aborted) throw cancelledError();
@@ -119,10 +119,10 @@ export default class IdentityIssuance {
 
   /** The provider and identity index to collect for: as given, or those of the request awaiting its identity. */
   #identityToCollect({ providerIndex, identityIndex } = {}) {
-    if (providerIndex !== undefined) return { providerIndex, identityIndex: identityIndex ?? 0 };
+    if (providerIndex !== undefined) return { providerIndex, identityIndex };
     if (identityIndex === undefined && this.requestAwaitingIdentity) return { ...this.requestAwaitingIdentity };
-    throw new Error('No identity request was started on this object: pass providerIndex '
-      + '(and identityIndex, if not 0) to collect, e.g. when resuming after a restart.');
+    throw new Error('No identity request was started on this object: pass providerIndex and identityIndex '
+      + 'to collect, e.g. when resuming after a restart.');
   }
 
   /** Check an issued identity is this wallet's, hold it, and return its summary. */

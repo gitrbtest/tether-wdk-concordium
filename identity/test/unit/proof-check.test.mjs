@@ -60,7 +60,7 @@ const refusedFor = (result) => { assert.equal(result.ok, false); return result.r
 test('checkPresentation: a true answer to our question is accepted, naming the account and what was shown', async () => {
   const w = await wallet();
   const request = requestFor({ providers: [0, 1, 2], adult: true, reveal: ['nationality'] });
-  const answer = await w.prove({ ...RECORDED, ...request });
+  const answer = await w.prove({ ...RECORDED, credNumber: 0, ...request });
   const result = await check(answer, request);
   assert.equal(result.ok, true, JSON.stringify(result.reasons));
   assert.deepEqual(result.reasons, []);
@@ -76,7 +76,7 @@ test('checkPresentation: a true answer to our question is accepted, naming the a
 test('checkPresentation: an answer to another request (another challenge) is refused, without asking the chain', async () => {
   const w = await wallet();
   const request = requestFor({ providers: [0], adult: true });
-  const answer = await w.prove({ ...RECORDED, ...request });
+  const answer = await w.prove({ ...RECORDED, credNumber: 0, ...request });
   const node = pretendNode();
   const result = await check(answer, requestFor({ providers: [0], adult: true }), node);
   assert.deepEqual(refusedFor(result), ['challenge-mismatch']);
@@ -88,7 +88,7 @@ test('checkPresentation: an answer to an easier question ("over 5" for "over 18"
   const w = await wallet();
   const asked = requestFor({ providers: [0], adult: true });
   const easier = { ...requestFor({ providers: [0], minAge: 5 }), challenge: asked.challenge };
-  const answer = await w.prove({ ...RECORDED, ...easier });
+  const answer = await w.prove({ ...RECORDED, credNumber: 0, ...easier });
   assert.equal((await check(answer, easier)).ok, true, 'a true answer to the easier question');
   assert.deepEqual(refusedFor(await check(answer, asked)), ['statements-mismatch']);
   w.dispose();
@@ -97,7 +97,7 @@ test('checkPresentation: an answer to an easier question ("over 5" for "over 18"
 test('checkPresentation: an identity from a provider the request does not accept is refused', async () => {
   const w = await wallet();
   const request = requestFor({ providers: [0, 1], adult: true });
-  const answer = await w.prove({ ...RECORDED, ...request });
+  const answer = await w.prove({ ...RECORDED, credNumber: 0, ...request });
   const onlyOthers = structuredClone(request);
   onlyOthers.credentialStatements[0].idQualifier.issuers = [1, 2];
   assert.deepEqual(refusedFor(await check(answer, onlyOthers)), ['provider-not-accepted']);
@@ -107,7 +107,7 @@ test('checkPresentation: an identity from a provider the request does not accept
 test('checkPresentation: a testnet answer is refused by a mainnet website', async () => {
   const w = await wallet();
   const request = requestFor({ providers: [0], adult: true });
-  const answer = await w.prove({ ...RECORDED, ...request });
+  const answer = await w.prove({ ...RECORDED, credNumber: 0, ...request });
   const result = await checkPresentation(answer, request, { node: pretendNode(), network: 'mainnet' });
   assert.deepEqual(refusedFor(result), ['wrong-network']);
   w.dispose();
@@ -116,7 +116,7 @@ test('checkPresentation: a testnet answer is refused by a mainnet website', asyn
 test('checkPresentation: an identity no longer valid (expired) or not yet valid is refused, though its maths holds', async () => {
   const w = await wallet();
   const request = requestFor({ providers: [0], adult: true });
-  const answer = await w.prove({ ...RECORDED, ...request });
+  const answer = await w.prove({ ...RECORDED, credNumber: 0, ...request });
   const expired = await check(answer, request, pretendNode({ validTo: '202601' }));
   assert.deepEqual(refusedFor(expired), ['not-active']);
   assert.match(expired.reasons[0].message, /expired/);
@@ -129,7 +129,7 @@ test('checkPresentation: an identity no longer valid (expired) or not yet valid 
 test('checkPresentation: an account not on chain is refused', async () => {
   const w = await wallet();
   const request = requestFor({ providers: [0], adult: true });
-  const answer = JSON.parse((await w.prove({ ...RECORDED, ...request })).toString());
+  const answer = JSON.parse((await w.prove({ ...RECORDED, credNumber: 0, ...request })).toString());
   // Point the answer at another record (a different, valid credential id: account 0's with the first byte changed).
   answer.verifiableCredential[0].credentialSubject.id = answer.verifiableCredential[0].credentialSubject.id.replace(':cred:aa', ':cred:8a');
   assert.deepEqual(refusedFor(await check(answer, request)), ['not-on-chain']);
@@ -139,7 +139,7 @@ test('checkPresentation: an account not on chain is refused', async () => {
 test('checkPresentation: a proof whose maths does not hold is refused (tampered, or other sealed details)', async () => {
   const w = await wallet();
   const request = requestFor({ providers: [0], adult: true });
-  const answer = JSON.parse((await w.prove({ ...RECORDED, ...request })).toString());
+  const answer = JSON.parse((await w.prove({ ...RECORDED, credNumber: 0, ...request })).toString());
   // The chain's sealed date of birth is another one (the nationality's seal in its place).
   const swapped = { ...ACCOUNT_0.commitments, dob: ACCOUNT_0.commitments.nationality };
   assert.deepEqual(refusedFor(await check(answer, request, pretendNode({ commitments: swapped }))), ['proof-invalid']);
@@ -160,7 +160,7 @@ test('checkPresentation: something that is not an answer is refused as unreadabl
 test('checkPresentation: the node cannot be asked: ProofError node (not a refusal); missing options: an error', async () => {
   const w = await wallet();
   const request = requestFor({ providers: [0], adult: true });
-  const answer = await w.prove({ ...RECORDED, ...request });
+  const answer = await w.prove({ ...RECORDED, credNumber: 0, ...request });
   await assert.rejects(check(answer, request, pretendNode({ fail: 'UNAVAILABLE' })), (e) => {
     assert.ok(e instanceof ProofError);
     assert.equal(e.reason, 'node');

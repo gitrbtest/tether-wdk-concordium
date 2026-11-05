@@ -10,7 +10,7 @@
  *                   `identityGap` missing numbers in a row; a provider that fails is noted, not fatal
  */
 import { IdentityProviderError, IdentityRecoveryError } from '../shared/errors.js';
-import { requireIndex } from '../shared/inputs.js';
+import { requireIndex, IDENTITY_INDEX_HINT } from '../shared/inputs.js';
 import { identityContent, summaryOf } from '../issuance/identity-object.js';
 import { recoveryRequest, recoveryLink, askProviderForIdentity, cancelledRecovery } from './identity-recovery.js';
 import { accountAddressOf } from '../account/credential.js';
@@ -51,9 +51,9 @@ export default class IdentityRecovery {
   }
 
   /** See ConcordiumIdentity.recoverIdentity. */
-  async recover({ providerIndex, identityIndex = 0, signal } = {}) {
+  async recover({ providerIndex, identityIndex, signal } = {}) {
     requireIndex(providerIndex, 'providerIndex');
-    requireIndex(identityIndex, 'identityIndex');
+    requireIndex(identityIndex, 'identityIndex', IDENTITY_INDEX_HINT);
     if (signal?.aborted) throw cancelledRecovery();
 
     return this.#recoverFrom(await this.#recoverableProvider(providerIndex), identityIndex, signal);
@@ -66,6 +66,17 @@ export default class IdentityRecovery {
 
   /** recover, for a provider already looked up (recoverAll takes it from the list it downloaded once). */
   async #recoverFrom(provider, identityIndex, signal) {
+    const found = await this.#askFor(provider, identityIndex, signal);
+    if (found === null) return null;
+    this.#held.hold(provider.index, identityIndex, found.identityObject);
+    return summaryOf(found.content, provider.index, identityIndex);
+  }
+
+  /**
+   * Ask the provider whether it issued this wallet's identity `identityIndex`; null if not. The identity is checked to
+   * be this wallet's, but not kept (recover keeps it; nextIdentityIndex only needs to know it exists).
+   */
+  async #askFor(provider, identityIndex, signal) {
     const providerIndex = provider.index;
     const globalContext = await this.#walletProxy.globalContext();
     const request = recoveryRequest({ provider, globalContext, hdWallet: this.#hdWallet(), identityIndex });
@@ -82,8 +93,38 @@ export default class IdentityRecovery {
         `The identity provider returned an identity that does not belong to this wallet for provider ${providerIndex}, `
         + `identity ${identityIndex}.`, { reason: 'not-yours' });
     }
-    this.#held.hold(providerIndex, identityIndex, identityObject);
-    return summaryOf(content, providerIndex, identityIndex);
+    return { identityObject, content };
+  }
+
+  /**
+   * See ConcordiumIdentity.nextIdentityIndex: the number after the highest identity this wallet has with the provider
+   * (asking for 0, 1, 2 … until `gap` numbers in a row have none), or 0 if it has none. Nothing is kept.
+   */
+  async nextIdentityIndex({ providerIndex, gap = DEFAULT_GAP, signal } = {}) {
+    requireIndex(providerIndex, 'providerIndex');
+    if (!Number.isSafeInteger(gap) || gap < 1) throw new Error('gap must be a whole number of at least 1.');
+    if (signal?.aborted) throw cancelledRecovery();
+    const provider = await this.#recoverableProvider(providerIndex);
+    let next = 0;
+    let missingInARow = 0;
+    for (let identityIndex = 0; missingInARow < gap; identityIndex++) {
+      if (await this.#askFor(provider, identityIndex, signal) === null) {
+        missingInARow++;
+      } else {
+        next = identityIndex + 1;
+        missingInARow = 0;
+      }
+    }
+    return next;
+  }
+
+  /**
+   * See ConcordiumIdentity.nextCredNumber: the number after the highest account the identity has on chain (as
+   * findAccounts finds them), or 0 if it has none.
+   */
+  async nextCredNumber({ providerIndex, identityIndex, gap = DEFAULT_GAP, signal } = {}) {
+    const accounts = await this.findAccounts({ providerIndex, identityIndex, gap, signal });
+    return accounts.length ? accounts[accounts.length - 1].credNumber + 1 : 0;
   }
 
   /** See ConcordiumIdentity.recoverAll. */
@@ -147,9 +188,9 @@ export default class IdentityRecovery {
   }
 
   /** See ConcordiumIdentity.findAccounts. */
-  async findAccounts({ providerIndex, identityIndex = 0, gap = DEFAULT_GAP, signal } = {}) {
+  async findAccounts({ providerIndex, identityIndex, gap = DEFAULT_GAP, signal } = {}) {
     requireIndex(providerIndex, 'providerIndex');
-    requireIndex(identityIndex, 'identityIndex');
+    requireIndex(identityIndex, 'identityIndex', IDENTITY_INDEX_HINT);
     if (!Number.isSafeInteger(gap) || gap < 1) throw new Error('gap must be a whole number of at least 1.');
     if (signal?.aborted) throw cancelledRecovery();
 

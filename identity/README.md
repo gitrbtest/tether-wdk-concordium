@@ -99,10 +99,11 @@ import { ConcordiumIdentity, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concord
 
 const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
 
+const identityIndex = await identity.nextIdentityIndex({ providerIndex: 0 }); // the next free identity number
 const { issuanceUrl } = await identity.createIdentityRequest({
-  providerIndex: 0,                                    // required
+  providerIndex: 0,                                      // required
+  identityIndex,                                         // required: which of the wallet's identities with this provider
   redirectUri: 'https://wallet.example/identity/return', // required
-  // identityIndex: 0,                                 // optional; which of the wallet's identities with this provider
 });
 
 // Open issuanceUrl in a browser or web view. The user verifies with the
@@ -317,16 +318,18 @@ import WalletManagerConcordium, { CONCORDIUM_TESTNET_CONFIG } from '@concordium/
 const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { store });
 await identity.loadIdentity({ providerIndex: 0, identityIndex: 0 });   // or collected just now
 
-const { address, path, created } = await identity.createAccount({ providerIndex: 0, identityIndex: 0 });
-// address: the new account; path: '0/0/0'; created: false if it already existed
+const credNumber = await identity.nextCredNumber({ providerIndex: 0, identityIndex: 0 }); // the next new account
+const { address, path, created } = await identity.createAccount({ providerIndex: 0, identityIndex: 0, credNumber });
+// address: the new account; path: e.g. '0/0/0'; created: false if it already existed
 
 // Use it like any other account, through the wallet package:
 const wallet = new WalletManagerConcordium(seedPhrase, CONCORDIUM_TESTNET_CONFIG);
 const account = await wallet.getAccountByPath(path);
 ```
 
-- **Several accounts per identity:** `credNumber` 0, 1, 2… (default 0), below the identity's
-  `maxAccounts` (200 on testnet). They are the same numbers as the wallet package's paths
+- **Several accounts per identity:** `credNumber` 0, 1, 2…, below the identity's `maxAccounts` (200 on
+  testnet). There is no default: say which account every time. `nextCredNumber` gives the number for a new
+  account (one after the highest the identity has on chain), and `findAccounts` lists the existing ones. They are the same numbers as the wallet package's paths
   (`provider/identity/credNumber`), and `path` in the result is exactly what `getAccountByPath` takes.
 - **Nothing about the person is revealed** on the account by default. To show attributes publicly, name
   them: `revealAttributes: ['countryOfResidence']`. Revealed values are public on chain.
@@ -441,8 +444,14 @@ looks beyond the identity's `maxAccounts`.
 
 ### Number identities 0, 1, 2 …
 
+The package never picks an identity or account number for you: `identityIndex` and `credNumber` are always
+passed explicitly, so it never quietly uses the wrong identity or account. Two helpers give the number for a
+new one: `nextIdentityIndex({ providerIndex })` (one after the highest identity this seed has with the provider,
+found by asking its recovery address as `recoverAll` does) and `nextCredNumber({ providerIndex, identityIndex })`
+(one after the highest account the identity has on chain).
+
 Recovery finds identities by counting, so give each provider's identities the numbers 0, 1, 2 … in order,
-and accounts 0, 1, 2 … under each identity. A wallet that does so gets everything back with `recoverAll`
+and accounts 0, 1, 2 … under each identity (the two helpers do exactly that). A wallet that does so gets everything back with `recoverAll`
 alone. An identity given a number far from the others (for example a random one, as the demo wallet does
 on its shared test phrase) is not found by counting; `recoverIdentity` with its number still gets it back.
 If your app leaves bigger gaps (an identity started but never finished, accounts skipped), raise

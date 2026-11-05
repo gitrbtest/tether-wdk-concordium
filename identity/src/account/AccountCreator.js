@@ -7,7 +7,7 @@
  *                           └─no──► build credential ─► send + wait ─► { created: true }
  */
 import { AccountCreationError } from '../shared/errors.js';
-import { requireIndex, requirePositive } from '../shared/inputs.js';
+import { requireIndex, requirePositive, IDENTITY_INDEX_HINT, CRED_NUMBER_HINT } from '../shared/inputs.js';
 import { identityContent, hasExpired } from '../issuance/identity-object.js';
 import { buildAccountCredential, accountAddressOf, ATTRIBUTE_NAMES } from './credential.js';
 import { submitAndWait, DEFAULT_ACCOUNT_TIMEOUT_MS, DEFAULT_ACCOUNT_INTERVAL_MS } from './submission.js';
@@ -24,12 +24,12 @@ const ACCOUNT_CREDENTIAL_MARGIN_MS = 2 * 60 * 1000;
  *   timeoutMs: number, intervalMs: number, signal?: AbortSignal }}
  */
 export function readAccountOptions({
-  providerIndex, identityIndex, credNumber = 0, revealAttributes = [],
+  providerIndex, identityIndex, credNumber, revealAttributes = [],
   timeoutMs = DEFAULT_ACCOUNT_TIMEOUT_MS, intervalMs = DEFAULT_ACCOUNT_INTERVAL_MS, signal,
 } = {}) {
   requireIndex(providerIndex, 'providerIndex');
-  requireIndex(identityIndex, 'identityIndex');
-  requireIndex(credNumber, 'credNumber');
+  requireIndex(identityIndex, 'identityIndex', IDENTITY_INDEX_HINT);
+  requireIndex(credNumber, 'credNumber', CRED_NUMBER_HINT);
   requirePositive(timeoutMs, 'timeoutMs');
   requirePositive(intervalMs, 'intervalMs');
   if (!Array.isArray(revealAttributes) || !revealAttributes.every((name) => typeof name === 'string')) {

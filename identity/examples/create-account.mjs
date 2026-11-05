@@ -1,16 +1,17 @@
 /**
  * Create a Concordium account on testnet from an identity saved by verify-identity, with no ID App:
  * load the identity, create the account, and print where to see it. Free: creating an account costs no
- * CCD. Running it again for the same account number finds the account instead of creating another.
+ * CCD. Without CRED_NUMBER it creates the next new account each run; with it, running again for the same number
+ * finds that account instead of creating another.
  *
  *   npm run example:create-account
  *
  * Use the same settings as for verify-identity, plus:
  *   SEED_PHRASE      the wallet's seed phrase (default: a public demonstration phrase)
  *   PROVIDER_INDEX   identity provider index on the network (default 0)
- *   IDENTITY_INDEX   the wallet's identity number with that provider (default 0)
+ *   IDENTITY_INDEX   the wallet's identity number with that provider (required: verify-identity prints it)
  *   IDENTITY_STORE   folder with the encrypted identity (default ./demo-identities)
- *   CRED_NUMBER      which account under the identity: 0, 1, 2… (default 0)
+ *   CRED_NUMBER      which account under the identity: 0, 1, 2… (default: the next new one, from nextCredNumber)
  */
 import {
   ConcordiumIdentity,
@@ -24,8 +25,11 @@ import { FileIdentityStore } from '@concordium/wdk-identity-concordium/node';
 const DEMO_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const seedPhrase = process.env.SEED_PHRASE || DEMO_PHRASE;
 const providerIndex = Number(process.env.PROVIDER_INDEX ?? 0);
-const identityIndex = Number(process.env.IDENTITY_INDEX ?? 0);
-const credNumber = Number(process.env.CRED_NUMBER ?? 0);
+if (process.env.IDENTITY_INDEX === undefined) {
+  console.error('Set IDENTITY_INDEX to the identity number verify-identity printed (npm run example:load-identity lists them).');
+  process.exit(1);
+}
+const identityIndex = Number(process.env.IDENTITY_INDEX);
 const storeFolder = process.env.IDENTITY_STORE || './demo-identities';
 
 // The identity package with the wallet's seed phrase and the folder verify-identity saved the identity into.
@@ -51,6 +55,11 @@ try {
     //    plus mathematical proofs that a provider verified this person. The identity itself and the person's
     //    details are NOT sent. It sends that through the wallet-proxy and waits until the chain has accepted it
     //    for good ("final"). Creating an account is free.
+    // Which account: the one given, or the next new one (nextCredNumber asks the chain which accounts this
+    // identity already has, so a new account never lands on an existing one).
+    const credNumber = process.env.CRED_NUMBER !== undefined
+      ? Number(process.env.CRED_NUMBER)
+      : await identity.nextCredNumber({ providerIndex, identityIndex });
     console.log(`2. Create account ${credNumber} on testnet (sent through the wallet-proxy; usually a few seconds)`);
     const started = Date.now();
     const account = await identity.createAccount({ providerIndex, identityIndex, credNumber });

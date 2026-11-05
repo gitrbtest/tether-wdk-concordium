@@ -25,7 +25,8 @@ const snippet = (text) => text.replace(/\s+/g, ' ').trim().slice(0, 160);
 export async function checkProvider(identity, providerIndex, { fetch: fetchFn = fetch } = {}) {
   let issuanceUrl;
   try {
-    ({ issuanceUrl } = await identity.createIdentityRequest({ providerIndex, redirectUri: CHECK_REDIRECT_URI }));
+    // Identity number 0: this request only checks the provider answers; nothing is verified or issued.
+    ({ issuanceUrl } = await identity.createIdentityRequest({ providerIndex, identityIndex: 0, redirectUri: CHECK_REDIRECT_URI }));
   } catch (e) {
     if (e instanceof IdentityProviderError) return { outcome: 'no-issuance-address', detail: e.message };
     throw e;

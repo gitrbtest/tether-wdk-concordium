@@ -32,7 +32,7 @@ const requestOf = (issuanceUrl) => JSON.parse(new URL(issuanceUrl).searchParams.
 for (const [network, index] of PROVIDERS) {
   test(`${network} provider ${index}: the link opens its published issuance address with the request`, async () => {
     const { identity, requests } = offlineIdentity(network);
-    const result = await identity.createIdentityRequest({ providerIndex: index, redirectUri: REDIRECT });
+    const result = await identity.createIdentityRequest({ providerIndex: index, identityIndex: 0, redirectUri: REDIRECT });
 
     const url = new URL(result.issuanceUrl);
     assert.equal(url.origin + url.pathname, published(network, index).issuanceStart);
@@ -66,7 +66,7 @@ test('each identity index gives a different identity, and the same index the sam
 test('the return address is passed on exactly as given, including an app scheme', async () => {
   for (const redirectUri of ['https://wallet.example', 'concordium-wallet://identity/return?flow=1']) {
     const { identity } = offlineIdentity('testnet');
-    const { issuanceUrl } = await identity.createIdentityRequest({ providerIndex: 0, redirectUri });
+    const { issuanceUrl } = await identity.createIdentityRequest({ providerIndex: 0, identityIndex: 0, redirectUri });
     assert.equal(new URL(issuanceUrl).searchParams.get('redirect_uri'), redirectUri);
   }
 });
@@ -76,9 +76,10 @@ test('invalid inputs are rejected before any request', async () => {
     [{ redirectUri: REDIRECT }, /providerIndex is required/],
     [{ providerIndex: -1, redirectUri: REDIRECT }, /providerIndex is required/],
     [{ providerIndex: 0, identityIndex: 1.5, redirectUri: REDIRECT }, /identityIndex is required/],
-    [{ providerIndex: 0 }, /redirectUri is required/],
-    [{ providerIndex: 0, redirectUri: '/identity/return' }, /redirectUri is required/],
-    [{ providerIndex: 0, redirectUri: ' https://wallet.example' }, /redirectUri is required/],
+    [{ providerIndex: 0, redirectUri: REDIRECT }, /identityIndex is required: .*nextIdentityIndex/], // no default number
+    [{ providerIndex: 0, identityIndex: 0 }, /redirectUri is required/],
+    [{ providerIndex: 0, identityIndex: 0, redirectUri: '/identity/return' }, /redirectUri is required/],
+    [{ providerIndex: 0, identityIndex: 0, redirectUri: ' https://wallet.example' }, /redirectUri is required/],
   ];
   for (const [options, expected] of cases) {
     const { identity, requests } = offlineIdentity('testnet');
@@ -92,7 +93,7 @@ test('invalid inputs are rejected before any request', async () => {
 test('a provider that is not published fails clearly, before the parameters are fetched', async () => {
   const { identity, requests } = offlineIdentity('mainnet');
   await assert.rejects(
-    () => identity.createIdentityRequest({ providerIndex: 0, redirectUri: REDIRECT }),
+    () => identity.createIdentityRequest({ providerIndex: 0, identityIndex: 0, redirectUri: REDIRECT }),
     (e) => e instanceof IdentityProviderError && e.providerIndex === 0,
   );
   assert.deepEqual(requests, [`${CONFIG.mainnet.walletProxyUrl}/v1/ip_info`]);
@@ -103,7 +104,7 @@ test('a provider without an issuance address fails clearly, before any cryptogra
   delete ipInfo.find((e) => e.ipInfo.ipIdentity === 0).metadata.issuanceStart;
   const { identity, requests } = offlineIdentity('testnet', { ipInfo });
   await assert.rejects(
-    () => identity.createIdentityRequest({ providerIndex: 0, redirectUri: REDIRECT }),
+    () => identity.createIdentityRequest({ providerIndex: 0, identityIndex: 0, redirectUri: REDIRECT }),
     (e) => e instanceof IdentityProviderError && e.providerIndex === 0 && /no issuance address/.test(e.message),
   );
   assert.deepEqual(requests, [`${CONFIG.testnet.walletProxyUrl}/v1/ip_info`], 'the parameters were never fetched');
@@ -111,6 +112,6 @@ test('a provider without an issuance address fails clearly, before any cryptogra
 
 test('cryptographic parameters in an unexpected format are reported', async () => {
   const { identity } = offlineIdentity('testnet', { global: { v: 0, value: {} } });
-  await assert.rejects(() => identity.createIdentityRequest({ providerIndex: 0, redirectUri: REDIRECT }),
+  await assert.rejects(() => identity.createIdentityRequest({ providerIndex: 0, identityIndex: 0, redirectUri: REDIRECT }),
     /cryptographic parameters in an unexpected format/);
 });
