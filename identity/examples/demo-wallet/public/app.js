@@ -77,13 +77,13 @@ const views = {
   identity: (s) => `
     <section class="card identity-card">
       <p class="eyebrow">Step 3 · Identity · Phase 2</p>
-      <h2>Your identity ${s.identity.loaded ? 'is loaded' : 'is verified'} 🔒</h2>
+      <h2>Your identity ${s.identity.loaded ? 'is imported' : 'is verified'} 🔒</h2>
       <dl class="facts">
         <dt>Issued by</dt><dd>${esc(s.identity.providerName)}</dd>
         <dt>Valid until</dt><dd>${yearMonth(s.identity.validTo)} (issued ${yearMonth(s.identity.createdAt)})</dd>
         <dt>Accounts allowed</dt><dd>up to ${s.identity.maxAccounts}</dd>
-        <dt>Stored</dt><dd>${s.identity.loaded ? 'loaded from the encrypted store' : `encrypted in ${esc(s.identity.storeFolder)}`}: the key comes
-          from the seed and is never stored; nothing personal is on disk</dd>
+        <dt>Kept</dt><dd>${s.identity.loaded ? 'imported from the copy the wallet kept' : 'exported by the package as encrypted text, kept by the wallet'}
+          (<code>${esc(s.identity.keptIn)}</code>): the key comes from the seed and is never stored; nothing personal is readable</dd>
       </dl>
       <p class="note"><strong>Held by your wallet: not on the blockchain.</strong> The chain only sees proofs of it
         when an account is created, never the identity itself.</p>
@@ -91,7 +91,7 @@ const views = {
       <div class="send-actions">
         <button class="primary" data-action="create-account" ${s.busy ? 'disabled' : ''}>${s.busy === 'creating-account'
           ? '<span class="spinner"></span>Creating the account…' : 'Create account'}</button>
-        ${s.storage ? '' : `<button data-action="storage-open" ${s.busy ? 'disabled' : ''}>Where is it kept? (Step 3b)</button>`}
+        ${s.storage ? '' : `<button data-action="storage-open" ${s.busy ? 'disabled' : ''}>What does the wallet keep? (Step 3b)</button>`}
       </div>
     </section>
     ${s.storage ? storageCard(s) : ''}
@@ -136,83 +136,63 @@ const views = {
     ${activity(s)}`,
 };
 
-// ---- Step 3b: Storage: where the identity is kept ----------------------------------------------------------------
-
-const STORE_CHOICES = [
-  ['memory', 'Memory', 'kept in this program only: gone when it stops (for tests and short sessions)'],
-  ['files', 'Files', 'one encrypted file per identity, in a folder on this computer (desktop and server wallets)'],
-  ['database', 'Database', 'a table in a SQLite database: the same few lines work for any database or backend'],
-];
+// ---- Step 3b: what the wallet keeps -------------------------------------------------------------------------------
 
 function storageCard(s) {
   const st = s.storage;
-  const h = st.holds;
+  const k = st.kept;
   const busy = Boolean(s.busy);
-  const choice = ([kind, name, description]) => {
-    const unavailable = kind === 'database' && st.database && st.database !== 'available';
-    return `
-      <div class="store-choice ${st.kind === kind ? 'chosen' : ''}">
-        <button data-action="storage-choose" data-kind="${kind}" ${busy || unavailable ? 'disabled' : ''}>${name}</button>
-        <p class="note">${esc(unavailable ? `${description}. Not available here: it ${st.database}` : description)}</p>
-      </div>`;
-  };
-  let holds = '';
-  if (h) {
-    holds = `
+  const kept = k ? `
       <dl class="facts">
-        <dt>Slot name</dt><dd><code>${esc(h.slotName)}</code> (says which identity; not secret)</dd>
-        ${h.bytes ? `
-          <dt>Saved bytes</dt><dd>${h.bytes.toLocaleString('en-GB')} bytes, starting <code>${esc(h.head)} …</code>
-            = "${esc(h.magic)}", format version ${esc(h.version)}, then encrypted</dd>
-          <dt>Personal data visible</dt><dd>${h.found.length ? `<strong class="bad">✖ found: ${esc(h.found.join(', '))}</strong>`
-            : '<strong class="good">none ✔</strong> (the page searches the bytes for the identity\'s own details and finds none)'}</dd>
-          ${st.kind === 'files' ? `<dt>File</dt><dd><code>${esc(h.where)}</code></dd>` : ''}
-          ${st.kind === 'database' ? `<dt>Table row</dt><dd><code>slot = ${esc(h.slotName)}</code>, <code>data = ${h.bytes.toLocaleString('en-GB')} bytes</code></dd>` : ''}`
-          : '<dt>Saved bytes</dt><dd>none: this store is empty</dd>'}
-      </dl>`;
-  }
+        <dt>Kept text</dt><dd>${k.characters.toLocaleString('en-GB')} characters, starting <code>${esc(k.preview)}</code>
+          (base64 of "${esc(k.magic)}", format version ${esc(k.version)}, then encrypted)</dd>
+        <dt>Which identity</dt><dd><code>${esc(k.label)}</code> (readable, not secret, and protected from change)</dd>
+        <dt>Personal data visible</dt><dd>${k.found.length ? `<strong class="bad">✖ found: ${esc(k.found.join(', '))}</strong>`
+          : '<strong class="good">none ✔</strong> (the page searches the kept text for the identity\'s own details and finds none)'}</dd>
+        <dt>Kept in</dt><dd><code>${esc(k.where)}</code> (this demo's choice: a file; a phone would use its secure storage)</dd>
+      </dl>` : '';
+  const plain = st.plain ? `
+      <div class="result failed">The plain form (<code>encrypted: false</code>), shown here only, never kept:
+        ${st.plain.characters.toLocaleString('en-GB')} characters, and the person's details <strong>are</strong> readable in it:
+        ${esc(st.plain.found.join(', '))}. Only for a wallet that already keeps everything in an encrypted vault of its own;
+        keep it as carefully as the seed.<br><code>${esc(st.plain.preview)}</code></div>` : '';
   return `
     <section class="card storage-card">
-      <p class="eyebrow">Step 3b · Storage · Phase 2</p>
-      <h2>Where your identity is kept</h2>
-      <p class="note">The wallet decides where identities are stored. The package hands the store only a slot name and
-        encrypted bytes, so any store works, and none of them can read the identity. Choose a store to see what it
-        actually holds.</p>
-      <div class="store-choices">${STORE_CHOICES.map(choice).join('')}</div>
-      <h3>What the store holds</h3>
-      ${holds}
+      <p class="eyebrow">Step 3b · What the wallet keeps · Phase 2</p>
+      <h2>Your identity, kept by the wallet</h2>
+      <p class="note">The package stores nothing. It hands the identity to the wallet as one piece of text, encrypted with a
+        key that comes from the seed, and the wallet keeps it its own way, as it keeps the seed. On the next start, the
+        package takes the text back (<code>importIdentity</code>) and checks it is this wallet's.</p>
+      <h3>What the wallet keeps</h3>
+      ${kept}
       <div class="send-actions">
-        <button data-action="storage-restart" ${busy ? 'disabled' : ''}>Restart wallet</button>
-        <button data-action="storage-damage" ${busy || st.damaged || !h?.bytes ? 'disabled' : ''}>Damage one bit</button>
+        <button data-action="storage-restart" ${busy ? 'disabled' : ''}>Restart wallet: import it back</button>
+        <button data-action="storage-damage" ${busy || st.damaged ? 'disabled' : ''}>Change one character</button>
         ${st.damaged ? `<button data-action="storage-repair" ${busy ? 'disabled' : ''}>Repair</button>` : ''}
+        <button data-action="storage-plain" ${busy ? 'disabled' : ''}>Show the plain form</button>
       </div>
       ${storageResult(st, s.identity)}
-      <p class="note">The format is documented, so other wallets (e.g. a native mobile app) can read the same data with
+      ${plain}
+      <p class="note">The format is documented, so other wallets (e.g. a native mobile app) can read the same text with
         the same seed.</p>
     </section>`;
 }
 
-/** The last Restart / Damage / Repair, in place. */
+/** The last Restart / Change / Repair, in place. */
 function storageResult(st, identity) {
   const r = st.result;
   if (!r) return '';
-  if (r.outcome === 'loaded') {
-    return `<div class="result sent">✔ A new wallet object with the same seed loaded the identity back from the store,
+  if (r.outcome === 'imported') {
+    return `<div class="result sent">✔ A new wallet object with the same seed imported the kept text: the identity is back,
       without the network: valid until ${yearMonth(r.validTo)}.</div>`;
   }
-  if (r.outcome === 'nothing') {
-    return st.kind === 'memory'
-      ? `<div class="result failed">Nothing to load: the memory store was emptied when the wallet restarted. That is why
-          wallets use a lasting store.</div>`
-      : '<div class="result failed">Nothing to load: nothing is saved in this store.</div>';
-  }
   if (r.outcome === 'refused') {
-    return `<div class="result failed">✖ One bit of the saved bytes was changed. Loading it again was refused: the
-      identity cannot be decrypted (another seed, another slot, or damaged data). A damaged or swapped identity is never
-      used.<br><code>IdentityStorageError · reason ${esc(r.reason)}</code></div>`;
+    return `<div class="result failed">✖ One character of the kept text was changed. Importing it again was refused: it
+      cannot be decrypted (another seed, or changed or damaged text). A changed or swapped identity is never used.
+      <br><code>IdentityStorageError · reason ${esc(r.reason)}</code></div>`;
   }
   if (r.outcome === 'repaired') {
-    return `<div class="result sent">✔ The saved copy was restored from the identity the wallet holds${identity
+    return `<div class="result sent">✔ The kept copy was replaced by a fresh export of the identity the wallet holds${identity
       ? ` (valid until ${yearMonth(identity.validTo)})` : ''}.</div>`;
   }
   return '';

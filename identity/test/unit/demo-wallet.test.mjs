@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, request as httpRequest } from 'node:http';
+import { join } from 'node:path';
 import { startDemoServer } from '../../examples/demo-wallet/server.mjs';
 import { readSettings, DEMO_PHRASE } from '../../examples/demo-wallet/settings.mjs';
 
@@ -50,7 +51,7 @@ async function withDemo(env, run) {
 test('settings: a funding account when given; a fresh random identity unless IDENTITY_INDEX', () => {
   const funded = readSettings(FUNDED);
   assert.deepEqual({ ...funded, funding: { ...funded.funding } },
-    { port: 4321, seedPhrase: DEMO_PHRASE, identityIndex: 7, reuseIdentity: true, providerIndex: 0, storeFolder: './demo-identities', funding: { seed: FUNDED.FUNDING_SEED, path: '0/1/0' } });
+    { port: 4321, seedPhrase: DEMO_PHRASE, identityIndex: 7, reuseIdentity: true, providerIndex: 0, identityFolder: './demo-identities', funding: { seed: FUNDED.FUNDING_SEED, path: '0/1/0' } });
   const fresh = readSettings({ PORT: '4400' });
   assert.equal(fresh.port, 4400);
   assert.equal(fresh.funding, null, 'no funding account: the demo runs in "no funding" mode');
@@ -115,7 +116,7 @@ async function withRecordedDemo(changes, run) {
   const { fetch: recorded } = walletProxyFetch('testnet');
   const fetch = async (url, options) => (url === CODE_URI ? { ok: true, status: 200, json: async () => issued() } : recorded(url, options));
   const storeFolder = mkdtempSync(join(tmpdir(), 'demo-wallet-test-'));
-  const settings = { ...readSettings({}), identityIndex: RECORDED_IDENTITY, storeFolder, ...changes };
+  const settings = { ...readSettings({}), identityIndex: RECORDED_IDENTITY, identityFolder: storeFolder, ...changes };
   const demo = await startDemoServer({ settings, port: 0, fetch, checkProviders: false });
   try { await run(demo, storeFolder); } finally { await demo.close(); rmSync(storeFolder, { recursive: true, force: true }); }
 }
@@ -155,7 +156,7 @@ test('step 2: verify gives the provider link, which comes back to the demo\'s ow
   assert.ok(page.body.includes(`content="${demo.token}"`), 'the return page carries the token too');
 }));
 
-test('the reply is collected, checked and saved encrypted; the identity card has no personal data', local, () => withRecordedDemo({}, async (demo, storeFolder) => {
+test('the reply is collected, checked, exported encrypted and kept; the identity card has no personal data', local, () => withRecordedDemo({}, async (demo, storeFolder) => {
   await post(demo, '/api/start');
   await post(demo, '/api/verify', { providerIndex: 0 });
   const accepted = await post(demo, '/api/callback', { url: `${demo.url}return#code_uri=${encodeURIComponent(CODE_URI)}` });
@@ -163,11 +164,11 @@ test('the reply is collected, checked and saved encrypted; the identity card has
   const done = await until(demo, (s) => s.step === 'identity');
   assert.deepEqual({ ...done.identity }, {
     providerIndex: 0, identityIndex: RECORDED_IDENTITY, createdAt: '202609', validTo: '202709', maxAccounts: 200,
-    providerName: 'Concordium testnet IP', slotName: `concordium-identity/testnet/0/${RECORDED_IDENTITY}`, storeFolder,
+    providerName: 'Concordium testnet IP', keptIn: join(storeFolder, `testnet-0-${RECORDED_IDENTITY}.txt`),
   });
   assert.equal(done.verification.stage, 5, 'all stages done');
-  const { existsSync } = await import('node:fs');
-  assert.ok(existsSync(`${storeFolder}/concordium-identity/testnet/0/${RECORDED_IDENTITY}.bin`), 'saved in the store');
+  const { readFileSync } = await import('node:fs');
+  assert.match(readFileSync(done.identity.keptIn, 'utf8'), /^Q1dJRA/, 'kept: the encrypted export (base64 of "CWID" …)');
   assert.doesNotMatch(JSON.stringify(done), /John|Doe|19700101/, 'no personal data in the state');
 }));
 
@@ -178,12 +179,12 @@ test('a reply that is not for the demo\'s request, or with no request started, i
   assert.equal((await post(demo, '/api/callback', { url: 'https://elsewhere.example/return#code_uri=x' })).status, 400);
 }));
 
-test('with IDENTITY_INDEX, Start loads the saved identity instead of verifying', local, () => withRecordedDemo({}, async (demo, storeFolder) => {
+test('with IDENTITY_INDEX, Start imports the kept identity instead of verifying', local, () => withRecordedDemo({}, async (demo, storeFolder) => {
   await post(demo, '/api/start');
   await post(demo, '/api/verify', { providerIndex: 0 });
   await post(demo, '/api/callback', { url: `${demo.url}return#code_uri=${encodeURIComponent(CODE_URI)}` });
   await until(demo, (s) => s.step === 'identity');
-  await withRecordedDemo({ storeFolder, reuseIdentity: true }, async (again) => {
+  await withRecordedDemo({ identityFolder: storeFolder, reuseIdentity: true }, async (again) => {
     const started = await post(again, '/api/start');
     assert.equal(started.body.step, 'identity');
     assert.equal(started.body.identity.loaded, true);
@@ -248,7 +249,7 @@ async function withIdentityReady(env, run) {
   const storeFolder = mkdtempSync(join(tmpdir(), 'demo-wallet-test-'));
   const wallet = fakeWalletPackage();
   // A fresh identity (verified below), whatever the env says about reusing one.
-  const settings = { ...readSettings(env), identityIndex: RECORDED_IDENTITY, reuseIdentity: false, storeFolder };
+  const settings = { ...readSettings(env), identityIndex: RECORDED_IDENTITY, reuseIdentity: false, identityFolder: storeFolder };
   const demo = await startDemoServer({ settings, port: 0, fetch, checkProviders: false, makeWallet: wallet.makeWallet, pauseMs: 5 });
   try {
     await post(demo, '/api/start');
@@ -451,25 +452,22 @@ test('Show the code, step 6: what happened is marked done, with its values; what
   assert.match(afterSponsored, /the sponsor paid 4\.77 CCD/);
 });
 
-// ---- Piece 7: the Storage panel (step 3b) -------------------------------------------------------------------------
+// ---- Step 3b: what the wallet keeps (export and import, after Concordium's feedback of 5 Nov) -----------------------
 
-const storage = (demo, action, kind) => post(demo, '/api/storage', { action, kind });
-const hasSqlite = await import('node:sqlite').then(() => true, () => false);
+const storage = (demo, action) => post(demo, '/api/storage', { action });
 
-test('step 3b: the panel shows what the files store holds: encrypted bytes, no personal data', local, () => withIdentityReady(FUNDED, async (demo) => {
+test('step 3b: the panel shows what the wallet keeps: encrypted text, its readable label, no personal data', local, () => withIdentityReady(FUNDED, async (demo) => {
   const opened = await storage(demo, 'open');
   assert.equal(opened.status, 200);
-  const { kind, slotName, holds, database } = opened.body.storage;
-  assert.equal(kind, 'files');
-  assert.equal(slotName, `concordium-identity/testnet/0/${RECORDED_IDENTITY}`);
-  assert.ok(holds.bytes > 1000);
-  assert.equal(holds.head.slice(0, 14), '43 57 49 44 01', '"CWID", format version 1');
-  assert.equal(holds.magic, 'CWID');
-  assert.ok(holds.searched >= 5, 'the identity\'s own details are searched for (John, 19700101, …)');
-  assert.deepEqual(holds.found, [], 'none of them is in the stored bytes');
-  assert.ok(holds.where.endsWith(`${slotName}.bin`));
-  assert.equal(database, hasSqlite ? 'available' : database, 'the database choice says whether it can be used');
-  if (!hasSqlite) assert.match(database, /22\.13/);
+  const { kept } = opened.body.storage;
+  assert.ok(kept.characters > 1000);
+  assert.match(kept.preview, /^Q1dJRA/);
+  assert.equal(kept.magic, 'CWID');
+  assert.equal(kept.version, 2);
+  assert.equal(kept.label, `concordium-identity/testnet/0/${RECORDED_IDENTITY}`);
+  assert.ok(kept.searched >= 5, 'the identity\'s own details are searched for (John, 19700101, …)');
+  assert.deepEqual(kept.found, [], 'none of them is in the kept text');
+  assert.ok(kept.where.endsWith(`testnet-0-${RECORDED_IDENTITY}.txt`));
 }));
 
 test('step 3b: the panel needs an identity, and waits for a running step', local, () => withRecordedDemo({}, async (demo) => {
@@ -478,50 +476,28 @@ test('step 3b: the panel needs an identity, and waits for a running step', local
   assert.match(early.body.error, /needs an identity/);
 }));
 
-test('step 3b: Memory: saved, then a restart empties it and there is nothing to load', local, () => withIdentityReady(FUNDED, async (demo) => {
-  await storage(demo, 'open');
-  const chosen = await storage(demo, 'choose', 'memory');
-  assert.equal(chosen.body.storage.kind, 'memory');
-  assert.ok(chosen.body.storage.holds.bytes > 1000, 'the wallet saved it into memory');
-  const restarted = await storage(demo, 'restart');
-  assert.deepEqual(restarted.body.storage.result, { outcome: 'nothing' });
-  assert.equal(restarted.body.storage.holds.bytes, 0, 'the memory store is empty after the restart');
-  const damage = await storage(demo, 'damage');
-  assert.equal(damage.status, 400, 'nothing to damage in an empty store');
-  const again = await storage(demo, 'choose', 'memory');
-  assert.ok(again.body.storage.holds.bytes > 1000, 'choosing it again saves it again');
-}));
-
-test('step 3b: Files: a restart loads it back; one damaged bit is refused; Repair restores it', local, () => withIdentityReady(FUNDED, async (demo) => {
+test('step 3b: a restart imports it back; one changed character is refused; Repair restores it', local, () => withIdentityReady(FUNDED, async (demo) => {
   await storage(demo, 'open');
   const restarted = await storage(demo, 'restart');
-  assert.equal(restarted.body.storage.result.outcome, 'loaded');
+  assert.equal(restarted.body.storage.result.outcome, 'imported');
   assert.equal(restarted.body.storage.result.validTo, '202709');
   const damaged = await storage(demo, 'damage');
   assert.equal(damaged.body.storage.result.outcome, 'refused');
-  assert.equal(damaged.body.storage.result.reason, 'unreadable-slot');
+  assert.equal(damaged.body.storage.result.reason, 'unreadable');
   assert.equal(damaged.body.storage.damaged, true);
   const repaired = await storage(demo, 'repair');
   assert.equal(repaired.body.storage.result.outcome, 'repaired');
   assert.equal(repaired.body.storage.damaged, false);
   assert.equal((await storage(demo, 'repair')).status, 400, 'nothing left to repair');
-  assert.equal((await storage(demo, 'restart')).body.storage.result.outcome, 'loaded', 'it loads again after the repair');
+  assert.equal((await storage(demo, 'restart')).body.storage.result.outcome, 'imported', 'it imports again after the repair');
 }));
 
-test('step 3b: Database (SQLite): saved as a table row, restart and damage behave the same', { ...local, skip: local.skip || (!hasSqlite && 'needs Node.js 22.13+ (built-in SQLite)') }, () => withIdentityReady(FUNDED, async (demo) => {
+test('step 3b: the plain form is shown, never kept, and its details ARE readable', local, () => withIdentityReady(FUNDED, async (demo) => {
   await storage(demo, 'open');
-  const chosen = await storage(demo, 'choose', 'database');
-  assert.equal(chosen.status, 200);
-  assert.equal(chosen.body.storage.kind, 'database');
-  assert.ok(chosen.body.storage.holds.bytes > 1000);
-  assert.deepEqual(chosen.body.storage.holds.found, []);
-  assert.equal((await storage(demo, 'restart')).body.storage.result.outcome, 'loaded');
-  assert.equal((await storage(demo, 'damage')).body.storage.result.outcome, 'refused');
-  // Choosing another store puts the damaged copy back first.
-  await storage(demo, 'choose', 'files');
-  const back = await storage(demo, 'choose', 'database');
-  assert.equal(back.body.storage.damaged, false);
-  assert.equal((await storage(demo, 'restart')).body.storage.result.outcome, 'loaded');
+  const shown = await storage(demo, 'plain');
+  assert.ok(shown.body.storage.plain.found.includes('John'), 'the plain form shows the person\'s details');
+  assert.deepEqual(shown.body.storage.kept.found, [], 'what the wallet keeps is still the encrypted text');
+  assert.equal((await storage(demo, 'unknown')).status, 400);
 }));
 
 test('step 3b: a damaged copy is put back before the account is created, so the run carries on', local, () => withIdentityReady(FUNDED, async (demo) => {
@@ -537,15 +513,18 @@ test('step 3b: its caption and its "Show the code" panel, with this run\'s value
   const { captionFor, codeFor } = await import('../../examples/demo-wallet/public/story.js');
   const run = {
     step: 'identity', identityIndex: 42, identity: { providerIndex: 0 },
-    storage: { kind: 'memory', slotName: 'concordium-identity/testnet/0/42', holds: { bytes: 13909 }, result: { outcome: 'nothing' } },
+    storage: { kept: { characters: 18600 }, result: { outcome: 'imported', validTo: '202709' } },
   };
   assert.match(captionFor(run), /Phase 2 · Step 3b/);
+  assert.match(captionFor(run), /stores nothing/);
   assert.match(captionFor({ ...run, storage: null }), /Step 3 of 6/, 'step 3 while the panel is closed');
   const panel = codeFor(run);
   assert.match(panel, /Under the hood · Step 3b/);
-  assert.match(panel, /const store = new MemoryIdentityStore\(\);/);
-  assert.match(codeFor({ ...run, storage: { ...run.storage, kind: 'database' } }), /new SqliteIdentityStore\(db\);   \/\//, 'the statement ends before its comment');
-  assert.match(panel, /13909 bytes/);
-  assert.match(panel, /the memory store was emptied/);
-  assert.match(codeFor({ ...run, storage: { ...run.storage, kind: 'database', result: { outcome: 'refused', reason: 'unreadable-slot' } } }), /IdentityStorageError, reason &#39;unreadable-slot&#39;/);
+  assert.match(panel, /identity\.exportIdentity\(\{ providerIndex: 0, identityIndex: 42 \}\)/);
+  assert.match(panel, /18600 characters/);
+  assert.match(panel, /restarted\.importIdentity/);
+  assert.match(panel, /validTo: &#39;202709&#39;/);
+  assert.match(codeFor({ ...run, storage: { ...run.storage, result: { outcome: 'refused', reason: 'unreadable' } } }), /IdentityStorageError, reason &#39;unreadable&#39;/);
+  assert.match(codeFor({ ...run, storage: { ...run.storage, plain: { characters: 1 } } }), /encrypted: false/);
+  assert.doesNotMatch(panel, /saveIdentity|loadIdentity|Store/, 'no store any more');
 });

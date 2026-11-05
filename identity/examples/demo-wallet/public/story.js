@@ -23,7 +23,7 @@ export function openingCard(s) {
       <p class="lead"><strong>Phase 2 closes that gap.</strong> This page goes from a seed phrase to a verified identity, a new
         account, and tokens moving, inside a WDK wallet, without the ID App.</p>
       <p class="note">Testnet only, with a public test seed. This page runs on your own computer.
-        ${s.reuseIdentity ? `(Using the identity saved earlier, ${esc(s.identityIndex)}.)` : ''}</p>
+        ${s.reuseIdentity ? `(Using the identity kept earlier, ${esc(s.identityIndex)}.)` : ''}</p>
       <button class="primary" data-action="start">Start</button>
     </section>`;
 }
@@ -33,14 +33,14 @@ export function openingCard(s) {
 const CAPTIONS = {
   'choose-provider': ['Phase 2 · Step 1 of 6', 'Identity providers are the companies that verify a person. The wallet lists the ones Concordium publishes and checks that each one is accepting requests right now.'],
   verifying: ['Phase 2 · Step 2 of 6', "The wallet builds the identity request from its own seed and opens the provider's page. The person fills in the provider's form there; on testnet, the test provider accepts made-up details."],
-  identity: ['Phase 2 · Step 3 of 6', 'The provider issued the identity. The wallet checked it belongs to this seed and saved it encrypted, with a key that comes from the seed. Nothing has gone on the blockchain yet.'],
+  identity: ['Phase 2 · Step 3 of 6', 'The provider issued the identity. The wallet checked it belongs to this seed, and the package handed it over encrypted, with a key that comes from the seed, for the wallet to keep. Nothing has gone on the blockchain yet.'],
   account: ['Phase 2 · Step 4 of 6', "An account is created from the identity. The wallet sends proofs, not the identity, and the chain opens the account in seconds: no ID App, no fee. Concordium's own explorer already shows it."],
   receive: ['Phase 1 · Step 5 of 6', 'Now the Phase 1 module takes over: the new account is handed to it by its path, like any WDK account, and receives CCD, a protocol-level token and a CIS-2 token.'],
   funded: ['Phase 1 · Step 6 of 6', 'The account is in use: it sends with the fee quoted first, and a second account with no CCD at all sends a token while a sponsor pays the fee.'],
 };
 
-// Step 3b (optional): shown on the identity page while the Storage panel is open.
-const STORAGE_CAPTION = ['Phase 2 · Step 3b', "Where the identity is kept is the wallet's choice: memory, a file, a database, a backend. The store only ever receives encrypted bytes; the key comes from the seed and is never stored."];
+// Step 3b (optional): shown on the identity page while the "what the wallet keeps" panel is open.
+const STORAGE_CAPTION = ['Phase 2 · Step 3b', "The package stores nothing. It hands the identity to the wallet as encrypted text, and the wallet keeps it its own way, as it keeps the seed. The key comes from the seed and is never stored."];
 
 /** The caption for where the story is: the account page shows step 4, and step 5 once receiving starts. */
 export function captionFor(s) {
@@ -62,7 +62,7 @@ export function closingCard() {
       <p class="lead">From one seed phrase, inside a WDK wallet:</p>
       <ol class="points">
         <li>a verified identity from an identity provider, without the ID App <span class="phase">Phase 2</span></li>
-        <li>kept encrypted in a store the wallet chooses <span class="phase">Phase 2</span></li>
+        <li>handed to the wallet to keep its own way, encrypted <span class="phase">Phase 2</span></li>
         <li>a new account created from it on chain <span class="phase">Phase 2</span></li>
         <li>that account receiving and sending CCD, a PLT and a CIS-2 token, and a token sent with the fee paid by a
           sponsor <span class="phase">Phase 1, through the WDK module</span></li>
@@ -71,9 +71,9 @@ export function closingCard() {
       <ul class="points">
         <li>Unit tests for every part, including the failure cases, and live tests against testnet</li>
         <li>Clear, named errors a wallet can show to its users</li>
-        <li>Safeguards: the main package runs without Node-only code (browsers and phones), saved identities stay readable
+        <li>Safeguards: the main package runs without Node-only code (browsers and phones), kept identities stay readable
           across versions, and the cryptography stays in step with Concordium's SDK</li>
-        <li>The storage format and its threat model are documented</li>
+        <li>The format of the kept identity and its threat model are documented</li>
         <li>Usable outside WDK too: the identity package does not depend on WDK</li>
       </ul>
       <h2>What comes next</h2>
@@ -114,7 +114,7 @@ export function codeFor(s) {
       ], '@concordium/wdk-identity-concordium · IdentityProviders.list');
     case 'verifying':
       return code('Step 2', [
-        "const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { store });",
+        'const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);',
         '',
         `const { issuanceUrl } = await identity.createIdentityRequest({ providerIndex: ${p}, identityIndex: ${i}, redirectUri });`,
         '// open issuanceUrl; the provider sends the browser back to redirectUri with its reply, then:',
@@ -122,41 +122,32 @@ export function codeFor(s) {
       ], '@concordium/wdk-identity-concordium · ConcordiumIdentity.createIdentityRequest, retrieveIdentity');
     case 'identity':
       if (s.storage) {
-        const store = {
-          memory: 'new MemoryIdentityStore()',
-          files: `new FileIdentityStore('./demo-identities')`,
-          database: 'new SqliteIdentityStore(db);   // your own { save, read, delete }: see examples/database-store.mjs',
-        }[s.storage.kind].replace(/^([^;]*)$/, '$1;');
         const r = s.storage.result;
         return code('Step 3b', [
-          `const store = ${store}`,
-          'const identity = new ConcordiumIdentity(seedPhrase, config, { store });',
-          `await identity.saveIdentity({ providerIndex: ${p}, identityIndex: ${i} });   // the store receives { slotName, encrypted bytes }`,
-          `// → slotName '${s.storage.slotName ?? '…'}', ${s.storage.holds?.bytes ? `${s.storage.holds.bytes} bytes` : '…'}`,
+          `const kept = await identity.exportIdentity({ providerIndex: ${p}, identityIndex: ${i} });   // encrypted text`,
+          `await myWalletStorage.set('identity-${p}-${i}', kept);   // the wallet keeps it its own way${s.storage.kept ? ` (${s.storage.kept.characters} characters)` : ''}`,
           '',
           '// Restart wallet:',
-          'const restarted = new ConcordiumIdentity(seedPhrase, config, { store });',
-          `await restarted.loadIdentity({ providerIndex: ${p}, identityIndex: ${i} });  // no network; decrypted with a key from the seed`,
-          ...(r?.outcome === 'loaded' ? [`// → { validTo: '${r.validTo}', … }`] : []),
-          ...(r?.outcome === 'nothing' ? ['// → null: nothing saved (the memory store was emptied)'] : []),
-          ...(r?.outcome === 'refused' ? [`// → throws IdentityStorageError, reason '${r.reason}': damaged bytes are never used`] : []),
-        ], '@concordium/wdk-identity-concordium · saveIdentity, loadIdentity, MemoryIdentityStore  ·  /node · FileIdentityStore');
+          'const restarted = new ConcordiumIdentity(seedPhrase, config);',
+          `await restarted.importIdentity(await myWalletStorage.get('identity-${p}-${i}'));   // no network; checked to be this seed's`,
+          ...(r?.outcome === 'imported' ? [`// → { validTo: '${r.validTo}', … }`] : []),
+          ...(r?.outcome === 'refused' ? [`// → throws IdentityStorageError, reason '${r.reason}': changed text is never used`] : []),
+          ...(s.storage.plain ? ['', `await identity.exportIdentity({ providerIndex: ${p}, identityIndex: ${i}, encrypted: false });   // plain JSON: details readable`] : []),
+        ], '@concordium/wdk-identity-concordium · exportIdentity, importIdentity');
       }
       if (s.identity?.loaded) {
         return code('Step 3', [
-          "const store = new FileIdentityStore('./demo-identities');   // or any store: a database, a backend, a phone's storage",
+          `const kept = await myWalletStorage.get('identity-${p}-${i}');   // what the wallet kept earlier`,
           '',
-          `const summary = await identity.loadIdentity({ providerIndex: ${p}, identityIndex: ${i} });   // no network call`,
+          'const summary = await identity.importIdentity(kept);   // no network call',
           `// → { validTo: '${s.identity.validTo}', maxAccounts: ${s.identity.maxAccounts} }: decrypted with a key from the seed`,
-        ], '@concordium/wdk-identity-concordium · loadIdentity  ·  /node · FileIdentityStore');
+        ], '@concordium/wdk-identity-concordium · importIdentity');
       }
       return code('Step 3', [
-        "const store = new FileIdentityStore('./demo-identities');   // or any store: a database, a backend, a phone's storage",
-        '',
-        `const saved = await identity.saveIdentity({ providerIndex: ${p}, identityIndex: ${i} });`,
-        `// → { validTo: '${s.identity?.validTo ?? '…'}', maxAccounts: ${s.identity?.maxAccounts ?? '…'}, slotName: '${s.identity?.slotName ?? `concordium-identity/testnet/${p}/${i}`}' }`,
-        '//   the store receives only encrypted bytes; the key comes from the seed and is never stored',
-      ], '@concordium/wdk-identity-concordium · saveIdentity  ·  /node · FileIdentityStore');
+        `const kept = await identity.exportIdentity({ providerIndex: ${p}, identityIndex: ${i} });`,
+        `await myWalletStorage.set('identity-${p}-${i}', kept);   // the wallet keeps it: a phone's secure storage, a database, a file`,
+        `// kept: encrypted text; the key comes from the seed and is never stored (summary: valid to ${s.identity?.validTo ?? '…'})`,
+      ], '@concordium/wdk-identity-concordium · exportIdentity');
     case 'account': {
       const path = s.account?.path ?? `${p}/${i}/0`;
       // Step 5 once receiving starts (as the caption does); until then, step 4 only.
