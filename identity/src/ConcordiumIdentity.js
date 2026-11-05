@@ -9,13 +9,16 @@ import IdentityIssuance from './issuance/IdentityIssuance.js';
 import IdentityRecovery from './recovery/IdentityRecovery.js';
 import IdentityProofs from './proofs/IdentityProofs.js';
 import { identityContent, summaryOf } from './issuance/identity-object.js';
-import IdentityVault from './storage/IdentityVault.js';
-import { deriveStorageKey } from './storage/storage-format.js';
+import { IdentityStorageError } from './shared/errors.js';
+import {
+  deriveStorageKey, identityLabel, networkLabel, encryptExport, decryptExport, decryptVersion1, plainExport, readExport,
+} from './storage/identity-export.js';
 import AccountCreator, { readAccountOptions } from './account/AccountCreator.js';
 
 /**
  * A wallet's Concordium identity, derived from the wallet's own seed, without the Concordium ID App:
- * request an identity from a provider, collect it, save it encrypted, and create accounts from it.
+ * request an identity from a provider, collect it, export it for the wallet to keep (encrypted), and create
+ * accounts from it.
  *
  * This class is the public face. It owns the seed and hands each call to a helper:
  *
@@ -24,7 +27,7 @@ import AccountCreator, { readAccountOptions } from './account/AccountCreator.js'
  *     ├─ IdentityRecovery   get an identity back with the seed alone        (recovery/)
  *     ├─ IdentityProofs     answer a website's question with a proof        (proofs/)
  *     ├─ HeldIdentities     the identities held in memory, as bytes        (shared/)
- *     ├─ IdentityVault      save / load / delete, encrypted                 (storage/)
+ *     ├─ identity-export    the exported form (encrypted or plain)          (storage/)
  *     └─ AccountCreator     checks, "exists?", build, send + wait           (account/)
  */
 export default class ConcordiumIdentity {
@@ -34,11 +37,13 @@ export default class ConcordiumIdentity {
    * @param {string | Uint8Array} seed  the wallet's BIP-39 seed phrase, or its 64-byte seed
    * @param {{ useMainnetKeyDerivation: boolean, walletProxyUrl: string }} config
    *   e.g. CONCORDIUM_TESTNET_IDENTITY_CONFIG; use the same key derivation as the wallet package
-   * @param {{ fetch?: typeof fetch, store?: import('../types/index').IdentityStore }} [options]
-   *   fetch: HTTP implementation (defaults to the global fetch);
-   *   store: where saveIdentity / loadIdentity keep encrypted identities (any IdentityStore)
+   * @param {{ fetch?: typeof fetch }} [options]  fetch: HTTP implementation (defaults to the global fetch)
    */
-  constructor(seed, config, { fetch: fetchFn = (url, options) => fetch(url, options), store } = {}) {
+  constructor(seed, config, { fetch: fetchFn = (url, options) => fetch(url, options), ...rest } = {}) {
+    if ('store' in rest) {
+      throw new Error('The store option is gone: the package no longer stores identities. Use exportIdentity to get '
+        + 'the identity as text to keep your own way, and importIdentity to hold it again.');
+    }
     this._config = parseIdentityConfig(config); // validated before the seed is touched
     this._fetch = fetchFn;
     const fetchVia = (url, options) => this._fetch(url, options);
@@ -54,10 +59,6 @@ export default class ConcordiumIdentity {
       findAccounts: (options) => this._recovery.findAccounts(options),
     });
     this._accounts = new AccountCreator({ providers, walletProxy, hdWallet });
-    // Saving identities: the vault asks for the key through _storageKey() and never sees the seed.
-    this._vault = store === undefined ? undefined : new IdentityVault({
-      store, derivationNetwork: this._config.derivationNetwork, storageKey: () => this._storageKey(),
-    });
     this._seed = toSeedBytes(seed);
   }
 
@@ -84,10 +85,18 @@ export default class ConcordiumIdentity {
     return sdk.ConcordiumHdWallet.fromHex(bytesToHex(this._seed), this._config.derivationNetwork);
   }
 
-  /** The encryption key for saved identities, from the seed. The vault zeroes it after each use. */
-  _storageKey() {
+  /**
+   * Lend the encryption key for exported identities to a piece of work, then wipe it. The key is made from the
+   * seed each time and never kept: `use` gets it, and the `finally` overwrites it with zeros even if `use` fails.
+   */
+  _withStorageKey(use) {
     this._requireNotDisposed();
-    return deriveStorageKey(this._seed, this._config.derivationNetwork);
+    const key = deriveStorageKey(this._seed, this._config.derivationNetwork);
+    try {
+      return use(key);
+    } finally {
+      key.fill(0);
+    }
   }
 
   // ---- Starting verification ----
@@ -174,7 +183,7 @@ export default class ConcordiumIdentity {
    * Get an identity back from its provider with the seed alone, e.g. on a new device or after the
    * saved copy was lost: no verification, no browser. The provider looks the identity up by a request
    * built from this wallet's seed; the identity is checked to be this wallet's and kept inside this
-   * object, as after retrieveIdentity (save it with saveIdentity, create accounts with createAccount).
+   * object, as after retrieveIdentity (export it with exportIdentity, create accounts with createAccount).
    *
    * @param {object} options
    * @param {number} options.providerIndex  the provider that issued it
@@ -307,7 +316,7 @@ export default class ConcordiumIdentity {
    * For each identity provider (every one that publishes a recovery address, or the ones listed in
    * `providerIndexes`), it tries identity 0, 1, 2 … with recoverIdentity, until `identityGap` numbers in
    * a row have no identity; for each identity it gets back, it finds its accounts with findAccounts.
-   * Every identity found is held inside this object, ready for saveIdentity (call it for each one you
+   * Every identity found is held inside this object, ready for exportIdentity (call it for each one you
    * want to keep). Expired identities come back too: check `summary.validTo`.
    *
    * If one provider cannot be asked (it is down, or refuses), that is noted in `problems` and the others
@@ -335,87 +344,103 @@ export default class ConcordiumIdentity {
     return this._recovery.recoverAll(options);
   }
 
-  // ---- Saving identities ----
+  // ---- Keeping identities: export and import ----
 
   /**
-   * Save the identity held for a provider and identity index, encrypted, in the configured store.
-   * The store receives only encrypted bytes and the slot name. The identity must be held: collected
-   * with retrieveIdentity / waitForIdentity, or loaded with loadIdentity.
+   * The identity held for a provider and identity number, as text for the wallet to keep, its own way (e.g. next to
+   * the seed). The package stores nothing itself. Hold it again later with importIdentity.
    *
-   * A slot that already holds the same identity is simply saved again. A slot holding a different
-   * identity, or bytes that cannot be decrypted with this wallet's seed, is never replaced silently:
-   * pass { replace: true } to replace it (ask the user first, e.g. after they verified again because
-   * the saved identity expired).
+   * Encrypted by default: the key is made from the seed (and never stored), so the text reveals nothing personal
+   * and is safe to keep anywhere; only this seed can read it. Which identity it is (network, provider, identity
+   * number) stays readable, and any change to the text is detected.
    *
-   * @param {{ providerIndex: number, identityIndex: number, replace?: boolean }} options
-   * @returns {Promise<{ providerIndex: number, identityIndex: number, createdAt: string, validTo: string,
-   *   maxAccounts: number, slotName: string }>}  the identity's summary and where it was saved
-   * @throws {IdentityStorageError} reason 'slot-in-use' or 'unreadable-slot', unless replace is true
-   */
-  async saveIdentity({ providerIndex, identityIndex, replace = false } = {}) {
-    const vault = this._ready();
-    requireIndex(providerIndex, 'providerIndex');
-    requireIndex(identityIndex, 'identityIndex');
-    const identityObject = this._held.require(providerIndex, identityIndex);
-    const slotName = await vault.save({ providerIndex, identityIndex, identityObject, replace });
-    const content = identityContent(identityObject, 'The identity held is in an unexpected format.');
-    return { ...summaryOf(content, providerIndex, identityIndex), slotName };
-  }
-
-  /**
-   * Load a saved identity from the configured store and hold it inside this object again (e.g. after
-   * an app restart), ready for account creation. No call to the identity provider, the wallet-proxy or the
-   * chain: only the configured store is read (which may itself be remote, e.g. a backend).
+   * With `encrypted: false`, the identity as plain JSON text, for a wallet that already keeps everything in an
+   * encrypted vault of its own. It holds the person's details (name, date of birth, ID number) in the clear: keep it
+   * as carefully as the seed.
    *
-   * @param {{ providerIndex: number, identityIndex: number }} options
-   * @returns {Promise<{ providerIndex: number, identityIndex: number, createdAt: string, validTo: string,
-   *   maxAccounts: number } | null>}  the identity's summary, or null if nothing is saved for it
-   * @throws {IdentityStorageError} reason 'unreadable-slot' if the saved bytes cannot be decrypted
-   */
-  async loadIdentity({ providerIndex, identityIndex } = {}) {
-    const vault = this._ready();
-    requireIndex(providerIndex, 'providerIndex');
-    requireIndex(identityIndex, 'identityIndex');
-    const identityObject = await vault.load({ providerIndex, identityIndex });
-    if (identityObject === null) return null;
-    const content = identityContent(identityObject,
-      `The identity saved in ${vault.slotName(providerIndex, identityIndex)} is incomplete.`);
-    this._held.hold(providerIndex, identityIndex, identityObject);
-    return summaryOf(content, providerIndex, identityIndex);
-  }
-
-  /**
-   * Delete the saved identity for a provider and identity index from the configured store. An identity
-   * held inside this object is kept (dispose() clears those). If nothing is saved for it, this does nothing (no error).
+   * No network call. The identity must be held: verified, recovered, or imported.
    *
-   * @param {{ providerIndex: number, identityIndex: number }} options
+   * @param {object} options
+   * @param {number} options.providerIndex
+   * @param {number} options.identityIndex
+   * @param {boolean} [options.encrypted=true]
+   * @returns {Promise<string>}
+   * @throws {Error} If no identity is held for these numbers, or the identity has been disposed.
    */
-  async deleteIdentity({ providerIndex, identityIndex } = {}) {
-    const vault = this._ready();
-    requireIndex(providerIndex, 'providerIndex');
-    requireIndex(identityIndex, 'identityIndex');
-    await vault.delete({ providerIndex, identityIndex });
-  }
-
-  /**
-   * The checks before any save, load or delete, then the vault (the part that encrypts and talks to the
-   * store). Stops with an error if this object was disposed (its seed is wiped, so no key can be made),
-   * or if no store was given when it was created (there is nowhere to save to or load from).
-   */
-  _ready() {
+  async exportIdentity({ providerIndex, identityIndex, encrypted = true } = {}) {
     this._requireNotDisposed();
-    if (!this._vault) {
-      throw new Error('No identity store is configured: pass { store } when creating ConcordiumIdentity, '
-        + 'e.g. new MemoryIdentityStore().');
+    requireIndex(providerIndex, 'providerIndex');
+    requireIndex(identityIndex, 'identityIndex');
+    if (typeof encrypted !== 'boolean') throw new Error('encrypted must be true or false.');
+    const identityObject = this._held.require(providerIndex, identityIndex);
+    const record = { providerIndex, identityIndex, identityObject };
+    if (!encrypted) return plainExport(this._config.derivationNetwork, record);
+    const label = identityLabel(this._config.derivationNetwork, providerIndex, identityIndex);
+    return this._withStorageKey((key) => encryptExport(key, label, record));
+  }
+
+  /**
+   * Hold an identity again from the text exportIdentity gave (either form; it tells them apart), e.g. after an app
+   * restart. The identity is checked to be this wallet's before it is held:
+   * - encrypted: it can only be decrypted with this seed's key; no network call;
+   * - plain: its public key must be the one this seed gives for that provider and identity number (as when it was
+   *   collected from the provider); this needs the network's cryptographic parameters (one call, then kept).
+   *
+   * Also reads identities saved by the earlier, store-based package (format version 1). Those bytes do not say which
+   * identity they hold, so give its numbers: importIdentity(saved, { providerIndex, identityIndex }).
+   *
+   * @param {string | Uint8Array} exported  the text exportIdentity gave (or saved version-1 bytes)
+   * @param {{ providerIndex?: number, identityIndex?: number }} [version1]  only for version-1 bytes: which identity
+   * @returns {Promise<{ providerIndex: number, identityIndex: number, createdAt: string, validTo: string,
+   *   maxAccounts: number }>}  the identity's summary
+   * @throws {IdentityStorageError} reason 'unreadable' (not an exported identity, another network, another seed,
+   *   changed or damaged text, an unknown format version) or 'not-yours' (a plain identity that is not this seed's)
+   */
+  async importIdentity(exported, { providerIndex, identityIndex } = {}) {
+    this._requireNotDisposed();
+    const network = networkLabel(this._config.derivationNetwork);
+    const found = readExport(exported);
+    let record;
+    if (found.kind === 'version-1') {
+      requireIndex(providerIndex, 'providerIndex', 'version-1 data (saved by the earlier, store-based package) does not '
+        + 'say which identity it holds: pass { providerIndex, identityIndex }.');
+      requireIndex(identityIndex, 'identityIndex', 'pass { providerIndex, identityIndex } for version-1 data.');
+      const slotName = identityLabel(this._config.derivationNetwork, providerIndex, identityIndex); // the same text as the old slot name
+      record = this._withStorageKey((key) => decryptVersion1(key, slotName, found.bytes));
+      if (record.providerIndex !== providerIndex || record.identityIndex !== identityIndex) {
+        throw new IdentityStorageError(`This saved identity is for another provider or identity number than ${slotName}.`, { reason: 'unreadable' });
+      }
+    } else if (found.kind === 'encrypted') {
+      const [, labelNetwork] = found.label.split('/');
+      if (labelNetwork !== network) {
+        throw new IdentityStorageError(`This exported identity is for ${labelNetwork}, not ${network}.`, { reason: 'unreadable' });
+      }
+      record = this._withStorageKey((key) => decryptExport(key, found.bytes));
+      if (found.label !== identityLabel(this._config.derivationNetwork, record.providerIndex, record.identityIndex)) {
+        throw new IdentityStorageError('This exported identity is damaged (its label does not match its content).', { reason: 'unreadable' });
+      }
+    } else {
+      if (found.network !== network) {
+        throw new IdentityStorageError(`This exported identity is for ${found.network}, not ${network}.`, { reason: 'unreadable' });
+      }
+      record = found;
+      const content = identityContent(record.identityObject, 'This exported identity is in an unexpected format.');
+      const expected = await this._issuance.expectedIdCredPub(record.providerIndex, record.identityIndex);
+      if (content.preIdentityObject.idCredPub !== expected) {
+        throw new IdentityStorageError(`This identity does not belong to this wallet for provider ${record.providerIndex}, `
+          + `identity ${record.identityIndex}.`, { reason: 'not-yours' });
+      }
     }
-    return this._vault;
+    const content = identityContent(record.identityObject, 'This exported identity is in an unexpected format.');
+    this._held.hold(record.providerIndex, record.identityIndex, record.identityObject);
+    return summaryOf(content, record.providerIndex, record.identityIndex);
   }
 
   // ---- Creating accounts ----
 
   /**
    * Create an account on chain from the identity held for a provider and identity index (collected, or
-   * loaded with loadIdentity), with no ID App involved. Returns once the account is final on chain, so
+   * imported with importIdentity), with no ID App involved. Returns once the account is final on chain, so
    * the address always exists.
    *
    * An identity can have several accounts: credNumber 0, 1, 2… (below the identity's maxAccounts), the

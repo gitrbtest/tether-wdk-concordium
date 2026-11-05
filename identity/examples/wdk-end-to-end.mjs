@@ -8,7 +8,7 @@
  *
  * Spends a little testnet CCD and tokens from a funding account (yours: never printed, never sent anywhere but
  * the testnet node). Settings (environment variables):
- *   SEED_PHRASE, PROVIDER_INDEX, IDENTITY_INDEX, IDENTITY_STORE   as for verify-identity and create-account
+ *   SEED_PHRASE, PROVIDER_INDEX, IDENTITY_INDEX, IDENTITY_FOLDER  as for verify-identity and create-account
  *   FUNDING_SEED, FUNDING_PATH  the funding account: its seed phrase and "provider/identity/cred" path. If not
  *                               set, TESTNET_SEED and TESTNET_PROVIDER_INDEX / TESTNET_IDENTITY_INDEX (cred 0)
  *                               are used, read from ../.env.testnet when that file exists (the wallet package's
@@ -24,7 +24,7 @@
  */
 import { existsSync } from 'node:fs';
 import { ConcordiumIdentity, AccountCreationError, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
-import { FileIdentityStore } from '@concordium/wdk-identity-concordium/node';
+import { keptIdentity } from './kept-identities.mjs';
 import WalletManagerConcordium, { CONCORDIUM_TESTNET_CONFIG, AccountNotCreatedError } from '@concordium/wdk-wallet-concordium';
 
 // ---- Settings ---------------------------------------------------------------------------------------------
@@ -40,7 +40,7 @@ const DEMO_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon aba
 const seedPhrase = process.env.SEED_PHRASE || DEMO_PHRASE;
 const providerIndex = Number(process.env.PROVIDER_INDEX ?? 0);
 const identityIndex = Number(process.env.IDENTITY_INDEX ?? 0);
-const storeFolder = process.env.IDENTITY_STORE || './demo-identities';
+const folder = process.env.IDENTITY_FOLDER || './demo-identities';
 const FUNDING_SEED = process.env.FUNDING_SEED || process.env.TESTNET_SEED;
 const FUNDING_PATH = process.env.FUNDING_PATH
   || (process.env.TESTNET_PROVIDER_INDEX && `${process.env.TESTNET_PROVIDER_INDEX}/${process.env.TESTNET_IDENTITY_INDEX}/0`);
@@ -158,15 +158,16 @@ if (!FUNDING_SEED || !FUNDING_PATH) {
 // - `wallet` (the Phase 1 WDK wallet package, same seed): using those new accounts, i.e. balances, sending, tokens;
 // - `funder` (the wallet package, another seed): the funding account that gives the new accounts something to send,
 //   standing in for an exchange or a friend; later it is also the sponsor that pays a fee.
-const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { store: new FileIdentityStore(storeFolder) });
+const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
 const wallet = new WalletManagerConcordium(seedPhrase, { ...CONCORDIUM_TESTNET_CONFIG });   // the new accounts, through WDK
 const funder = new WalletManagerConcordium(FUNDING_SEED, { ...CONCORDIUM_TESTNET_CONFIG }); // the funding account
 
 try {
-  // 1. Load the identity verify-identity saved (decrypted with a key made from the seed). Accounts are made from it.
-  step(1, `Load the saved identity ${identityIndex} (provider ${providerIndex})          [this package]`);
-  const summary = await identity.loadIdentity({ providerIndex, identityIndex });
-  if (summary === null) throw new Error(`Nothing saved in ${storeFolder}: run npm run example:verify-identity first, or set IDENTITY_INDEX.`);
+  // 1. Import the identity verify-identity exported (decrypted with a key made from the seed). Accounts are made from it.
+  step(1, `Import the kept identity ${identityIndex} (provider ${providerIndex})          [this package]`);
+  const exported = keptIdentity(folder, { providerIndex, identityIndex });
+  if (exported === null) throw new Error(`Nothing kept in ${folder}: run npm run example:verify-identity first, or set IDENTITY_INDEX.`);
+  const summary = await identity.importIdentity(exported);
   done(`valid to ${summary.validTo}, up to ${summary.maxAccounts} accounts`);
 
   // 2. Create a new account from the identity (as create-account does): the first unused account number from 10

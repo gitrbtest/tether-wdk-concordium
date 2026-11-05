@@ -7,8 +7,8 @@ behind it. This package lets a wallet obtain that identity from the wallet's
 own seed, without the Concordium ID App:
 
 - start identity verification with an identity provider and collect the issued identity,
-- keep the identity in encrypted storage that the wallet chooses,
-- create Concordium accounts from the stored identity,
+- hand the identity to the wallet to keep its own way (exported as text, encrypted by default),
+- create Concordium accounts from the identity,
 - get the identity and its accounts back from the seed phrase alone, e.g. on a new phone,
 - prove facts such as "over 18" to a website without revealing the detail itself (and, for websites,
   check those proofs).
@@ -19,7 +19,7 @@ like any other account.
 > **Status: in development.** The package is not published yet, and its API
 > may change until the first release. Available today: listing identity
 > providers, starting identity verification, collecting the issued identity,
-> saving it encrypted, creating accounts from it, and recovering it from the
+> exporting it encrypted for the wallet to keep, creating accounts from it, recovering it from the
 > seed, and proving facts to websites, with the websites' check (tested on testnet).
 
 ## What you can build
@@ -53,8 +53,8 @@ More stories will follow as the package grows (tokens that only verified people 
 Node.js 18+, using ES modules, the same as `@concordium/wdk-wallet-concordium`.
 
 The main entry uses no Node.js-only features (a test enforces this), so it is meant to run in browsers
-and mobile runtimes too; so far it is tested on Node.js. Node.js-only extras (the callback listener, the
-file store) come from a separate entry point, `@concordium/wdk-identity-concordium/node`.
+and mobile runtimes too; so far it is tested on Node.js. The Node.js-only extra (the callback listener) comes
+from a separate entry point, `@concordium/wdk-identity-concordium/node`.
 
 ## Configuration
 
@@ -169,7 +169,7 @@ await appStorage.set('pendingIdentity', { codeUri, providerIndex: 0, identityInd
 
 // After a restart: a new object from the same seed, told which request it is continuing
 const pending = await appStorage.get('pendingIdentity');
-const resumed = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { store });
+const resumed = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
 const summary = await resumed.waitForIdentity(pending.codeUri,
   { providerIndex: pending.providerIndex, identityIndex: pending.identityIndex });
 ```
@@ -201,122 +201,64 @@ identity index. An identity that does not belong to this wallet is refused with
 an `Error` and not kept. Brief network failures while polling are retried;
 repeated ones are reported.
 
-## Saving and loading identities
+## Keeping identities: export and import
 
-An identity is saved **encrypted**, in a store the wallet chooses: memory, files, a database, a backend.
-The store only ever receives encrypted bytes and a slot name such as
-`concordium-identity/testnet/0/594450697`; it never sees the identity, and cannot read it without the
-wallet's seed.
+The package stores nothing. The wallet keeps the identity **its own way**, the way it already keeps the seed (a
+phone's secure storage, a database, a backend, a file): `exportIdentity` gives the identity as text, and
+`importIdentity` takes it back.
 
 ```js
 import { ConcordiumIdentity, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
-import { FileIdentityStore } from '@concordium/wdk-identity-concordium/node';
 
-const store = new FileIdentityStore('./identities');
-const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { store });
+const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
+await identity.retrieveIdentity(callbackUrl);                                  // collect, as above
 
-await identity.retrieveIdentity(callbackUrl);                          // collect, as above
-await identity.saveIdentity({ providerIndex: 0, identityIndex: 0 });   // → { …summary, slotName }
+const exported = await identity.exportIdentity({ providerIndex: 0, identityIndex: 2 }); // encrypted text
+await myWalletStorage.set('concordium-identity-0-2', exported);                // the wallet's own storage
 
-// Later, e.g. after an app restart, in a new object with the same seed and store:
-const summary = await identity.loadIdentity({ providerIndex: 0, identityIndex: 0 }); // summary, or null
-await identity.deleteIdentity({ providerIndex: 0, identityIndex: 0 });               // removes the saved copy
+// Later, e.g. after an app restart, in a new object with the same seed:
+const summary = await identity.importIdentity(await myWalletStorage.get('concordium-identity-0-2'));
 ```
 
-- **The encryption key comes from the seed** each time it is needed and is wiped after use; it is never
-  stored. No password, nothing extra for the user to remember.
-- **Loading needs no identity provider, wallet-proxy or chain.** Only the store is read (a local file, or a
-  remote backend if that is the store you chose). Decrypting proves the identity was saved with this seed for this
-  slot.
-- **Saved and held are separate.** `saveIdentity` saves the identity this object holds (collected or
-  loaded); `loadIdentity` holds a saved one again, ready for the next steps. `deleteIdentity` removes
-  the saved copy only; `dispose()` zeroes everything the object holds.
+- **Encrypted by default.** The key comes from the seed each time it is needed and is wiped after use; it is never
+  stored. The text reveals nothing personal and is safe to keep anywhere; only this seed can read it. Which identity
+  it is (network, provider, identity number) stays readable, and any change to the text is detected.
+- **Plain, if you ask:** `exportIdentity({ …, encrypted: false })` gives the identity as JSON text, for a wallet that
+  already keeps everything in an encrypted vault of its own. It holds the person's details (name, date of birth, ID
+  number) in the clear: keep it as carefully as the seed.
+- **`importIdentity` takes either form** and checks the identity is this wallet's before holding it: an encrypted
+  export can only be decrypted with this seed (no network call); a plain one must carry the public key this seed gives
+  for that provider and identity number (one call for the network's parameters, as when the identity was collected).
+- **Exported and held are separate.** `exportIdentity` exports the identity this object holds (collected, recovered or
+  imported); `importIdentity` holds an exported one again, ready for the next steps. Deleting the wallet's copy is
+  the wallet's own business; `dispose()` zeroes everything this object holds.
 
-### Saving over an existing identity
+`importIdentity` refuses text it cannot use with `IdentityStorageError`:
 
-`saveIdentity` never silently replaces a different identity:
-
-| Already saved in the slot | `saveIdentity` |
+| `reason` | Meaning |
 |---|---|
-| nothing | saves |
-| the same identity | saves again (harmless) |
-| a different identity (e.g. an earlier one, before the user verified again) | `IdentityStorageError` reason `'slot-in-use'`, unless `{ replace: true }` |
-| bytes this seed cannot decrypt | `IdentityStorageError` reason `'unreadable-slot'`, unless `{ replace: true }` |
+| `unreadable` | not an exported identity; for another network; another seed; changed or damaged; an unknown format version |
+| `not-yours` | a plain export whose identity does not belong to this wallet's seed |
 
-Replacing a verified identity costs the user a new verification, so **ask the user before passing
-`{ replace: true }`**. `loadIdentity` reports bytes it cannot decrypt (another seed, damaged data, an
-unknown format version) as `IdentityStorageError` reason `'unreadable-slot'`.
-
-### Stores
-
-| Store | From | For |
-|---|---|---|
-| `MemoryIdentityStore` | main entry | tests and short-lived processes; nothing survives the process |
-| `FileIdentityStore(folder)` | `/node` | desktop and server wallets: one file per slot, written safely (a temporary file, then one replacing step), owner-only permissions on macOS and Linux. On Windows, access follows the folder's permissions: keep it where only the user can reach it (e.g. inside their user profile). |
-| your own | — | anything else: a database, your backend, a phone's storage |
-
-### Writing your own store
-
-A store is any object with three async methods:
-
-```js
-const store = {
-  async save(slotName, bytes) { … },  // save the bytes (Uint8Array), replacing anything saved under that name
-  async read(slotName) { … },         // the bytes saved under that name, or null
-  async delete(slotName) { … },       // remove them; if nothing is saved there, do nothing (do not throw)
-};
-```
-
-For example, on PostgreSQL:
-
-```js
-// CREATE TABLE identities (slot TEXT PRIMARY KEY, data BYTEA NOT NULL)
-const databaseStore = {
-  async save(slotName, bytes) {
-    await pool.query('INSERT INTO identities (slot, data) VALUES ($1, $2) '
-      + 'ON CONFLICT (slot) DO UPDATE SET data = EXCLUDED.data', [slotName, Buffer.from(bytes)]);
-  },
-  async read(slotName) {
-    const { rows } = await pool.query('SELECT data FROM identities WHERE slot = $1', [slotName]);
-    return rows.length ? new Uint8Array(rows[0].data) : null;
-  },
-  async delete(slotName) {
-    await pool.query('DELETE FROM identities WHERE slot = $1', [slotName]);
-  },
-};
-```
-
-Check your store against the contract in your own tests, with any test framework. It saves and deletes
-a few slots of its own (`concordium-identity-store-check/…`), so run it against a test instance:
-
-```js
-import { verifyIdentityStore } from '@concordium/wdk-identity-concordium/testing';
-
-test('our identity store meets the contract', async () => {
-  await verifyIdentityStore(databaseStore); // throws naming the first check that failed
-});
-```
-
-A runnable example on a real SQL database (SQLite, built into Node.js 22.13+), showing that the table
-only holds slot names and encrypted bytes: `npm run example:database-store`
-(`examples/database-store.mjs`).
+It also reads identities saved by the earlier, store-based versions of this package (format version 1). Those bytes do
+not say which identity they hold, so give its numbers: `importIdentity(saved, { providerIndex, identityIndex })`.
 
 ### The format
 
-The exact format (key derivation, encryption, byte layout, a test vector) and the threat model are in
+The exact format (key derivation, encryption, byte layout, test vectors for both versions) is in
 [`docs/storage-format.md`](docs/storage-format.md).
 
 ## Creating accounts
 
-Once an identity is held (collected, or loaded from the store), `createAccount` creates an account on
+Once an identity is held (collected, recovered or imported), `createAccount` creates an account on
 chain from it, with no ID App. It returns once the account is final, so the address always exists.
 
 ```js
 import { ConcordiumIdentity, AccountCreationError, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
 import WalletManagerConcordium, { CONCORDIUM_TESTNET_CONFIG } from '@concordium/wdk-wallet-concordium';
 
-const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { store });
-await identity.loadIdentity({ providerIndex: 0, identityIndex: 0 });   // or collected just now
+const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
+await identity.importIdentity(exported);   // the wallet's kept copy, or collected just now
 
 const credNumber = await identity.nextCredNumber({ providerIndex: 0, identityIndex: 0 }); // the next new account
 const { address, path, created } = await identity.createAccount({ providerIndex: 0, identityIndex: 0, credNumber });
@@ -337,13 +279,13 @@ const account = await wallet.getAccountByPath(path);
   is returned with `created: false` and nothing is sent. So calling again after a timeout or a crash is safe.
 - **No fee:** creating an account is free on Concordium; the new account starts with a balance of 0.
 
-A runnable example on testnet, using an identity saved by `npm run example:verify-identity`:
+A runnable example on testnet, using an identity exported by `npm run example:verify-identity`:
 `npm run example:create-account` (`examples/create-account.mjs`; `IDENTITY_INDEX` and `CRED_NUMBER` choose the
 identity and the account). It prints the address, the `path`, and a link to the account on CCDScan,
 Concordium's testnet explorer.
 
 The whole story with the wallet package, on testnet: `npm run example:wdk-end-to-end`
-(`examples/wdk-end-to-end.mjs`). It creates an account from the saved identity, hands it to
+(`examples/wdk-end-to-end.mjs`). It creates an account from the exported identity, hands it to
 `@concordium/wdk-wallet-concordium` with `getAccountByPath(path)`, receives CCD, a protocol-level token (TN) and a
 CIS-2 token from a funding account, sends some of each back with the fee quoted first, and has a second new
 account, holding no CCD, send a token to the first, its fee paid by a sponsor (three roles: sender,
@@ -383,8 +325,8 @@ garbage collection, as noted in the [storage threat model](docs/storage-format.m
 
 ## Getting the identity back (recovery)
 
-The seed phrase is the user's backup. The store holds the everyday copy of the identity, read on every app
-start; recovery is for when that copy is gone, for example on a new phone or after the app was reinstalled.
+The seed phrase is the user's backup. The wallet's exported copy of the identity is the everyday one, imported on
+every app start; recovery is for when that copy is gone, for example on a new phone or after the app was reinstalled.
 From the seed alone, the wallet asks the identity provider for the identity it issued, and the chain for the
 identity's accounts. The user verifies nothing again.
 
@@ -400,12 +342,12 @@ costs nothing.
 What a wallet calls on a new device:
 
 ```js
-const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { store });
+const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
 const wallet = new WalletManagerConcordium(seedPhrase, CONCORDIUM_TESTNET_CONFIG);   // the same seed
 
 const { identities, problems } = await identity.recoverAll();
 for (const { providerIndex, identityIndex, summary, accounts } of identities) {
-  await identity.saveIdentity({ providerIndex, identityIndex });   // keep it, encrypted, as usual
+  const exported = await identity.exportIdentity({ providerIndex, identityIndex }); // keep it, encrypted, as usual
   for (const { path } of accounts ?? []) {
     const account = await wallet.getAccountByPath(path);           // @concordium/wdk-wallet-concordium
   }
@@ -414,7 +356,7 @@ for (const { providerIndex, identityIndex, summary, accounts } of identities) {
 
 For each identity provider that publishes a recovery address, it asks for identity 0, 1, 2 … until three
 numbers in a row have none, and finds each identity's accounts. Every identity found is held, exactly as
-after verifying: save it with `saveIdentity`, and, only if the user later wants another account,
+after verifying: keep it with `exportIdentity`, and, only if the user later wants another account,
 `createAccount` can make one. The accounts it already has are in `accounts`.
 
 - **`identities`**: each with its `summary` (dates, `maxAccounts`) and `accounts` (`credNumber`, `address`,
@@ -455,7 +397,7 @@ and accounts 0, 1, 2 … under each identity (the two helpers do exactly that). 
 alone. An identity given a number far from the others (for example a random one, as the demo wallet does
 on its shared test phrase) is not found by counting; `recoverIdentity` with its number still gets it back.
 If your app leaves bigger gaps (an identity started but never finished, accounts skipped), raise
-`identityGap` or `accountGap`. Keep your own list of the numbers you use: stores do not list their contents.
+`identityGap` or `accountGap`. Keep your own list of the numbers you use.
 
 ### When it fails
 
@@ -531,7 +473,7 @@ const answer = await identity.prove({ providerIndex: 0, identityIndex: 0, credNu
   expired, if the website does not accept the identity's provider, or if the identity's details do not
   satisfy the question. `accountsThatCanAnswer` returns no accounts in those cases, so an app can offer only
   accounts that can answer.
-- The identity must be held (verified, loaded from the store, or recovered), and the account must exist on
+- The identity must be held (verified, imported, or recovered), and the account must exist on
   chain: the website checks the answer against it.
 
 ### The website's side: `@concordium/wdk-identity-concordium/verify`

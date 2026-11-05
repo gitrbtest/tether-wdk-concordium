@@ -1,7 +1,7 @@
 /**
  * Identity verification end to end, as a desktop or server wallet would do it:
  * start the built-in listener, build the request, let the user verify in a
- * browser, collect the issued identity, and save it encrypted to disk.
+ * browser, collect the issued identity, and export it encrypted for the sample to keep in a file.
  *
  *   npm run example:verify-identity
  *
@@ -11,7 +11,7 @@
  *   PROVIDER_INDEX   identity provider index on the network (default 0)
  *   IDENTITY_INDEX   the wallet's identity number with that provider (default: the next free one, from
  *                    nextIdentityIndex: one after the highest this seed already has with the provider)
- *   IDENTITY_STORE   folder for the encrypted identity (default ./demo-identities)
+ *   IDENTITY_FOLDER  folder where the sample keeps the exported identity (default ./demo-identities)
  *   OPEN_BROWSER     set to 1 to open the verification page in the default browser
  *
  * Load the saved identity again later with: npm run example:load-identity
@@ -23,20 +23,19 @@ import {
   IdentityIssuanceError,
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
-import { listenForIdentityCallback, FileIdentityStore } from '@concordium/wdk-identity-concordium/node';
+import { listenForIdentityCallback } from '@concordium/wdk-identity-concordium/node';
+import { keepIdentity } from './kept-identities.mjs';
 
 // Public demonstration phrase only. Never use it for anything of value.
 const DEMO_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const seedPhrase = process.env.SEED_PHRASE || DEMO_PHRASE;
 const providerIndex = Number(process.env.PROVIDER_INDEX ?? 0);
-const storeFolder = process.env.IDENTITY_STORE || './demo-identities';
+const folder = process.env.IDENTITY_FOLDER || './demo-identities';
 
 // The identity package, given the wallet's seed phrase. Every key it needs (for the identity request, and later
-// to encrypt the saved identity) is worked out from the seed; nothing secret is stored. The store is where the
-// identity will be saved: here, a folder of encrypted files.
-const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG, {
-  store: new FileIdentityStore(storeFolder),
-});
+// to encrypt the exported identity) is worked out from the seed; nothing secret is stored, and the package itself
+// stores nothing: it hands the identity to the wallet (here, this sample) to keep.
+const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
 
 // A "cancel switch" (a standard AbortController): pressing Ctrl+C flips it, and the waits below stop cleanly.
 const cancel = new AbortController();
@@ -100,10 +99,12 @@ try {
   const summary = await identity.retrieveIdentity(callbackUrl, { signal: cancel.signal });
   console.log('\nIdentity issued:', summary);
 
-  // 5. Save it, encrypted, so it survives a restart. The encryption key is made from the seed and never stored;
-  //    the store only ever receives a slot name and encrypted bytes. Next time: loadIdentity (see load-identity).
-  const { slotName } = await identity.saveIdentity({ providerIndex, identityIndex });
-  console.log(`\nSaved encrypted to ${storeFolder} (slot ${slotName}).`);
+  // 5. Keep it, so it survives a restart. exportIdentity gives it as text, encrypted with a key made from the seed
+  //    (never stored): it reveals nothing personal. The wallet keeps that text its own way (here, a file); next
+  //    time importIdentity takes it back (see load-identity).
+  const exported = await identity.exportIdentity({ providerIndex, identityIndex });
+  const file = keepIdentity(folder, { providerIndex, identityIndex }, exported);
+  console.log(`\nExported (encrypted) and kept in ${file}. Next: set IDENTITY_INDEX=${identityIndex} for load-identity and create-account.`);
 } catch (e) {
   if (e instanceof IdentityIssuanceError) {
     console.error(`\nNo identity (${e.reason}): ${e.message}`);

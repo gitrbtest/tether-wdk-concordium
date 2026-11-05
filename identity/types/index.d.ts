@@ -65,16 +65,12 @@ export class IdentityRecoveryError extends Error {
 }
 
 /**
- * Thrown when a saved identity cannot be used or saved: the bytes in a storage slot cannot be decrypted
- * with this wallet's seed, are not identity data, or use an unknown format version; or a different
- * identity is already saved where saveIdentity was asked to save.
+ * Thrown when importIdentity cannot take an exported identity back.
  */
 export class IdentityStorageError extends Error {
-  /** unreadable-slot: the saved bytes cannot be decrypted, are not identity data, or use an unknown format version.
-   *  slot-in-use: saveIdentity found a different identity already saved there (pass { replace: true } to replace it). */
-  reason: 'unreadable-slot' | 'slot-in-use';
-  /** The storage slot concerned, e.g. 'concordium-identity/testnet/0/0'. */
-  slotName?: string;
+  /** unreadable: not an exported identity, for another network, another seed, changed or damaged, or an unknown format
+   *  version. not-yours: a plain (unencrypted) export whose identity does not belong to this wallet's seed. */
+  reason: 'unreadable' | 'not-yours';
 }
 
 /**
@@ -100,27 +96,6 @@ export class AccountCreationError extends Error {
   transactionHash?: string;
   /** More about the reason, e.g. the chain's or the wallet-proxy's words, or the unknown attribute's name. */
   detail?: string;
-}
-
-/**
- * Where encrypted identities are kept: any object with these three methods (a phone's storage,
- * a backend, a database…). It only ever receives encrypted bytes and a slot name such as
- * 'concordium-identity/testnet/0/0', never the identity itself.
- */
-export interface IdentityStore {
-  /** Save the bytes under the slot name, replacing anything saved there before. */
-  save(slotName: string, bytes: Uint8Array): Promise<void>;
-  /** The bytes saved under the slot name, or null if there are none. */
-  read(slotName: string): Promise<Uint8Array | null>;
-  /** Remove what is saved under the slot name. If nothing is saved there, this does nothing (no error). */
-  delete(slotName: string): Promise<void>;
-}
-
-/** An IdentityStore in memory: for tests and short-lived processes; nothing survives the process. */
-export class MemoryIdentityStore implements IdentityStore {
-  save(slotName: string, bytes: Uint8Array): Promise<void>;
-  read(slotName: string): Promise<Uint8Array | null>;
-  delete(slotName: string): Promise<void>;
 }
 
 /** The identity providers published by a Concordium wallet-proxy. */
@@ -178,18 +153,19 @@ export interface IdentitySummary {
   maxAccounts: number;
 }
 
-/** Which saved identity: the provider and the wallet's identity index. */
-export interface IdentitySlot {
+/** Which identity: the provider and the wallet's identity number with it. */
+export interface IdentityRef {
   providerIndex: number;
   identityIndex: number;
 }
 
-export interface SaveIdentityOptions extends IdentitySlot {
-  /** Replace a different identity (or unreadable bytes) already saved there. Ask the user first. */
-  replace?: boolean;
+/** Options for exportIdentity. */
+export interface ExportIdentityOptions extends IdentityRef {
+  /** true (the default): encrypted with a key made from the seed, safe to keep anywhere. false: plain JSON text with the
+   *  person's details in the clear, for a wallet that keeps everything in an encrypted vault of its own. */
+  encrypted?: boolean;
 }
 
-/** An identity's summary and the slot it was saved in. */
 /** Options for ConcordiumIdentity.recoverIdentity. */
 export interface RecoverIdentityOptions {
   /** The provider that issued the identity. */
@@ -236,19 +212,14 @@ export interface RecoverAllOptions {
 
 /** What ConcordiumIdentity.recoverAll found. */
 export interface RecoverAllResult {
-  /** Every identity got back (held, ready for saveIdentity), with its accounts; accounts is null if they could not be looked up. */
+  /** Every identity got back (held, ready for exportIdentity), with its accounts; accounts is null if they could not be looked up. */
   identities: Array<{ providerIndex: number; identityIndex: number; summary: IdentitySummary; accounts: FoundAccount[] | null }>;
   /** What could not be done; identityIndex is null when the provider itself could not be used. */
   problems: Array<{ providerIndex: number; identityIndex: number | null; error: Error }>;
 }
 
-export interface SavedIdentitySummary extends IdentitySummary {
-  /** e.g. 'concordium-identity/testnet/0/0' */
-  slotName: string;
-}
-
 /** Options for creating an account from a held identity. */
-export interface CreateAccountOptions extends IdentitySlot {
+export interface CreateAccountOptions extends IdentityRef {
   /** Which account under this identity: 0, 1, 2… below the identity's maxAccounts. No default: nextCredNumber gives the number for a new account. */
   credNumber: number;
   /**
@@ -265,7 +236,7 @@ export interface CreateAccountOptions extends IdentitySlot {
 }
 
 /** An account created (or found existing) for an identity. */
-export interface CreatedAccount extends IdentitySlot {
+export interface CreatedAccount extends IdentityRef {
   credNumber: number;
   /**
    * 'provider/identity/credNumber', e.g. '0/0/0': what @concordium/wdk-wallet-concordium's
@@ -290,9 +261,8 @@ export class ConcordiumIdentity {
    */
   /**
    * @param options.fetch HTTP implementation (defaults to the global fetch).
-   * @param options.store Where saveIdentity / loadIdentity keep encrypted identities.
    */
-  constructor(seed: string | Uint8Array, config: IdentityConfig, options?: { fetch?: typeof fetch; store?: IdentityStore });
+  constructor(seed: string | Uint8Array, config: IdentityConfig, options?: { fetch?: typeof fetch });
   /**
    * Start identity verification: build the identity request for a provider and the link to its verification page.
    * @throws {IdentityProviderError} If the provider is not published, or publishes no issuance address.
@@ -346,34 +316,31 @@ export class ConcordiumIdentity {
   nextCredNumber(options: FindAccountsOptions): Promise<number>;
   /**
    * Get everything back from the seed alone (a new device): for each provider, identity 0, 1, 2 … until
-   * `identityGap` missing in a row, each with its accounts. Every identity found is held, ready for saveIdentity.
+   * `identityGap` missing in a row, each with its accounts. Every identity found is held, ready for exportIdentity.
    * A provider that cannot be asked is noted in `problems`; the others are still asked.
    * @throws {IdentityRecoveryError} reason 'cancelled'.
    */
   recoverAll(options?: RecoverAllOptions): Promise<RecoverAllResult>;
   /**
-   * Save the identity held for a provider and identity index, encrypted, in the configured store. The store
-   * receives only encrypted bytes and the slot name. A different identity already saved there is not
-   * replaced unless { replace: true }.
-   * @throws {IdentityStorageError} reason 'slot-in-use' or 'unreadable-slot' (unless replace).
-   * @throws {Error} If no store is configured, no identity is held for the slot, or the identity has been disposed.
+   * The identity held for a provider and identity number, as text for the wallet to keep its own way. Encrypted by
+   * default (key made from the seed, never stored; reveals nothing personal); plain JSON with encrypted: false.
+   * No network call.
+   * @throws {Error} If no identity is held for these numbers, or the identity has been disposed.
    */
-  saveIdentity(options: SaveIdentityOptions): Promise<SavedIdentitySummary>;
+  exportIdentity(options: ExportIdentityOptions): Promise<string>;
   /**
-   * Load a saved identity from the configured store and hold it inside this object again. No call to the provider,
-   * the wallet-proxy or the chain: only the store is read (which may itself be remote).
-   * @returns The summary, or null if nothing is saved for that slot.
-   * @throws {IdentityStorageError} reason 'unreadable-slot' if the saved bytes cannot be decrypted.
+   * Hold an identity again from exportIdentity's text (either form), checked to be this wallet's: an encrypted export by
+   * decrypting it (no network call), a plain one by its public key (one call for the network's parameters). Also reads
+   * version-1 data saved by the earlier, store-based package: give its numbers as the second argument.
+   * @throws {IdentityStorageError} reason 'unreadable' or 'not-yours'.
    */
-  loadIdentity(slot: IdentitySlot): Promise<IdentitySummary | null>;
-  /** Delete the saved identity from the configured store. An identity held in this object is kept. */
-  deleteIdentity(slot: IdentitySlot): Promise<void>;
+  importIdentity(exported: string | Uint8Array, version1?: Partial<IdentityRef>): Promise<IdentitySummary>;
   /**
    * Create an account on chain from the identity held for a provider and identity index (collected, or
-   * loaded with loadIdentity), with no ID App. Returns once the account is final, so the address exists.
+   * imported with importIdentity), with no ID App. Returns once the account is final, so the address exists.
    * An account that already exists is returned with created: false, and nothing is sent.
    * @throws {AccountCreationError} See its reasons.
-   * @throws {Error} If no identity is held for the slot, an option is invalid, or the identity has been disposed.
+   * @throws {Error} If no identity is held for these numbers, an option is invalid, or the identity has been disposed.
    */
   createAccount(options: CreateAccountOptions): Promise<CreatedAccount>;
   /**

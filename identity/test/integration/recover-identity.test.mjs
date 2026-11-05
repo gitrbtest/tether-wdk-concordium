@@ -12,7 +12,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { ConcordiumIdentity, MemoryIdentityStore, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
+import { ConcordiumIdentity, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
 
 const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const RECORDED = { providerIndex: 0, identityIndex: 334563111 };
@@ -20,8 +20,7 @@ const ACCOUNT_0 = '3Z4WkEMb5msvBRPAZyneFcntHWqceHf7Q9JitSjBAegvQXSB5t';
 const recorded = () => JSON.parse(readFileSync(new URL('../fixtures/identity-done.testnet.json', import.meta.url), 'utf8')).token.identityObject;
 
 test('recovery: the recorded identity comes back from the testnet provider, with its account 0', async () => {
-  const store = new MemoryIdentityStore(); // a new phone: nothing saved
-  const identity = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { store });
+  const identity = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG); // a new phone: only the seed
   try {
     const summary = await identity.recoverIdentity(RECORDED);
     assert.ok(summary, 'the provider returned the identity');
@@ -30,10 +29,10 @@ test('recovery: the recorded identity comes back from the testnet provider, with
       ...RECORDED, createdAt: issued.createdAt, validTo: issued.validTo, maxAccounts: issued.maxAccounts,
     }, 'the same identity as the one recorded when it was issued');
 
-    // Held, so it can be saved, and a new wallet object loads it back from the store.
-    await identity.saveIdentity(RECORDED);
-    const restarted = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { store });
-    assert.deepEqual(await restarted.loadIdentity(RECORDED), summary);
+    // Held, so it can be exported, and a new wallet object imports it back.
+    const kept = await identity.exportIdentity(RECORDED);
+    const restarted = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
+    assert.deepEqual(await restarted.importIdentity(kept), summary);
     restarted.dispose();
 
     const accounts = await identity.findAccounts(RECORDED);

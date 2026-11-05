@@ -3,7 +3,7 @@
  * Internal: ConcordiumIdentity is the public face and hands each call on to this.
  *
  *   recover      ─► recovery request (seed's keys) ─► provider's recovery address ─► checked to be this
- *                   wallet's ─► held (ready for saveIdentity / createAccount)
+ *                   wallet's ─► held (ready for exportIdentity / createAccount)
  *   findAccounts ─► account 0, 1, 2 … : address from the seed ─► on chain? (wallet-proxy) ─► stop after
  *                   `gap` missing numbers in a row
  *   recoverAll   ─► for each provider: identity 0, 1, 2 … (recover, then findAccounts) until

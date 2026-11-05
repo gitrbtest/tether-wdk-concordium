@@ -1,6 +1,6 @@
 /**
- * Create a Concordium account on testnet from an identity saved by verify-identity, with no ID App:
- * load the identity, create the account, and print where to see it. Free: creating an account costs no
+ * Create a Concordium account on testnet from an identity exported by verify-identity, with no ID App:
+ * import the identity, create the account, and print where to see it. Free: creating an account costs no
  * CCD. Without CRED_NUMBER it creates the next new account each run; with it, running again for the same number
  * finds that account instead of creating another.
  *
@@ -10,7 +10,7 @@
  *   SEED_PHRASE      the wallet's seed phrase (default: a public demonstration phrase)
  *   PROVIDER_INDEX   identity provider index on the network (default 0)
  *   IDENTITY_INDEX   the wallet's identity number with that provider (required: verify-identity prints it)
- *   IDENTITY_STORE   folder with the encrypted identity (default ./demo-identities)
+ *   IDENTITY_FOLDER  folder where the samples keep exported identities (default ./demo-identities)
  *   CRED_NUMBER      which account under the identity: 0, 1, 2… (default: the next new one, from nextCredNumber)
  */
 import {
@@ -19,7 +19,7 @@ import {
   IdentityStorageError,
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
-import { FileIdentityStore } from '@concordium/wdk-identity-concordium/node';
+import { keptIdentity } from './kept-identities.mjs';
 
 // Public demonstration phrase only. Never use it for anything of value.
 const DEMO_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
@@ -30,24 +30,23 @@ if (process.env.IDENTITY_INDEX === undefined) {
   process.exit(1);
 }
 const identityIndex = Number(process.env.IDENTITY_INDEX);
-const storeFolder = process.env.IDENTITY_STORE || './demo-identities';
+const folder = process.env.IDENTITY_FOLDER || './demo-identities';
 
-// The identity package with the wallet's seed phrase and the folder verify-identity saved the identity into.
-const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG, {
-  store: new FileIdentityStore(storeFolder),
-});
+// The identity package with the wallet's seed phrase.
+const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
 
 try {
-  // 1. Load the saved identity (as load-identity does): an account can only be made from an identity the
-  //    wallet holds. null means nothing is saved for this provider and identity number.
-  console.log(`1. Load identity ${identityIndex} (provider ${providerIndex}) from ${storeFolder}`);
-  const summary = await identity.loadIdentity({ providerIndex, identityIndex });
-  if (summary === null) {
-    console.log(`   Nothing saved for it. Run npm run example:verify-identity first (or set IDENTITY_INDEX;`);
-    console.log('   npm run example:load-identity lists the saved ones).');
+  // 1. Import the kept identity (as load-identity does): an account can only be made from an identity the
+  //    wallet holds.
+  console.log(`1. Import identity ${identityIndex} (provider ${providerIndex}) from ${folder}`);
+  const exported = keptIdentity(folder, { providerIndex, identityIndex });
+  if (exported === null) {
+    console.log(`   Nothing kept for it. Run npm run example:verify-identity first (or set IDENTITY_INDEX;`);
+    console.log('   npm run example:load-identity lists the kept ones).');
     process.exitCode = 1;
   } else {
-    console.log(`   loaded: valid to ${summary.validTo}, up to ${summary.maxAccounts} accounts\n`);
+    const summary = await identity.importIdentity(exported);
+    console.log(`   imported: valid to ${summary.validTo}, up to ${summary.maxAccounts} accounts\n`);
 
     // 2. Create the account. createAccount first checks the identity is not expired and that the account number
     //    is allowed, and asks the chain whether this account already exists (then it just returns it, sending

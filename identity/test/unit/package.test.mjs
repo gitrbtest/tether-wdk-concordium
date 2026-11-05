@@ -36,13 +36,13 @@ test('the optional Node.js extras load from their own entry point, and the main 
 
 test('the main entry uses no Node.js-only features, so it can run in browsers and mobile runtimes too', async () => {
   const { readdirSync } = await import('node:fs');
-  // Everything the main entry loads: index.js and all of src/, except the optional Node extras, the testing tools and
-  // the website's side of proofs (src/verify: servers only).
+  // Everything the main entry loads: index.js and all of src/, except the optional Node extras and the website's
+  // side of proofs (src/verify: servers only).
   const sourcesIn = (dir) => readdirSync(new URL(dir, packageRoot), { withFileTypes: true })
     .flatMap((entry) => (entry.isDirectory() ? sourcesIn(`${dir}${entry.name}/`) : [`${dir}${entry.name}`]));
   const mainEntryFiles = ['index.js', ...sourcesIn('src/')
-    .filter((file) => !file.startsWith('src/node/') && !file.startsWith('src/testing/') && !file.startsWith('src/verify/'))];
-  assert.ok(mainEntryFiles.includes('src/storage/storage-format.js'), 'the check reaches files in subfolders');
+    .filter((file) => !file.startsWith('src/node/') && !file.startsWith('src/verify/'))];
+  assert.ok(mainEntryFiles.includes('src/storage/identity-export.js'), 'the check reaches files in subfolders');
   const nodeOnly = [
     [/\bBuffer\b/, 'Node\'s Buffer (use Uint8Array, and @noble/hashes/utils for hex)'],
     [/\bprocess\.(env|argv|exit|cwd|platform|version|versions|nextTick|on)\b/, 'Node\'s process'],
@@ -72,14 +72,14 @@ test('the website side of proofs loads from its own entry point (/verify), and t
   }
 });
 
-test('testing tools load from their own entry point, and the main entry does not offer them', async () => {
-  const testing = await import('@concordium/wdk-identity-concordium/testing');
-  assert.equal(typeof testing.verifyIdentityStore, 'function');
+test('the package stores nothing: no store classes, no testing entry; export and import instead', async () => {
   const main = await import('@concordium/wdk-identity-concordium');
-  assert.equal(main.verifyIdentityStore, undefined);
-  for (const file of ['index.js', 'node-extras.js']) {
-    assert.doesNotMatch(readFileSync(new URL(file, packageRoot), 'utf8'), /testing/, `${file} does not load the testing tools`);
-  }
+  assert.equal(main.MemoryIdentityStore, undefined);
+  const node = await import('@concordium/wdk-identity-concordium/node');
+  assert.equal(node.FileIdentityStore, undefined);
+  await assert.rejects(import('@concordium/wdk-identity-concordium/testing'), /not defined by "exports"/);
+  assert.equal(typeof main.ConcordiumIdentity.prototype.exportIdentity, 'function');
+  assert.equal(typeof main.ConcordiumIdentity.prototype.importIdentity, 'function');
 });
 
 test('no file at the top of the package is named after a command its scripts run', async () => {

@@ -116,20 +116,19 @@ export class AccountCreationError extends Error {
 }
 
 /**
- * Thrown when a saved identity cannot be used or saved: the bytes in a storage slot cannot be
- * decrypted with this wallet's seed, are not identity data, or use an unknown format version
- * (reason 'unreadable-slot'); or a different identity is already saved where saveIdentity was asked
- * to save (reason 'slot-in-use'). Carries the slot name.
+ * Thrown when importIdentity cannot take an exported identity back. `reason` says why:
+ * - unreadable: not an exported identity, for another network, another seed, changed or damaged, or an unknown
+ *   format version
+ * - not-yours: a plain (unencrypted) export whose identity does not belong to this wallet's seed
  */
 export class IdentityStorageError extends Error {
   /**
    * @param {string} message
-   * @param {{ reason: 'unreadable-slot' | 'slot-in-use', slotName?: string }} info
+   * @param {{ reason: 'unreadable' | 'not-yours' }} info
    */
-  constructor(message, { reason, slotName } = {}) {
+  constructor(message, { reason } = {}) {
     super(message);
     this.name = 'IdentityStorageError';
     this.reason = reason;
-    this.slotName = slotName;
   }
 }

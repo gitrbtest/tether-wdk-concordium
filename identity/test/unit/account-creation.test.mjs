@@ -9,7 +9,6 @@ import { readFileSync } from 'node:fs';
 import {
   ConcordiumIdentity,
   AccountCreationError,
-  MemoryIdentityStore,
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
 import { hasExpired } from '../../src/issuance/identity-object.js';
@@ -30,7 +29,7 @@ const FINAL = { status: 'finalized', outcome: 'success', blockHashes: ['b1'] };
  * `submit` the sending, `status` every status check. `editIdentity` can change the identity before it is
  * collected (e.g. its validTo). Every request is recorded in `requests`.
  */
-async function identityHolding({ exists = false, submit = json(200, { submissionId: 'x' }), status = FINAL, editIdentity = (o) => o, store } = {}) {
+async function identityHolding({ exists = false, submit = json(200, { submissionId: 'x' }), status = FINAL, editIdentity = (o) => o } = {}) {
   const { fetch: recordedWalletProxy } = walletProxyFetch('testnet');
   const requests = [];
   const fetch = async (url, options = {}) => {
@@ -48,7 +47,7 @@ async function identityHolding({ exists = false, submit = json(200, { submission
     if (url.includes('/v0/submissionStatus/')) return json(200, status);
     return recordedWalletProxy(url, options);
   };
-  const identity = new ConcordiumIdentity(TEST_PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch, store });
+  const identity = new ConcordiumIdentity(TEST_PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch });
   await identity.waitForIdentity(CODE_URI, { ...ISSUED_FOR, intervalMs: 1 });
   return { identity, requests, sent: () => requests.filter((r) => r.url.includes('/v0/submitCredential')) };
 }
@@ -137,15 +136,13 @@ test('a refusal while sending is reported with the account and the reason', asyn
   await rejectsWith(create(identity), 'rejected', (e) => e.address === ACCOUNT_0);
 });
 
-test('after a restart: load the saved identity in a new object, then create the account', async () => {
-  const store = new MemoryIdentityStore();
-  const first = await identityHolding({ store });
-  await first.identity.saveIdentity(ISSUED_FOR);
+test('after a restart: import the exported identity in a new object, then create the account', async () => {
+  const first = await identityHolding();
+  const kept = await first.identity.exportIdentity(ISSUED_FOR); // what the wallet keeps, its own way
   first.identity.dispose();
 
   const { fetch: recordedWalletProxy } = walletProxyFetch('testnet');
   const restarted = new ConcordiumIdentity(TEST_PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, {
-    store,
     fetch: async (url, options = {}) => {
       if (url.includes('/v0/accBalance/')) return json(200, {});
       if (url.includes('/v0/submitCredential')) return json(200, { submissionId: 'x' });
@@ -153,7 +150,7 @@ test('after a restart: load the saved identity in a new object, then create the 
       return recordedWalletProxy(url, options);
     },
   });
-  await restarted.loadIdentity(ISSUED_FOR);
+  await restarted.importIdentity(kept);
   assert.equal((await create(restarted)).address, ACCOUNT_0);
 });
 

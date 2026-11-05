@@ -1,6 +1,6 @@
 /**
  * Recovery on a new device, on testnet: everything back from the seed phrase alone, with no new verification,
- * no ID App, and nothing to remember but the seed phrase. The "new phone" has the seed and a store of its own;
+ * no ID App, and nothing to remember but the seed phrase. The "new phone" has the seed and a folder of its own;
  * it asks every identity provider for the wallet's identities, saves them encrypted, finds their accounts on
  * chain, and hands those to Tether's WDK through the wallet package, which reads their balances.
  *
@@ -8,7 +8,7 @@
  *
  * Read-only: nothing is sent to the chain and nothing is spent. Settings (environment variables):
  *   SEED_PHRASE      the wallet's seed phrase (default: a public demonstration phrase)
- *   IDENTITY_STORE   the new phone's store folder (default ./recovered-identities)
+ *   IDENTITY_FOLDER  where the new phone keeps exported identities (default ./recovered-identities)
  *
  * How the identities are found: a wallet numbers its identities with each provider 0, 1, 2 …, so recoverAll
  * counts 0, 1, 2 … with every provider (stopping after a few numbers in a row with none). Identities given
@@ -18,13 +18,13 @@
  * The default phrase is public and shared, so identities found with it may have been made by other people.
  */
 import { ConcordiumIdentity, IdentityRecoveryError, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
-import { FileIdentityStore } from '@concordium/wdk-identity-concordium/node';
+import { keepIdentity } from './kept-identities.mjs';
 import WalletManagerConcordium, { CONCORDIUM_TESTNET_CONFIG } from '@concordium/wdk-wallet-concordium';
 
 // Public demonstration phrase only. Never use it for anything of value.
 const DEMO_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const seedPhrase = process.env.SEED_PHRASE || DEMO_PHRASE;
-const storeFolder = process.env.IDENTITY_STORE || './recovered-identities';
+const folder = process.env.IDENTITY_FOLDER || './recovered-identities';
 const PLT = 'TN';
 const CIS2 = 'cis2:12754:0:01';
 
@@ -46,16 +46,13 @@ const yearMonth = (yyyymm) => `${yyyymm.slice(0, 4)}-${yyyymm.slice(4)}`;
 const thisMonth = Number(new Date().toISOString().slice(0, 7).replace('-', ''));
 
 // The two packages, both given the same seed phrase, as a wallet app on the new phone would:
-// - `identity` (this package) handles identities: getting them back, saving them, finding their accounts;
+// - `identity` (this package) handles identities: getting them back, exporting them to keep, finding their accounts;
 // - `wallet` (the Phase 1 WDK wallet package) uses the accounts: balances, sending, tokens.
-// The store is where saved identities go: here, a folder of encrypted files.
-const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG, {
-  store: new FileIdentityStore(storeFolder),
-});
+const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
 const wallet = new WalletManagerConcordium(seedPhrase, { ...CONCORDIUM_TESTNET_CONFIG });
 
 try {
-  console.log(`A new phone: only the seed phrase, and a store of its own (${storeFolder}).\n`);
+  console.log(`A new phone: only the seed phrase, and a folder of its own (${folder}).\n`);
 
   // Step 1. Get every identity back. recoverAll asks each identity provider, "do you have identity 0 for this
   // seed? identity 1? identity 2? …", proving each time (with keys made from the seed) that the wallet owns it.
@@ -76,13 +73,13 @@ try {
   }
   console.log('   each one checked to belong to this seed before it was kept\n');
 
-  // Step 2. Keep them on the new phone. saveIdentity encrypts each identity with a key made from the seed (the
-  // key itself is never stored) and hands the store only a slot name and the encrypted bytes. From now on the
-  // wallet loads them from its own store on every start (loadIdentity), with no need to ask the providers again.
-  console.log('2. Save them, encrypted (the key comes from the seed and is never stored)');
+  // Step 2. Keep them on the new phone. exportIdentity gives each identity as text, encrypted with a key made from
+  // the seed (the key itself is never stored), which the wallet keeps its own way (here, a file each). From now on
+  // the wallet imports them on every start (importIdentity), with no need to ask the providers again.
+  console.log('2. Export them, encrypted (the key comes from the seed and is never stored), and keep them');
   for (const x of identities) {
-    const { slotName } = await identity.saveIdentity({ providerIndex: x.providerIndex, identityIndex: x.identityIndex });
-    console.log(`   ${storeFolder}/${slotName}.bin`);
+    const exported = await identity.exportIdentity({ providerIndex: x.providerIndex, identityIndex: x.identityIndex });
+    console.log(`   ${keepIdentity(folder, x, exported)}`);
   }
   console.log();
 

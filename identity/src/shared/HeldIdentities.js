@@ -1,6 +1,6 @@
 /**
- * The issued identities a ConcordiumIdentity holds in memory: collected from a provider or loaded from a
- * store, ready to be saved or to create accounts. Held as UTF-8 JSON bytes rather than objects, so they
+ * The issued identities a ConcordiumIdentity holds in memory: collected from a provider, recovered, or imported,
+ * ready to be exported or to create accounts. Held as UTF-8 JSON bytes rather than objects, so they
  * can be zeroed (a JavaScript object or string cannot be wiped). Internal.
  */
 import { providerIdentityLabel } from '../issuance/identity-object.js';
@@ -33,7 +33,7 @@ export default class HeldIdentities {
     const bytes = this._bytes.get(providerIdentityLabel(providerIndex, identityIndex));
     if (!bytes) {
       throw new Error(`No identity is held for provider ${providerIndex}, identity ${identityIndex}: `
-        + 'collect it (retrieveIdentity) or load it (loadIdentity) first.');
+        + 'collect it (retrieveIdentity), recover it (recoverIdentity) or import it (importIdentity) first.');
     }
     return JSON.parse(new TextDecoder().decode(bytes));
   }
