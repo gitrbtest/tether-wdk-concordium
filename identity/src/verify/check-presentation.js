@@ -49,12 +49,20 @@ const STATUS_WORDS = {
   [sdk.CIS4.CredentialStatus.NotActivated]: 'not active yet',
 };
 
-/** The same JSON, whatever order its keys are in: to compare the questions asked with the questions answered. */
-function sameJson(a, b) {
-  const sorted = (v) => (Array.isArray(v) ? v.map(sorted)
-    : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sorted(v[k])])) : v);
-  return JSON.stringify(sorted(a)) === JSON.stringify(sorted(b));
+/**
+ * The same questions, compared by meaning: whatever order their keys are in, and whatever order the countries (or
+ * other values) of a "one of" / "none of" list are in. Concordium's proof writes such a list back sorted (asked
+ * ['US', 'KP'], answered ['KP', 'US']): the same list, so it must not count as a different question.
+ */
+function sameStatements(asked, answered) {
+  const plain = (v) => (Array.isArray(v) ? v.map(plain)
+    : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k,
+      k === 'set' && Array.isArray(v[k]) ? [...v[k]].map(String).sort() : plain(v[k])])) : v);
+  return JSON.stringify(plain(asked)) === JSON.stringify(plain(answered));
 }
+
+/** The same challenge: it is a hex number, so capital and small letters mean the same ('BB' = 'bb'). */
+const sameChallenge = (a, b) => typeof a === 'string' && typeof b === 'string' && a.toLowerCase() === b.toLowerCase();
 
 /** The answer as Concordium's VerifiablePresentation, from any of the forms a website may receive it in; or null. */
 function readAnswer(presentation) {
@@ -104,7 +112,7 @@ export async function checkPresentation(presentation, request, { node, network }
 
   // 1. Is it the answer to OUR question? All checked from the answer itself, before asking the chain anything.
   const reasons = [];
-  if (answer.presentationContext !== challenge) {
+  if (!sameChallenge(answer.presentationContext, challenge)) {
     reasons.push({ reason: 'challenge-mismatch', message: 'The answer is for another request (its challenge differs).' });
   }
   if (answer.verifiableCredential.length !== credentialStatements.length) {
@@ -126,7 +134,7 @@ export async function checkPresentation(presentation, request, { node, network }
       reasons.push({ reason: 'provider-not-accepted', message: `The identity is from provider ${issuer[2]}, which the request does not accept.` });
     }
     // Without this, a wallet could answer an easier question ("over 5" for "over 18") and the maths would still hold.
-    if (asked && !sameJson(vc.credentialSubject.statement, asked.statement)) {
+    if (asked && !sameStatements(asked.statement, vc.credentialSubject.statement)) {
       reasons.push({ reason: 'statements-mismatch', message: `Part ${n + 1} of the answer proves something other than what was asked.` });
     }
   });

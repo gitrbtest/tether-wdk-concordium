@@ -48,3 +48,63 @@ export function walletProxyFetch(network, overrides = {}) {
   };
   return { fetch, requests };
 }
+
+// ─── Proofs: a wallet holding the recorded identity, and a pretend node with its account 0 ────────────────────
+
+/** The recorded identity: the public "abandon" test phrase, provider 0, identity 334563111 (testnet, Phase 1). */
+export const RECORDED_IDENTITY = { providerIndex: 0, identityIndex: 334563111 };
+const RECORDED_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
+const RECORDED_CODE_URI = 'https://id-service.testnet.concordium.com/api/v1/identity/51cf6074722e6685934b4d06fba5baf0045d1d8130ead5ba7fac04dabff9ba3a';
+
+/** The recorded identity's account 0 as stored on chain: { address, credId, issuer, commitments }. */
+export function recordedAccount0() {
+  return readFixture('account-commitments.testnet.json');
+}
+
+/**
+ * A wallet holding the recorded identity (the test provider's made-up details: John Doe, born 1970-01-01, lives in
+ * DK, nationality DK, national ID N-1234), with the network answered from recordings. `details` replaces some of
+ * those details in the wallet's copy (e.g. { countryOfResidence: 'US' }), to try an identity that cannot answer.
+ */
+export async function walletWithRecordedIdentity({ details } = {}) {
+  const { ConcordiumIdentity, CONCORDIUM_TESTNET_IDENTITY_CONFIG } = await import('@concordium/wdk-identity-concordium');
+  const recorded = walletProxyFetch('testnet');
+  const fetch = async (url, options) => {
+    if (url !== RECORDED_CODE_URI) return recorded.fetch(url, options);
+    const issued = readFixture('identity-done.testnet.json');
+    Object.assign(issued.token.identityObject.value.attributeList.chosenAttributes, details);
+    return { ok: true, status: 200, json: async () => issued };
+  };
+  const wallet = new ConcordiumIdentity(RECORDED_PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch });
+  await wallet.waitForIdentity(RECORDED_CODE_URI, { ...RECORDED_IDENTITY, intervalMs: 1 });
+  return wallet;
+}
+
+/**
+ * A pretend Concordium node with the recorded account 0's record on it, as recorded from testnet. `validTo` /
+ * `createdAt` (YYYYMM) set the identity's validity as the chain holds it; `commitments` replaces the sealed details;
+ * `fail` makes every question to the node fail with that gRPC code. Counts the questions asked (`asked`).
+ */
+export async function pretendNode({ validTo = '202709', createdAt = '202609', commitments, fail, now = new Date('2026-11-03T12:00:00Z') } = {}) {
+  const sdk = await import('@concordium/web-sdk');
+  const account = recordedAccount0();
+  const node = {
+    asked: 0,
+    async getAccountInfo(credId) {
+      node.asked++;
+      if (fail) throw Object.assign(new Error('the node is unreachable'), { name: 'RpcError', code: fail });
+      if (credId.credId !== account.credId) {
+        throw Object.assign(new Error('account or block not found.'), { name: 'RpcError', code: 'NOT_FOUND' });
+      }
+      return {
+        accountAddress: sdk.AccountAddress.fromBase58(account.address),
+        accountCredentials: { 0: { v: 0, value: { type: 'normal', contents: {
+          credId: account.credId, ipIdentity: account.issuer, policy: { createdAt, validTo, revealedAttributes: {} },
+          commitments: { cmmAttributes: commitments ?? account.commitments } } } } },
+      };
+    },
+    async getBlockInfo() { return { blockSlotTime: now }; },
+    async getCryptographicParameters() { return globalFixture('testnet').value; },
+  };
+  return node;
+}

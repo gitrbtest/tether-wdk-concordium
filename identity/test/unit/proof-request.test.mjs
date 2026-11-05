@@ -121,7 +121,8 @@ test('describeProofRequest: Concordium\'s reward-distribution request, in plain 
 test('describeProofRequest: an age check made today says "at least 18"; set and document wording', () => {
   assert.equal(describeProofRequest(BEER_STORE, { now: NOW })[0].asks[0].text,
     'prove you were born before 4 Nov 2008 (at least 18 years old), without showing your date of birth');
-  const asks = describeProofRequest(requestFor({ providers: [0], adult: true, residentIn: ['GB', 'DE'], documentValid: NOW }), { now: NOW })[0].asks;
+  // requestFor counts the 18 years back from today, so describe it as of today too (not the fixed NOW).
+  const asks = describeProofRequest(requestFor({ providers: [0], adult: true, residentIn: ['GB', 'DE'], documentValid: NOW }), { now: new Date() })[0].asks;
   assert.match(asks[0].text, /at least 18 years old/);
   assert.equal(asks[1].text, 'prove your country of residence is one of: GB, DE (without showing which)');
   assert.equal(asks[2].text, 'prove your ID document is still valid on 3 Nov 2026, without showing its dates');
