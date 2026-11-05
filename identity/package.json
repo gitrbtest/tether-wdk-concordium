@@ -2,7 +2,7 @@
   "name": "@concordium/wdk-identity-concordium",
   "version": "0.0.0",
   "private": true,
-  "description": "Concordium identity companion for the WDK wallet module: identity verification with an identity provider, encrypted identity storage, and account creation from a wallet seed.",
+  "description": "Concordium identity companion for the WDK wallet module: identity verification with an identity provider, encrypted identity storage, account creation and recovery from a wallet seed, and proving facts to websites.",
   "type": "module",
   "main": "index.js",
   "types": "types/index.d.ts",

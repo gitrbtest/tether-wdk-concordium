@@ -362,6 +362,21 @@ export class ConcordiumIdentity {
    * @throws {Error} If no identity is held for the slot, an option is invalid, or the identity has been disposed.
    */
   createAccount(options: CreateAccountOptions): Promise<CreatedAccount>;
+  /**
+   * Answer a website's question with a proof from one of the identity's accounts (account-based). Only what the
+   * question asks is proven or shown; the identity never leaves the wallet. Show describeProofRequest's wording and
+   * get the person's agreement first. Refuses before building anything if the answer would not be true.
+   * @returns The proof; its toString() is the JSON to send back (WalletConnect's verifiablePresentationJson).
+   * @throws {ProofError} reason 'invalid-request', 'unknown-attribute', 'not-held', 'identity-expired',
+   *   'provider-not-accepted' or 'cannot-prove'.
+   */
+  prove(options: ProveOptions): Promise<ProofAnswer>;
+  /**
+   * The identity's accounts on chain that can answer a website's question: none if the identity cannot truly
+   * answer (expired, provider not accepted, or its details do not satisfy it). Read-only.
+   * @throws {ProofError} reason 'invalid-request', 'unknown-attribute' or 'not-held'.
+   */
+  accountsThatCanAnswer(options: AccountsThatCanAnswerOptions): Promise<FoundAccount[]>;
   /** True once dispose() has been called. */
   get disposed(): boolean;
   /** Zero the seed and any collected identities, and drop them; later calls that need the seed throw. */
@@ -388,6 +403,34 @@ export interface ProofRequest {
   /** Hex chosen by the website: the answer is tied to it, so it cannot be reused for another request. */
   challenge: string;
   credentialStatements: CredentialStatement[];
+}
+
+/** Which identity answers, plus the website's question as it arrived (or WalletConnect's { paramsJson }). */
+export type ProveOptions = {
+  /** The identity's provider. */
+  providerIndex: number;
+  /** Which of the wallet's identities with that provider. Default 0. */
+  identityIndex?: number;
+  /** Which of the identity's accounts answers (see accountsThatCanAnswer). Default 0. */
+  credNumber?: number;
+} & (ProofRequest | { paramsJson: string });
+
+/** The identity, plus the website's question; gap and signal as for findAccounts. */
+export type AccountsThatCanAnswerOptions = {
+  providerIndex: number;
+  identityIndex?: number;
+  gap?: number;
+  signal?: AbortSignal;
+} & (ProofRequest | { paramsJson: string });
+
+/** A proof made by prove (Concordium's VerifiablePresentation). */
+export interface ProofAnswer {
+  /** The challenge it answers. */
+  presentationContext: string;
+  /** One part per credential statement asked. */
+  verifiableCredential: object[];
+  /** The JSON to send back to the website. */
+  toString(): string;
 }
 
 /** One item for a consent screen, from describeProofRequest. */

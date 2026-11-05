@@ -69,6 +69,11 @@ try {
   // Step 4. Which account can truly answer? accountsThatCanAnswer says, for an identity: none if it has expired,
   // if the shop does not accept its provider, or if its details do not satisfy the question; otherwise its
   // accounts on chain. The wallet never makes an answer that is not true.
+  //
+  // Which account answers: this sample simply takes the first identity that can answer, and the first account in
+  // its list (accounts[0]). A real wallet app would show the user the accounts that can answer (from every
+  // identity) and let them choose. Whichever is chosen, its credNumber (the account's number under its identity:
+  // 0, 1, 2 …) is what step 5 passes to prove, so any of the listed accounts works, not only the first.
   console.log('4. The wallet finds an account that can truly answer');
   let chosen;
   for (const x of identities) {

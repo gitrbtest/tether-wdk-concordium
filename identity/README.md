@@ -9,7 +9,9 @@ own seed, without the Concordium ID App:
 - start identity verification with an identity provider and collect the issued identity,
 - keep the identity in encrypted storage that the wallet chooses,
 - create Concordium accounts from the stored identity,
-- get the identity and its accounts back from the seed phrase alone, e.g. on a new phone.
+- get the identity and its accounts back from the seed phrase alone, e.g. on a new phone,
+- prove facts such as "over 18" to a website without revealing the detail itself (and, for websites,
+  check those proofs).
 
 Accounts created this way are then used through `@concordium/wdk-wallet-concordium`
 like any other account.
@@ -18,7 +20,7 @@ like any other account.
 > may change until the first release. Available today: listing identity
 > providers, starting identity verification, collecting the issued identity,
 > saving it encrypted, creating accounts from it, and recovering it from the
-> seed (tested on testnet).
+> seed, and proving facts to websites, with the websites' check (tested on testnet).
 
 ## What you can build
 
@@ -41,7 +43,8 @@ Try it: `npm run example:recover-identity`.
 question. The wallet shows the user what is asked, and answers with a proof that the date of birth sealed
 in their account's record on chain is before the date asked. The website checks the proof against the
 chain and lets them in. It never sees the date of birth, and the same answer cannot be used twice.
-Try it: `npm run example:age-check` (both sides, the website and the wallet, in one run).
+Try it: `npm run example:age-check` (both sides, the website and the wallet, in one run; see
+[Proving facts](#proving-facts-proofs)).
 
 More stories will follow as the package grows (tokens that only verified people may hold).
 
@@ -407,8 +410,9 @@ for (const { providerIndex, identityIndex, summary, accounts } of identities) {
 ```
 
 For each identity provider that publishes a recovery address, it asks for identity 0, 1, 2 … until three
-numbers in a row have none, and finds each identity's accounts. Every identity found is held, ready for
-`saveIdentity` and `createAccount`, exactly as after verifying.
+numbers in a row have none, and finds each identity's accounts. Every identity found is held, exactly as
+after verifying: save it with `saveIdentity`, and, only if the user later wants another account,
+`createAccount` can make one. The accounts it already has are in `accounts`.
 
 - **`identities`**: each with its `summary` (dates, `maxAccounts`) and `accounts` (`credNumber`, `address`,
   `path`). `accounts` is `null` if the identity came back but its accounts could not be looked up just now:
@@ -464,6 +468,148 @@ If your app leaves bigger gaps (an identity started but never finished, accounts
 with only the public test phrase recovers its identities with `recoverAll`, saves them, finds their
 accounts and reads their balances through the wallet package. Because that phrase is public and shared,
 it may also find identities other people made with it (one is shown as expired).
+
+## Proving facts (proofs)
+
+A website can ask the wallet to prove a fact about the user, such as "over 18", "lives in the EU" or "not a
+US resident", and the wallet answers **without revealing the detail itself**: the website learns "over 18",
+not the date of birth. Only details the website explicitly asks to see (for example the nationality) are
+shown.
+
+How it works, briefly: when an account is created, the identity's details are pinned to it on chain,
+sealed (as "commitments"): fixed, but unreadable without a secret that only the wallet's seed can work
+out. The wallet's answer (a "verifiable presentation") is a proof about what is inside those seals, tied to
+the website's question. The website checks it against the seals on chain. The identity itself never
+leaves the wallet.
+
+```
+WEBSITE (its server)                         WALLET (the user's device)
+requestFor ──── the question ──────────────► describeProofRequest  (the consent screen)
+  keeps it                                   accountsThatCanAnswer (which account can truly answer)
+                                             prove
+checkPresentation ◄── the answer ───────────
+  ├─ same question? accepted provider? right network?
+  ├─ reads the account's record from the chain (a Concordium node)
+  ├─ identity still valid? does the maths hold?
+  ▼
+{ ok, reasons, account, revealed }
+```
+
+The question and the answer are in Concordium's own format (account-based, sometimes called "version 0"),
+exactly as WalletConnect's `request_verifiable_presentation` carries them, so the wallet side also answers
+questions from other apps built for Concordium.
+
+### The wallet's side
+
+```js
+// The question, as it arrives: { challenge, credentialStatements }, or WalletConnect's { paramsJson }.
+const asks = describeProofRequest(question);
+// → [{ providers: [0, 1, 2], asks: [{ kind: 'range', attribute: 'dob',
+//      text: 'prove you were born before 5 Nov 2008 (at least 18 years old), without showing your date of birth' }] }]
+
+const accounts = await identity.accountsThatCanAnswer({ providerIndex: 0, identityIndex: 0, ...question });
+// → [{ credNumber: 0, address: '46aP…', path: '0/0/0' }]   (empty if the identity cannot truly answer)
+if (accounts.length === 0) { /* tell the user this identity cannot answer; decline */ }
+
+const chosen = accounts[0];   // or let the user pick one of them
+const answer = await identity.prove({ providerIndex: 0, identityIndex: 0, credNumber: chosen.credNumber, ...question });
+// → the answer to send back (WalletConnect: { verifiablePresentationJson: answer.toString() })
+```
+
+- **Show `describeProofRequest` to the user before answering.** It reads and checks the question (no network,
+  no secrets) and says, in plain English, what will be proven and what will be shown.
+- **The wallet never makes a false answer.** `prove` refuses before building anything if the identity has
+  expired, if the website does not accept the identity's provider, or if the identity's details do not
+  satisfy the question. `accountsThatCanAnswer` returns no accounts in those cases, so an app can offer only
+  accounts that can answer.
+- The identity must be held (verified, loaded from the store, or recovered), and the account must exist on
+  chain: the website checks the answer against it.
+
+### The website's side: `@concordium/wdk-identity-concordium/verify`
+
+A separate entry point, for servers (Node.js): checking needs a connection to a Concordium node, which
+wallets never need.
+
+```js
+import { requestFor, checkPresentation, connectToNode } from '@concordium/wdk-identity-concordium/verify';
+
+const node = connectToNode('testnet');   // Concordium's public node; or 'mainnet', or your node's address
+
+// 1. Ask. Keep the question on your server: the answer is checked against it.
+const question = requestFor({ providers: [0, 1, 2], adult: true });
+// other options: minAge, residentIn, notResidentIn, nationalityIn, nationalityNotIn, documentValid, reveal
+
+// 2. Check the answer.
+const result = await checkPresentation(answer, question, { node, network: 'testnet' });
+// → { ok: true, account: '46aP…', revealed: {}, reasons: [] }
+// or { ok: false, reasons: [{ reason: 'not-active', message: 'The identity behind part 1 of the answer is expired.' }] }
+```
+
+`checkPresentation` accepts the answer as an object, as JSON text, or as WalletConnect's
+`{ verifiablePresentationJson }`. It accepts an answer only if all of these hold:
+
+1. it answers **this** question: the same challenge, and exactly the statements asked (so an answer to an
+   easier question, such as "over 5" for "over 18", is refused even though its maths holds);
+2. the identity comes from a provider the question accepts, on the website's network;
+3. the account is on chain, and its identity is **still valid** (not expired, and not before its start date);
+4. the proof holds against the account's sealed details on chain (Concordium's own verifier).
+
+A refused answer is a normal outcome: `ok: false` with the `reasons`. It throws (`ProofError`, reason
+`node`) only when the node cannot be asked, so a website can tell "try again" from "not accepted".
+
+### The website's own job
+
+- **Accept one answer per question.** Keep each open question on your server, keyed by its challenge, with
+  an expiry (a few minutes is typical; a database or Redis, which removes expired keys by itself, both
+  work). When an answer arrives, take the question out and check the answer against it. A second answer to
+  the same question then finds nothing and is refused. Without this, a copied answer could be used again:
+  its maths still holds.
+- **Keep the outcome, not the whole answer**, unless a regulation asks for it: for example "account 46aP…
+  proved over 18 at 10:42 for question afd0…". Revealed details (a nationality, a name) are personal data:
+  keep only what you need.
+- **Use a fresh random challenge for every question.** `requestFor` makes one (32 random bytes). A fixed
+  challenge lets an answer given to one website pass at any other website that uses the same one.
+- **Work dates out on the day.** "Over 18" means "born before this date, 18 years ago". `requestFor` counts
+  it from today each time; a date written once into code quietly turns "over 18" into "over 19" a year
+  later.
+- **Refuse identities that are not valid (Active).** An expired identity's proof still adds up
+  mathematically; only its status on chain shows it has expired. `checkPresentation` refuses it; a website
+  that checks proofs some other way must check the status itself.
+
+### When it fails
+
+`ProofError` with a `reason`, thrown when a question cannot be read, an answer cannot be made, or a check
+cannot be done:
+
+| `reason` | Meaning | What to do |
+|---|---|---|
+| `invalid-request` | the question is not one the package understands (the message says what is wrong) | the website fixes its question |
+| `unknown-attribute` | the question names a detail an identity does not have | the website fixes its question |
+| `not-held` | wallet: no identity held for that provider and number | verify, load or recover it first |
+| `identity-expired` | wallet: the identity has expired; websites refuse its answers | the user verifies again for a new identity |
+| `provider-not-accepted` | wallet: the website does not accept identities from this provider | answer with another identity, or decline |
+| `cannot-prove` | wallet: the identity's details do not satisfy the question (e.g. under the age asked); nothing was made | tell the user; decline |
+| `node` | website: the Concordium node could not be asked (`detail`) | try again |
+
+Reasons `checkPresentation` returns for a refused answer (in `result.reasons`, each with a plain `message`):
+`unreadable`, `challenge-mismatch`, `statements-mismatch`, `not-an-identity`, `wrong-network`,
+`provider-not-accepted`, `not-on-chain`, `credential-mismatch`, `not-active`, `proof-invalid`.
+
+### Try it
+
+`npm run example:age-check` (`examples/age-check.mjs`), read-only on testnet: both sides in one run. A
+shop asks "over 18?"; a "new phone" with only the public test phrase recovers its identities, skips an
+expired one, and answers with an account that can; the shop checks the answer against the chain, then
+refuses the same answer sent a second time.
+
+### Limits, for now
+
+- Account-based proofs only: the answer comes from one of the identity's accounts on chain. Proving from
+  the identity alone, with no account (Concordium's newer "version 1" proofs), is planned next.
+- Proofs about Concordium identities only, not about Web3 ID credentials issued by smart contracts.
+- Tested on testnet. Compatibility with other Concordium apps was tested by answering the exact questions
+  of Concordium's published example apps and checking the answers with Concordium's verifier, not by
+  running those apps.
 
 ## Optional: built-in callback listener (Node.js desktop and server wallets)
 
