@@ -10,14 +10,39 @@ export interface IdentityConfig {
    * @concordium/wdk-wallet-concordium; use the same value for both packages.
    */
   useMainnetKeyDerivation: boolean;
-  /** Absolute HTTP(S) URL of a Concordium wallet-proxy; it publishes the identity providers and cryptographic parameters. */
+  /** Absolute HTTP(S) URL of a Concordium wallet-proxy; it serves the network's cryptographic parameters. */
   walletProxyUrl: string;
+  /**
+   * The identity provider list, which the wallet passes in (the package does not fetch it): the wallet-proxy's
+   * /v1/ip_info shape, e.g. `await (await fetch(`${walletProxyUrl}/v1/ip_info`)).json()`. Checked when the
+   * ConcordiumIdentity is created; a list in the wrong shape is refused, naming the field.
+   */
+  identityProviders: IdentityProviderEntry[];
 }
 
-/** Public mainnet wallet-proxy preset. */
-export const CONCORDIUM_MAINNET_IDENTITY_CONFIG: Readonly<IdentityConfig>;
-/** Public testnet wallet-proxy preset. */
-export const CONCORDIUM_TESTNET_IDENTITY_CONFIG: Readonly<IdentityConfig>;
+/** One provider in the identity provider list, in the wallet-proxy's /v1/ip_info shape (the fields the package reads). */
+export interface IdentityProviderEntry {
+  ipInfo: {
+    /** The provider's number on the network. */
+    ipIdentity: number;
+    ipDescription: { name: string; url?: string; description?: string };
+    /** Its public keys (hex). */
+    ipVerifyKey: string;
+    ipCdiVerifyKey: string;
+  };
+  /** Its anonymity revokers, by number. */
+  arsInfos: Record<string, { arIdentity: number; arPublicKey: string; arDescription?: object }>;
+  /** The provider's own addresses; an address it does not publish may be missing or empty. */
+  metadata?: { issuanceStart?: string; recoveryStart?: string; icon?: string; support?: string };
+}
+
+/** A preset without the provider list: add it, e.g. { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders }. */
+export type IdentityConfigPreset = Omit<IdentityConfig, 'identityProviders'>;
+
+/** Public mainnet preset (add identityProviders). */
+export const CONCORDIUM_MAINNET_IDENTITY_CONFIG: Readonly<IdentityConfigPreset>;
+/** Public testnet preset (add identityProviders). */
+export const CONCORDIUM_TESTNET_IDENTITY_CONFIG: Readonly<IdentityConfigPreset>;
 
 /** An identity provider as published by the wallet-proxy. */
 export interface IdentityProviderSummary {
@@ -100,12 +125,16 @@ export class AccountCreationError extends Error {
 
 /** The identity providers published by a Concordium wallet-proxy. */
 export class IdentityProviders {
-  constructor(config: IdentityConfig, options?: { fetch?: typeof fetch });
-  /** Every identity provider published on this network. */
+  /**
+   * The providers in the list the wallet passes in (the package does not fetch it).
+   * @throws {Error} If the list is missing, empty, or not in the /v1/ip_info shape (the message names the field).
+   */
+  constructor(identityProviders: IdentityProviderEntry[]);
+  /** Every identity provider in the list. */
   list(): Promise<IdentityProviderSummary[]>;
   /**
    * One identity provider by its index.
-   * @throws {IdentityProviderError} If no provider with this index is published.
+   * @throws {IdentityProviderError} If no provider with this index is in the list.
    */
   get(index: number): Promise<IdentityProvider>;
 }

@@ -6,13 +6,14 @@ import {
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
   parseIdentityConfig,
 } from '../../src/shared/config.js';
+import { ipInfoFixture } from '../helpers.mjs';
 
-/** A valid custom configuration, to vary one field at a time. */
-const VALID = { useMainnetKeyDerivation: false, walletProxyUrl: 'https://wallet-proxy.example' };
+/** A valid custom configuration, to vary one field at a time (with the recorded provider list the wallet passes in). */
+const VALID = { useMainnetKeyDerivation: false, walletProxyUrl: 'https://wallet-proxy.example', identityProviders: ipInfoFixture('testnet') };
 
 test('a configuration object is required', () => {
   for (const config of [undefined, null, 'https://wallet-proxy.example', []]) {
-    assert.throws(() => parseIdentityConfig(config), /A configuration with useMainnetKeyDerivation and walletProxyUrl is required/);
+    assert.throws(() => parseIdentityConfig(config), /A configuration with useMainnetKeyDerivation, walletProxyUrl and identityProviders is required/);
   }
 });
 
@@ -59,13 +60,15 @@ test('a base path is kept and trailing slashes are removed', () => {
     'https://proxy.example/concordium');
 });
 
-test('the public presets are complete and can be overridden', () => {
-  assert.equal(parseIdentityConfig(CONCORDIUM_MAINNET_IDENTITY_CONFIG).derivationNetwork, 'Mainnet');
-  assert.equal(parseIdentityConfig(CONCORDIUM_TESTNET_IDENTITY_CONFIG).derivationNetwork, 'Testnet');
+test('the public presets plus the provider list make a configuration, and can be overridden', () => {
+  const withList = (preset, network) => ({ ...preset, identityProviders: ipInfoFixture(network) });
+  assert.equal(parseIdentityConfig(withList(CONCORDIUM_MAINNET_IDENTITY_CONFIG, 'mainnet')).derivationNetwork, 'Mainnet');
+  assert.equal(parseIdentityConfig(withList(CONCORDIUM_TESTNET_IDENTITY_CONFIG, 'testnet')).derivationNetwork, 'Testnet');
   for (const preset of [CONCORDIUM_MAINNET_IDENTITY_CONFIG, CONCORDIUM_TESTNET_IDENTITY_CONFIG]) {
-    assert.equal(parseIdentityConfig(preset).walletProxyUrl, preset.walletProxyUrl);
+    assert.equal(parseIdentityConfig(withList(preset, 'testnet')).walletProxyUrl, preset.walletProxyUrl);
+    assert.throws(() => parseIdentityConfig(preset), /identityProviders is required/, 'a preset alone has no provider list');
   }
-  const custom = parseIdentityConfig({ ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, walletProxyUrl: 'https://my-proxy.example' });
+  const custom = parseIdentityConfig({ ...withList(CONCORDIUM_TESTNET_IDENTITY_CONFIG, 'testnet'), walletProxyUrl: 'https://my-proxy.example' });
   assert.equal(custom.walletProxyUrl, 'https://my-proxy.example');
   assert.equal(custom.derivationNetwork, 'Testnet');
 });

@@ -109,12 +109,13 @@ export function codeFor(s) {
       return code('Step 1', [
         "import { IdentityProviders, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';",
         '',
-        'const providers = await new IdentityProviders(CONCORDIUM_TESTNET_IDENTITY_CONFIG).list();',
+        "const identityProviders = await (await fetch('https://wallet-proxy.testnet.concordium.com/v1/ip_info')).json();   // the wallet fetches the list",
+        'const providers = await new IdentityProviders(identityProviders).list();',
         `// → ${s.providers ? `${s.providers.length} providers: ${s.providers.map((x) => x.name).join(', ')}` : '[{ index, name, issuanceStart, … }]'}`,
       ], '@concordium/wdk-identity-concordium · IdentityProviders.list');
     case 'verifying':
       return code('Step 2', [
-        'const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);',
+        'const identity = new ConcordiumIdentity(seedPhrase, { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders });',
         '',
         `const { issuanceUrl } = await identity.createIdentityRequest({ providerIndex: ${p}, identityIndex: ${i}, redirectUri });`,
         '// open issuanceUrl; the provider sends the browser back to redirectUri with its reply, then:',

@@ -33,7 +33,10 @@ const identityIndex = Number(process.env.IDENTITY_INDEX);
 const folder = process.env.IDENTITY_FOLDER || './demo-identities';
 
 // The identity package with the wallet's seed phrase.
-const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
+// The identity provider list: the package does not fetch it. The wallet does (here from the wallet-proxy, once)
+// and passes it in; only its shape matters.
+const identityProviders = await (await fetch(`${CONCORDIUM_TESTNET_IDENTITY_CONFIG.walletProxyUrl}/v1/ip_info`)).json();
+const identity = new ConcordiumIdentity(seedPhrase, { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders });
 
 try {
   // 1. Import the kept identity (as load-identity does): an account can only be made from an identity the

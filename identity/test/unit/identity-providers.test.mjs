@@ -1,25 +1,15 @@
-/** Identity providers from recorded wallet-proxy data (test/fixtures); no external services. */
+/**
+ * Identity providers, from the list the wallet passes in (the wallet-proxy's /v1/ip_info shape; recorded in
+ * test/fixtures). The package never fetches the list.
+ */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import {
-  IdentityProviders,
-  IdentityProviderError,
-  CONCORDIUM_MAINNET_IDENTITY_CONFIG,
-  CONCORDIUM_TESTNET_IDENTITY_CONFIG,
-} from '@concordium/wdk-identity-concordium';
-import { ipInfoFixture, walletProxyFetch } from '../helpers.mjs';
+import { IdentityProviders, IdentityProviderError, ConcordiumIdentity } from '@concordium/wdk-identity-concordium';
+import { ipInfoFixture, testnetConfig } from '../helpers.mjs';
 
-const CONFIG = { testnet: CONCORDIUM_TESTNET_IDENTITY_CONFIG, mainnet: CONCORDIUM_MAINNET_IDENTITY_CONFIG };
-
-/** Providers that read one network's recorded list; `requests` records every URL asked for. */
-function recorded(network, ipInfo) {
-  const { fetch, requests } = walletProxyFetch(network, { ipInfo });
-  return { providers: new IdentityProviders(CONFIG[network], { fetch }), requests };
-}
-
-test('list reports every published provider with its published addresses', async () => {
+test('list reports every provider in the list with its published addresses', async () => {
   for (const network of ['testnet', 'mainnet']) {
-    const { providers, requests } = recorded(network);
+    const providers = new IdentityProviders(ipInfoFixture(network));
     const expected = ipInfoFixture(network).map((e) => ({
       index: e.ipInfo.ipIdentity,
       name: e.ipInfo.ipDescription.name,
@@ -27,14 +17,13 @@ test('list reports every published provider with its published addresses', async
       recoveryStart: e.metadata.recoveryStart,
     }));
     assert.deepEqual(await providers.list(), expected);
-    assert.deepEqual(requests, [`${CONFIG[network].walletProxyUrl}/v1/ip_info`]);
   }
 });
 
 test('get returns a provider by its index, with its keys and anonymity revokers', async () => {
   for (const network of ['testnet', 'mainnet']) {
+    const providers = new IdentityProviders(ipInfoFixture(network));
     for (const entry of ipInfoFixture(network)) {
-      const { providers } = recorded(network);
       const provider = await providers.get(entry.ipInfo.ipIdentity);
       assert.equal(provider.index, entry.ipInfo.ipIdentity);
       assert.equal(provider.issuanceStart, entry.metadata.issuanceStart, 'issuance address exactly as published');
@@ -47,9 +36,9 @@ test('get returns a provider by its index, with its keys and anonymity revokers'
 
 test('a provider is found by its index, not by its position in the list', async () => {
   for (const network of ['testnet', 'mainnet']) {
-    const list = ipInfoFixture(network);
+    const list = ipInfoFixture(network).reverse();
+    const providers = new IdentityProviders(list);
     for (const [position, entry] of list.entries()) {
-      const { providers } = recorded(network);
       const provider = await providers.get(entry.ipInfo.ipIdentity);
       assert.equal(provider.name, entry.ipInfo.ipDescription.name,
         `${network}: index ${entry.ipInfo.ipIdentity} (listed at position ${position}) resolves to its own entry`);
@@ -57,22 +46,21 @@ test('a provider is found by its index, not by its position in the list', async 
   }
 });
 
-test('an index that is not published on the network fails clearly, with no fallback', async () => {
-  const published = new Set(ipInfoFixture('mainnet').map((e) => e.ipInfo.ipIdentity));
-  const missing = [0, 1, 2, 3, 4, 5].find((index) => !published.has(index));
-  const { providers } = recorded('mainnet');
+test('an index that is not in the list fails clearly, with no fallback', async () => {
+  const listed = new Set(ipInfoFixture('mainnet').map((e) => e.ipInfo.ipIdentity));
+  const missing = [0, 1, 2, 3, 4, 5].find((index) => !listed.has(index));
+  const providers = new IdentityProviders(ipInfoFixture('mainnet'));
   await assert.rejects(
     () => providers.get(missing),
     (e) => e instanceof IdentityProviderError && e.providerIndex === missing
-      && e.message === `No identity provider ${missing} is published on this network.`,
+      && e.message === `No identity provider ${missing} is in the identity provider list.`,
   );
 });
 
-test('an invalid index is rejected before any request', async () => {
+test('an invalid index is rejected', async () => {
+  const providers = new IdentityProviders(ipInfoFixture('testnet'));
   for (const index of [-1, 1.5, '1', undefined, Number.MAX_SAFE_INTEGER + 1]) {
-    const { providers, requests } = recorded('testnet');
     await assert.rejects(() => providers.get(index), /providerIndex is required and must be a non-negative safe integer/);
-    assert.deepEqual(requests, [], `no request for ${String(index)}`);
   }
 });
 
@@ -80,43 +68,48 @@ test('an address a provider does not publish is reported as null, never invented
   const list = ipInfoFixture('testnet');
   const entry = list[0];
   delete entry.metadata.issuanceStart;
-  delete entry.metadata.recoveryStart;
-  const { providers } = recorded('testnet', list);
-  const provider = await providers.get(entry.ipInfo.ipIdentity);
+  entry.metadata.recoveryStart = ''; // an empty address counts as not published
+  const provider = await new IdentityProviders(list).get(entry.ipInfo.ipIdentity);
   assert.equal(provider.issuanceStart, null);
   assert.equal(provider.recoveryStart, null);
 });
 
-test('a wallet-proxy base path is kept when building the request URL', async () => {
-  const { fetch, requests } = walletProxyFetch('testnet');
-  const providers = new IdentityProviders(
-    { useMainnetKeyDerivation: false, walletProxyUrl: 'https://proxy.example/concordium/' }, { fetch });
-  await providers.list();
-  assert.deepEqual(requests, ['https://proxy.example/concordium/v1/ip_info']);
+test('the list is copied: changing the wallet\'s own array afterwards changes nothing', async () => {
+  const list = ipInfoFixture('testnet');
+  const providers = new IdentityProviders(list);
+  list[0].ipInfo.ipDescription.name = 'changed';
+  list.pop();
+  assert.equal((await providers.list()).length, 3);
+  assert.equal((await providers.get(0)).name, 'Concordium testnet IP');
 });
 
-test('an HTTP error from the wallet-proxy reports the status', async () => {
-  const providers = new IdentityProviders(CONCORDIUM_TESTNET_IDENTITY_CONFIG, {
-    fetch: async () => ({ ok: false, status: 503, json: async () => ({}) }),
-  });
-  await assert.rejects(() => providers.list(), /HTTP 503/);
+test('a list in the wrong shape is refused when it is passed in, naming what is wrong', () => {
+  const broken = (edit) => { const list = ipInfoFixture('testnet'); edit(list); return list; };
+  const cases = [
+    [undefined, /is required and must be a list/],
+    [{ not: 'a list' }, /is required and must be a list/],
+    [[], /is empty/],
+    [broken((l) => { delete l[1].ipInfo; }), /\[1\] has no ipInfo/],
+    [broken((l) => { l[0].ipInfo.ipIdentity = 'zero'; }), /\[0\]\.ipInfo\.ipIdentity must be the provider's number/],
+    [broken((l) => { l[1].ipInfo.ipIdentity = l[0].ipInfo.ipIdentity; }), /lists provider 0 twice/],
+    [broken((l) => { delete l[0].ipInfo.ipDescription; }), /ipDescription\.name is missing/],
+    [broken((l) => { delete l[0].ipInfo.ipVerifyKey; }), /missing the provider's keys/],
+    [broken((l) => { l[0].arsInfos = {}; }), /arsInfos must list the provider's anonymity revokers/],
+    [broken((l) => { delete Object.values(l[0].arsInfos)[0].arPublicKey; }), /arsInfos\.\d+ is incomplete/],
+    [broken((l) => { l[0].metadata.issuanceStart = 'javascript:alert(1)'; }), /metadata\.issuanceStart must be an http\(s\) address/],
+  ];
+  for (const [list, expected] of cases) {
+    assert.throws(() => new IdentityProviders(list), (e) => {
+      assert.match(e.message, expected);
+      assert.match(e.message, /wallet-proxy's \/v1\/ip_info/, 'the message says which shape is expected');
+      return true;
+    });
+  }
 });
 
-test('an unexpected response format is reported', async () => {
-  const providers = new IdentityProviders(CONCORDIUM_TESTNET_IDENTITY_CONFIG, {
-    fetch: async () => ({ ok: true, status: 200, json: async () => ({ error: 'maintenance' }) }),
-  });
-  await assert.rejects(() => providers.list(), /unexpected format/);
-});
-
-test('a network failure passes through unchanged, so it is not mistaken for a provider problem', async () => {
-  const offline = new Error('getaddrinfo ENOTFOUND wallet-proxy.testnet.concordium.com');
-  const providers = new IdentityProviders(CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: async () => { throw offline; } });
-  await assert.rejects(() => providers.get(0), (e) => e === offline);
-});
-
-test('an invalid configuration is rejected before any request', () => {
-  const { fetch, requests } = walletProxyFetch('testnet');
-  assert.throws(() => new IdentityProviders({ useMainnetKeyDerivation: false, walletProxyUrl: 'not a url' }, { fetch }), /walletProxyUrl/);
-  assert.deepEqual(requests, []);
+test('ConcordiumIdentity checks the list in its configuration when it is created, before anything else', () => {
+  assert.throws(() => new ConcordiumIdentity('abandon '.repeat(11) + 'about', testnetConfig({ identityProviders: undefined })),
+    /config\.identityProviders is required/);
+  assert.throws(() => new ConcordiumIdentity('abandon '.repeat(11) + 'about', testnetConfig({ identityProviders: [{}] })),
+    /config\.identityProviders \[0\] has no ipInfo/);
 });

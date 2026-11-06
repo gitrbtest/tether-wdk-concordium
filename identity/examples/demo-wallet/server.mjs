@@ -15,6 +15,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { readSettings } from './settings.mjs';
 import DemoFlow, { VERIFY_STAGES } from './flow.mjs';
+import { CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
 
 const PUBLIC = new URL('./public/', import.meta.url);
 const STATIC_FILES = {
@@ -56,8 +57,14 @@ export async function startDemoServer({ settings = readSettings(), port = settin
     step: 'start',
     verifyStages: VERIFY_STAGES,
   };
+  // The identity provider list: the package does not fetch it, so the wallet (this demo) does, once at start, and
+  // passes it in. Today it comes from the wallet-proxy's /v1/ip_info; only its shape matters.
+  const listResponse = await (fetchFn ?? fetch)(`${CONCORDIUM_TESTNET_IDENTITY_CONFIG.walletProxyUrl}/v1/ip_info`);
+  if (!listResponse.ok) throw new Error(`The wallet-proxy answered HTTP ${listResponse.status} for the identity provider list.`);
+  const identityProviders = await listResponse.json();
   const flow = new DemoFlow({
-    settings, state, checkProviders, ...(fetchFn ? { fetch: fetchFn } : {}), ...(makeWallet ? { makeWallet } : {}), ...(pauseMs ? { pauseMs } : {}),
+    settings, state, checkProviders, identityProviders,
+    ...(fetchFn ? { fetch: fetchFn } : {}), ...(makeWallet ? { makeWallet } : {}), ...(pauseMs ? { pauseMs } : {}),
   });
   let host; // "127.0.0.1:<port>", known once listening
 

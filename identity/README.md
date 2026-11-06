@@ -63,22 +63,47 @@ import {
   CONCORDIUM_MAINNET_IDENTITY_CONFIG, // { useMainnetKeyDerivation: true,  walletProxyUrl: 'https://wallet-proxy.mainnet.concordium.software' }
   CONCORDIUM_TESTNET_IDENTITY_CONFIG, // { useMainnetKeyDerivation: false, walletProxyUrl: 'https://wallet-proxy.testnet.concordium.com' }
 } from '@concordium/wdk-identity-concordium';
+
+// The identity provider list: the package does not fetch it. Get it once, from wherever you like (today, the
+// wallet-proxy), and pass it in:
+const identityProviders = await (await fetch('https://wallet-proxy.testnet.concordium.com/v1/ip_info')).json();
+const config = { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders };
 ```
 
 | Field | Required | Meaning |
 |---|---|---|
-| `useMainnetKeyDerivation` | yes | Derive keys as on mainnet (`true`) or testnet (`false`). Same meaning as in `@concordium/wdk-wallet-concordium`: **use the same value for both packages**, so identities and accounts come from the same keys. It does not check which network the URL belongs to. |
-| `walletProxyUrl` | yes | Absolute HTTP(S) URL of a Concordium wallet-proxy, which publishes the identity providers and the network's cryptographic parameters. A base path is allowed; credentials, query parameters and fragments are not. |
+| `useMainnetKeyDerivation` | yes | Derive keys as on mainnet (`true`) or testnet (`false`). Same meaning as in `@concordium/wdk-wallet-concordium`: **use the same value for both packages**, so identities and accounts come from the same keys. It does not check which network the list or the URL belongs to. |
+| `identityProviders` | yes | The identity provider list, in the shape of the wallet-proxy's `/v1/ip_info` (below). The package never fetches it, so if the wallet-proxy is replaced, any source giving the same shape works. It is checked when the `ConcordiumIdentity` is created: a list in the wrong shape is refused, naming the field. To use a newer list, create a new object. |
+| `walletProxyUrl` | yes | Absolute HTTP(S) URL of a Concordium wallet-proxy, which serves the network's cryptographic parameters. A base path is allowed; credentials, query parameters and fragments are not. |
 
-Presets can be overridden field by field, e.g. to use your own wallet-proxy:
-`{ ...CONCORDIUM_MAINNET_IDENTITY_CONFIG, walletProxyUrl: 'https://proxy.example.com' }`.
+The presets hold everything except the list. They can be overridden field by field, e.g. to use your own
+wallet-proxy: `{ ...CONCORDIUM_MAINNET_IDENTITY_CONFIG, walletProxyUrl: 'https://proxy.example.com', identityProviders }`.
+
+### The provider list's shape
+
+One entry per provider; these are the fields the package reads (others are ignored):
+
+```js
+{
+  ipInfo: {
+    ipIdentity: 0,                                        // the provider's number on the network
+    ipDescription: { name: 'Concordium testnet IP', … },
+    ipVerifyKey: '…', ipCdiVerifyKey: '…',                // its public keys
+  },
+  arsInfos: { '1': { arIdentity: 1, arPublicKey: '…', … }, … },   // its anonymity revokers
+  metadata: { issuanceStart: 'https://…', recoveryStart: 'https://…' },   // optional: its own addresses
+}
+```
+
+A Concordium node also knows the providers, but only their keys: the addresses where a person verifies
+(`issuanceStart`) and where a wallet asks for an identity back (`recoveryStart`) are only in this list.
 
 ## Identity providers
 
 ```js
-import { IdentityProviders, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
+import { IdentityProviders } from '@concordium/wdk-identity-concordium';
 
-const providers = new IdentityProviders(CONCORDIUM_TESTNET_IDENTITY_CONFIG);
+const providers = new IdentityProviders(identityProviders);   // the list, as above
 
 await providers.list();
 // [ { index: 0, name: 'Concordium testnet IP', issuanceStart: 'https://…', recoveryStart: 'https://…' }, … ]
@@ -89,7 +114,7 @@ await providers.get(0); // one provider, with the keys and anonymity revokers a 
 A provider's `index` is an identifier assigned per network, not a position in
 the list, and the same provider can have different indices on testnet and
 mainnet. Use the index of the provider the user chooses. `get` throws
-`IdentityProviderError` for an index that is not published on the network.
+`IdentityProviderError` for an index that is not in the list.
 Addresses are returned exactly as each provider publishes them, or `null`.
 
 ## Starting identity verification
@@ -97,7 +122,7 @@ Addresses are returned exactly as each provider publishes them, or `null`.
 ```js
 import { ConcordiumIdentity, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
 
-const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
+const identity = new ConcordiumIdentity(seedPhrase, config);
 
 const identityIndex = await identity.nextIdentityIndex({ providerIndex: 0 }); // the next free identity number
 const { issuanceUrl } = await identity.createIdentityRequest({
@@ -169,7 +194,7 @@ await appStorage.set('pendingIdentity', { codeUri, providerIndex: 0, identityInd
 
 // After a restart: a new object from the same seed, told which request it is continuing
 const pending = await appStorage.get('pendingIdentity');
-const resumed = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
+const resumed = new ConcordiumIdentity(seedPhrase, config);
 const summary = await resumed.waitForIdentity(pending.codeUri,
   { providerIndex: pending.providerIndex, identityIndex: pending.identityIndex });
 ```
@@ -210,7 +235,7 @@ phone's secure storage, a database, a backend, a file): `exportIdentity` gives t
 ```js
 import { ConcordiumIdentity, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
 
-const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
+const identity = new ConcordiumIdentity(seedPhrase, config);
 await identity.retrieveIdentity(callbackUrl);                                  // collect, as above
 
 const exported = await identity.exportIdentity({ providerIndex: 0, identityIndex: 2 }); // encrypted text
@@ -257,7 +282,7 @@ chain from it, with no ID App. It returns once the account is final, so the addr
 import { ConcordiumIdentity, AccountCreationError, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
 import WalletManagerConcordium, { CONCORDIUM_TESTNET_CONFIG } from '@concordium/wdk-wallet-concordium';
 
-const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
+const identity = new ConcordiumIdentity(seedPhrase, config);
 await identity.importIdentity(exported);   // the wallet's kept copy, or collected just now
 
 const credNumber = await identity.nextCredNumber({ providerIndex: 0, identityIndex: 0 }); // the next new account
@@ -342,7 +367,7 @@ costs nothing.
 What a wallet calls on a new device:
 
 ```js
-const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
+const identity = new ConcordiumIdentity(seedPhrase, config);
 const wallet = new WalletManagerConcordium(seedPhrase, CONCORDIUM_TESTNET_CONFIG);   // the same seed
 
 const { identities, problems } = await identity.recoverAll();

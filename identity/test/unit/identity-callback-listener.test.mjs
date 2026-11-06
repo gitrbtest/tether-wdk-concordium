@@ -11,6 +11,7 @@ import {
   IdentityIssuanceError,
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
+import { testnetConfig } from '../helpers.mjs';
 
 const CODE_URI = 'https://id-service.testnet.concordium.com/api/v1/identity/51cf6074722e6685934b4d06fba5baf0045d1d8130ead5ba7fac04dabff9ba3a';
 
@@ -69,7 +70,7 @@ test('the full address, including the part after #, arrives as the callback, and
 
   const identity = new ConcordiumIdentity(
     'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about',
-    CONCORDIUM_TESTNET_IDENTITY_CONFIG);
+    testnetConfig());
   assert.deepEqual(identity.parseIdentityCallback(await listener.callback), { codeUri: CODE_URI });
   identity.dispose();
 });

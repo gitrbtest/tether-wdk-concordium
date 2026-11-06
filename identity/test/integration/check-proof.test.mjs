@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { ConcordiumIdentity, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
 import { requestFor, checkPresentation, connectToNode } from '@concordium/wdk-identity-concordium/verify';
+import { liveTestnetConfig } from '../helpers.mjs';
 
 const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const RECORDED = { providerIndex: 0, identityIndex: 334563111 };
@@ -20,7 +21,7 @@ const ACCOUNT_0 = '3Z4WkEMb5msvBRPAZyneFcntHWqceHf7Q9JitSjBAegvQXSB5t';
 const CODE_URI = 'https://id-service.testnet.concordium.com/api/v1/identity/51cf6074722e6685934b4d06fba5baf0045d1d8130ead5ba7fac04dabff9ba3a';
 
 test('checkPresentation: the testnet chain accepts a true "over 18" answer from account 0, and refuses a copy for another request', async () => {
-  const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
+  const wallet = new ConcordiumIdentity(PHRASE, await liveTestnetConfig());
   try {
     // The identity, collected live from the provider as a wallet would (it was issued in Phase 1).
     await wallet.waitForIdentity(CODE_URI, { ...RECORDED, intervalMs: 1 });

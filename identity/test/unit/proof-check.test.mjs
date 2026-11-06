@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import * as sdk from '@concordium/web-sdk';
 import { ConcordiumIdentity, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
 import { requestFor, checkPresentation, connectToNode, ProofError } from '@concordium/wdk-identity-concordium/verify';
-import { walletProxyFetch, globalFixture } from '../helpers.mjs';
+import { walletProxyFetch, globalFixture, testnetConfig } from '../helpers.mjs';
 
 const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const RECORDED = { providerIndex: 0, identityIndex: 334563111 };
@@ -22,7 +22,7 @@ async function wallet() {
   const fetch = async (url, options) => (url === CODE_URI
     ? { ok: true, status: 200, json: async () => fixture('identity-done.testnet.json') }
     : recorded.fetch(url, options));
-  const w = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch });
+  const w = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch });
   await w.waitForIdentity(CODE_URI, { ...RECORDED, intervalMs: 1 });
   return w;
 }

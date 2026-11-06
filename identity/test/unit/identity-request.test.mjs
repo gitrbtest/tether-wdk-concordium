@@ -11,19 +11,23 @@ import {
   CONCORDIUM_MAINNET_IDENTITY_CONFIG,
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
-import { ipInfoFixture, walletProxyFetch } from '../helpers.mjs';
+import { ipInfoFixture, walletProxyFetch, testnetConfig, mainnetConfig } from '../helpers.mjs';
 
 const TEST_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
-const CONFIG = { testnet: CONCORDIUM_TESTNET_IDENTITY_CONFIG, mainnet: CONCORDIUM_MAINNET_IDENTITY_CONFIG };
+const CONFIG = { testnet: testnetConfig, mainnet: mainnetConfig }; // each with the recorded provider list
 const REDIRECT = 'https://wallet.example/identity/return';
 
 /** The providers used in testing (testnet 5 is published but deliberately not used). */
 const PROVIDERS = [['testnet', 0], ['testnet', 3], ['mainnet', 1], ['mainnet', 2]];
 
-/** An identity that sees one network's recorded wallet-proxy data; `requests` records every URL asked for. */
-function offlineIdentity(network, overrides) {
-  const { fetch, requests } = walletProxyFetch(network, overrides);
-  return { identity: new ConcordiumIdentity(TEST_PHRASE, CONFIG[network], { fetch }), requests };
+/**
+ * An identity that sees one network's recorded data; `requests` records every URL asked for. `identityProviders`
+ * replaces the provider list the wallet passes in (e.g. an edited one); `global` the cryptographic parameters.
+ */
+function offlineIdentity(network, { identityProviders, global } = {}) {
+  const { fetch, requests } = walletProxyFetch(network, { global });
+  const config = CONFIG[network](identityProviders ? { identityProviders } : {});
+  return { identity: new ConcordiumIdentity(TEST_PHRASE, config, { fetch }), requests };
 }
 
 const published = (network, index) => ipInfoFixture(network).find((e) => e.ipInfo.ipIdentity === index).metadata;
@@ -46,10 +50,7 @@ for (const [network, index] of PROVIDERS) {
     }
     assert.deepEqual({ providerIndex: result.providerIndex, identityIndex: result.identityIndex },
       { providerIndex: index, identityIndex: 0 });
-    assert.deepEqual(requests, [
-      `${CONFIG[network].walletProxyUrl}/v1/ip_info`,
-      `${CONFIG[network].walletProxyUrl}/v0/global`,
-    ]);
+    assert.deepEqual(requests, [`${CONFIG[network]().walletProxyUrl}/v0/global`], 'only the parameters: the provider list is passed in');
   });
 }
 
@@ -90,24 +91,24 @@ test('invalid inputs are rejected before any request', async () => {
   await assert.rejects(() => identity.createIdentityRequest(), /providerIndex is required/);
 });
 
-test('a provider that is not published fails clearly, before the parameters are fetched', async () => {
+test('a provider that is not in the list fails clearly, before anything is fetched', async () => {
   const { identity, requests } = offlineIdentity('mainnet');
   await assert.rejects(
     () => identity.createIdentityRequest({ providerIndex: 0, identityIndex: 0, redirectUri: REDIRECT }),
     (e) => e instanceof IdentityProviderError && e.providerIndex === 0,
   );
-  assert.deepEqual(requests, [`${CONFIG.mainnet.walletProxyUrl}/v1/ip_info`]);
+  assert.deepEqual(requests, [], 'the provider list is passed in, never fetched');
 });
 
 test('a provider without an issuance address fails clearly, before any cryptographic work', async () => {
   const ipInfo = ipInfoFixture('testnet');
   delete ipInfo.find((e) => e.ipInfo.ipIdentity === 0).metadata.issuanceStart;
-  const { identity, requests } = offlineIdentity('testnet', { ipInfo });
+  const { identity, requests } = offlineIdentity('testnet', { identityProviders: ipInfo });
   await assert.rejects(
     () => identity.createIdentityRequest({ providerIndex: 0, identityIndex: 0, redirectUri: REDIRECT }),
     (e) => e instanceof IdentityProviderError && e.providerIndex === 0 && /no issuance address/.test(e.message),
   );
-  assert.deepEqual(requests, [`${CONFIG.testnet.walletProxyUrl}/v1/ip_info`], 'the parameters were never fetched');
+  assert.deepEqual(requests, [], 'nothing was fetched: not the parameters, not the list');
 });
 
 test('cryptographic parameters in an unexpected format are reported', async () => {

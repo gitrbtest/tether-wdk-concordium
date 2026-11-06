@@ -1,4 +1,4 @@
-// Keeping identities (Concordium's feedback, 5 Nov): the package stores nothing. exportIdentity hands the wallet the
+// Keeping identities: the package stores nothing. exportIdentity hands the wallet the
 // identity as text to keep its own way (encrypted by default, plain on request); importIdentity holds it again, after
 // checking it is this wallet's. No network, except the plain import's ownership check (answered from recordings).
 import { test } from 'node:test';
@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import {
   ConcordiumIdentity, IdentityStorageError, CONCORDIUM_TESTNET_IDENTITY_CONFIG, CONCORDIUM_MAINNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
-import { walletProxyFetch } from '../helpers.mjs';
+import { walletProxyFetch, testnetConfig, mainnetConfig } from '../helpers.mjs';
 
 const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const OTHER_PHRASE = 'legal winner thank year wave sausage worth useful legal winner thank yellow';
@@ -17,7 +17,7 @@ const fixture = (name) => readFileSync(new URL(`../fixtures/${name}`, import.met
 const issuedIdentity = () => JSON.parse(fixture('identity-done.testnet.json')).token.identityObject;
 
 /** A wallet whose network is answered from recordings (and the recorded identity's code_uri), counting calls. */
-function wallet(phrase = PHRASE, config = CONCORDIUM_TESTNET_IDENTITY_CONFIG) {
+function wallet(phrase = PHRASE, config = testnetConfig()) {
   const recorded = walletProxyFetch('testnet');
   const calls = [];
   const fetch = async (url, options) => {
@@ -78,7 +78,7 @@ test('an encrypted export cannot be imported with another seed, on another netwo
   const text = await w.exportIdentity(RECORDED);
   w.dispose();
   await assert.rejects(wallet(OTHER_PHRASE).importIdentity(text), unreadable(/cannot be decrypted with this wallet's seed/));
-  await assert.rejects(wallet(PHRASE, CONCORDIUM_MAINNET_IDENTITY_CONFIG).importIdentity(text), unreadable(/for testnet, not mainnet/));
+  await assert.rejects(wallet(PHRASE, mainnetConfig()).importIdentity(text), unreadable(/for testnet, not mainnet/));
 
   // One character changed in the encrypted part: detected.
   const i = text.length - 40;
@@ -107,7 +107,7 @@ test('plain export (encrypted: false): JSON with the identity in the clear, impo
   after.dispose();
 
   await assert.rejects(wallet(OTHER_PHRASE).importIdentity(text), (e) => e instanceof IdentityStorageError && e.reason === 'not-yours');
-  await assert.rejects(wallet(PHRASE, CONCORDIUM_MAINNET_IDENTITY_CONFIG).importIdentity(text), unreadable(/for testnet, not mainnet/));
+  await assert.rejects(wallet(PHRASE, mainnetConfig()).importIdentity(text), unreadable(/for testnet, not mainnet/));
   // Claimed for another identity number: not this seed's key for that number.
   await assert.rejects(wallet().importIdentity(JSON.stringify({ ...json, identityIndex: 7 })),
     (e) => e instanceof IdentityStorageError && e.reason === 'not-yours');
@@ -130,7 +130,7 @@ test('export: no identity held, bad options, disposed; the old store option is r
   held.dispose();
   await assert.rejects(held.exportIdentity(RECORDED), /disposed/);
   await assert.rejects(held.importIdentity('x'), /disposed/);
-  assert.throws(() => new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { store: {} }), /exportIdentity.*importIdentity/);
+  assert.throws(() => new ConcordiumIdentity(PHRASE, testnetConfig(), { store: {} }), /exportIdentity.*importIdentity/);
   w.dispose();
 });
 

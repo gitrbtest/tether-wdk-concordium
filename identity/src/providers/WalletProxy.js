@@ -1,11 +1,9 @@
 /**
- * The Concordium wallet-proxy: reading the identity providers and the network's cryptographic parameters,
- * and sending a new account's credential to the chain and following it. Internal: IdentityProviders and
- * ConcordiumIdentity use it.
+ * The Concordium wallet-proxy: reading the network's cryptographic parameters, and sending a new account's credential
+ * to the chain and following it. Internal: ConcordiumIdentity uses it. (The identity provider list is passed in by the
+ * wallet: the package does not fetch it.)
  */
 
-/** The provider list. v1 is the version that publishes recovery addresses. */
-const IP_INFO_PATH = '/v1/ip_info';
 /** The network's cryptographic parameters (the same as the node's). */
 const GLOBAL_PATH = '/v0/global';
 /** Sending a credential that creates an account, and the status of a sent transaction. */
@@ -45,15 +43,6 @@ export default class WalletProxy {
     const response = await this.#fetch(this.#url + path);
     if (!response.ok) throw new Error(`The wallet-proxy answered HTTP ${response.status} for ${what}.`);
     return response.json();
-  }
-
-  /** The raw provider entries (each with ipInfo, arsInfos and metadata). Read fresh every time. */
-  async providerEntries() {
-    const list = await this.#getJson(IP_INFO_PATH, 'the identity provider list');
-    if (!Array.isArray(list)) {
-      throw new Error('The wallet-proxy returned an identity provider list in an unexpected format.');
-    }
-    return list;
   }
 
   /**

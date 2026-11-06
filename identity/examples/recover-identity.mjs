@@ -48,7 +48,10 @@ const thisMonth = Number(new Date().toISOString().slice(0, 7).replace('-', ''));
 // The two packages, both given the same seed phrase, as a wallet app on the new phone would:
 // - `identity` (this package) handles identities: getting them back, exporting them to keep, finding their accounts;
 // - `wallet` (the Phase 1 WDK wallet package) uses the accounts: balances, sending, tokens.
-const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
+// The identity provider list: the package does not fetch it. The wallet does (here from the wallet-proxy, once)
+// and passes it in; only its shape matters.
+const identityProviders = await (await fetch(`${CONCORDIUM_TESTNET_IDENTITY_CONFIG.walletProxyUrl}/v1/ip_info`)).json();
+const identity = new ConcordiumIdentity(seedPhrase, { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders });
 const wallet = new WalletManagerConcordium(seedPhrase, { ...CONCORDIUM_TESTNET_CONFIG });
 
 try {

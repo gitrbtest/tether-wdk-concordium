@@ -6,6 +6,7 @@ import {
   IdentityIssuanceError,
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
+import { testnetConfig } from '../helpers.mjs';
 
 const TEST_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const RETURN = 'http://localhost:4000/callback';
@@ -20,7 +21,7 @@ const PROVIDER_ERROR = { error: { code: 'INVALID_REQUEST', detail: 'not authoriz
 const noNetwork = async (url) => { throw new Error(`unexpected request to ${url}`); };
 
 function identity() {
-  return new ConcordiumIdentity(TEST_PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: noNetwork });
+  return new ConcordiumIdentity(TEST_PHRASE, testnetConfig(), { fetch: noNetwork });
 }
 
 test('a success callback gives the code_uri to collect the identity from', () => {

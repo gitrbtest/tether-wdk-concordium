@@ -67,7 +67,7 @@ export function recordedAccount0() {
  * those details in the wallet's copy (e.g. { countryOfResidence: 'US' }), to try an identity that cannot answer.
  */
 export async function walletWithRecordedIdentity({ details } = {}) {
-  const { ConcordiumIdentity, CONCORDIUM_TESTNET_IDENTITY_CONFIG } = await import('@concordium/wdk-identity-concordium');
+  const { ConcordiumIdentity } = await import('@concordium/wdk-identity-concordium');
   const recorded = walletProxyFetch('testnet');
   const fetch = async (url, options) => {
     if (url !== RECORDED_CODE_URI) return recorded.fetch(url, options);
@@ -75,7 +75,7 @@ export async function walletWithRecordedIdentity({ details } = {}) {
     Object.assign(issued.token.identityObject.value.attributeList.chosenAttributes, details);
     return { ok: true, status: 200, json: async () => issued };
   };
-  const wallet = new ConcordiumIdentity(RECORDED_PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch });
+  const wallet = new ConcordiumIdentity(RECORDED_PHRASE, testnetConfig(), { fetch });
   await wallet.waitForIdentity(RECORDED_CODE_URI, { ...RECORDED_IDENTITY, intervalMs: 1 });
   return wallet;
 }
@@ -107,4 +107,38 @@ export async function pretendNode({ validTo = '202709', createdAt = '202609', co
     async getCryptographicParameters() { return globalFixture('testnet').value; },
   };
   return node;
+}
+
+// ---- The identity configuration, with the recorded provider list (the package does not fetch it) -----------
+
+/**
+ * A preset configuration plus the recorded identity provider list (`identityProviders`), as a wallet would pass it.
+ * `overrides` replaces fields, e.g. { identityProviders: anEditedList }.
+ * @param {'testnet' | 'mainnet'} network
+ */
+export async function identityConfig(network, overrides = {}) {
+  const { CONCORDIUM_TESTNET_IDENTITY_CONFIG, CONCORDIUM_MAINNET_IDENTITY_CONFIG } = await import('../index.js');
+  const preset = network === 'mainnet' ? CONCORDIUM_MAINNET_IDENTITY_CONFIG : CONCORDIUM_TESTNET_IDENTITY_CONFIG;
+  return { ...preset, identityProviders: ipInfoFixture(network), ...overrides };
+}
+
+/** The testnet configuration with the recorded provider list (synchronous: for use inside constructors). */
+export function testnetConfig(overrides = {}) {
+  return { useMainnetKeyDerivation: false, walletProxyUrl: 'https://wallet-proxy.testnet.concordium.com', identityProviders: ipInfoFixture('testnet'), ...overrides };
+}
+
+/** The mainnet configuration with the recorded provider list. */
+export function mainnetConfig(overrides = {}) {
+  return { useMainnetKeyDerivation: true, walletProxyUrl: 'https://wallet-proxy.mainnet.concordium.software', identityProviders: ipInfoFixture('mainnet'), ...overrides };
+}
+
+/**
+ * For live tests: the testnet configuration with the LIVE provider list, fetched from the wallet-proxy as a wallet
+ * would (the package does not fetch it), so a change on the network shows up.
+ */
+export async function liveTestnetConfig(overrides = {}) {
+  const config = testnetConfig();
+  const response = await fetch(`${config.walletProxyUrl}/v1/ip_info`);
+  if (!response.ok) throw new Error(`The wallet-proxy answered HTTP ${response.status} for the identity provider list.`);
+  return { ...config, identityProviders: await response.json(), ...overrides };
 }

@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ConcordiumIdentity, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
 import { checkProvider, CHECK_REDIRECT_URI } from '../../scripts/lib/provider-check.mjs';
-import { ipInfoFixture, walletProxyFetch } from '../helpers.mjs';
+import { ipInfoFixture, walletProxyFetch, testnetConfig } from '../helpers.mjs';
 
 const TEST_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const ISSUANCE_START = 'https://id-service.testnet.concordium.com/api/v1/identity';
@@ -17,9 +17,9 @@ const ISSUANCE_START = 'https://id-service.testnet.concordium.com/api/v1/identit
  * Unless `buildRequest` is set, the identity hands out a ready-made link instead of building a
  * request (slow, and covered by the identity-request tests).
  */
-function setup(hops, { buildRequest = false, ...overrides } = {}) {
-  const { fetch: fakeWalletProxy } = walletProxyFetch('testnet', overrides);
-  const identity = new ConcordiumIdentity(TEST_PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: fakeWalletProxy });
+function setup(hops, { buildRequest = false, ipInfo } = {}) {
+  const { fetch: fakeWalletProxy } = walletProxyFetch('testnet');
+  const identity = new ConcordiumIdentity(TEST_PHRASE, testnetConfig(ipInfo ? { identityProviders: ipInfo } : {}), { fetch: fakeWalletProxy });
   if (!buildRequest) {
     identity.createIdentityRequest = async () => ({ issuanceUrl: `${ISSUANCE_START}?state=%7B%7D` });
   }

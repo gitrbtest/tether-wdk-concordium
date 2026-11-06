@@ -1,24 +1,23 @@
 /**
- * WalletProxy (internal): reading the provider list and the network's cryptographic parameters, and
- * reusing the parameters within one ConcordiumIdentity. Recorded data; no external services.
+ * WalletProxy (internal): reading the network's cryptographic parameters and reusing them within one
+ * ConcordiumIdentity. (It no longer reads the provider list: the wallet passes that in.) Recorded data; no external services.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ConcordiumIdentity, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
 import WalletProxy from '../../src/providers/WalletProxy.js';
-import { walletProxyFetch } from '../helpers.mjs';
+import { walletProxyFetch, testnetConfig } from '../helpers.mjs';
 
 const PROXY = CONCORDIUM_TESTNET_IDENTITY_CONFIG.walletProxyUrl;
 const TEST_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 
-test('the provider list is read fresh each time; the cryptographic parameters only once', async () => {
+test('the cryptographic parameters are read only once; the provider list is never read', async () => {
   const { fetch, requests } = walletProxyFetch('testnet');
   const proxy = new WalletProxy({ walletProxyUrl: PROXY }, { fetch });
-  await proxy.providerEntries();
-  await proxy.providerEntries();
   const first = await proxy.globalContext();
   assert.equal(await proxy.globalContext(), first);
-  assert.deepEqual(requests, [`${PROXY}/v1/ip_info`, `${PROXY}/v1/ip_info`, `${PROXY}/v0/global`]);
+  assert.deepEqual(requests, [`${PROXY}/v0/global`]);
+  assert.equal(proxy.providerEntries, undefined, 'no way to fetch the list');
 });
 
 test('a failed read is not remembered: the next call tries again', async () => {
@@ -33,13 +32,12 @@ test('a failed read is not remembered: the next call tries again', async () => {
 
 test('unexpected answers are refused clearly', async () => {
   const answering = (body) => new WalletProxy({ walletProxyUrl: PROXY }, { fetch: async () => ({ ok: true, status: 200, json: async () => body }) });
-  await assert.rejects(() => answering({ not: 'a list' }).providerEntries(), /identity provider list in an unexpected format/);
   await assert.rejects(() => answering({ value: {} }).globalContext(), /cryptographic parameters in an unexpected format/);
 });
 
 test('one identity reads the cryptographic parameters once, however often it needs them', async () => {
   const { fetch, requests } = walletProxyFetch('testnet');
-  const identity = new ConcordiumIdentity(TEST_PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch });
+  const identity = new ConcordiumIdentity(TEST_PHRASE, testnetConfig(), { fetch });
   // The ownership check (used when collecting) needs them; it is much quicker than building a full request.
   await identity._issuance.expectedIdCredPub(0, 0);
   await identity._issuance.expectedIdCredPub(0, 1);

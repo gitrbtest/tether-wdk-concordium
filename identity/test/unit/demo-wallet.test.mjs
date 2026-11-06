@@ -452,7 +452,7 @@ test('Show the code, step 6: what happened is marked done, with its values; what
   assert.match(afterSponsored, /the sponsor paid 4\.77 CCD/);
 });
 
-// ---- Step 3b: what the wallet keeps (export and import, after Concordium's feedback of 5 Nov) -----------------------
+// ---- Step 3b: what the wallet keeps (export and import) ---------------------------------------------------------
 
 const storage = (demo, action) => post(demo, '/api/storage', { action });
 

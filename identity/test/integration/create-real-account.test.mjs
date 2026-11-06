@@ -17,6 +17,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { ConcordiumIdentity, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
+import { liveTestnetConfig } from '../helpers.mjs';
 
 const WRITE = process.env.WRITE === '1';
 const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
@@ -39,7 +40,7 @@ test('a real account is created on testnet from the identity, and exists on chai
   const fetchVia = async (url, options) => (url === CODE_URI
     ? { ok: true, status: 200, json: async () => recordedReply() }
     : fetch(url, options));
-  const identity = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: fetchVia });
+  const identity = new ConcordiumIdentity(PHRASE, await liveTestnetConfig(), { fetch: fetchVia });
   try {
     await identity.waitForIdentity(CODE_URI, { ...ISSUED_FOR, intervalMs: 10 });
 

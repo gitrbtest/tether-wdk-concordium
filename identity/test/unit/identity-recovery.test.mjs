@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import * as sdk from '@concordium/web-sdk';
 import { recoveryRequest, recoveryLink, askProviderForIdentity } from '../../src/recovery/identity-recovery.js';
 import { IdentityRecoveryError } from '../../index.js';
-import { ipInfoFixture, globalFixture } from '../helpers.mjs';
+import { ipInfoFixture, globalFixture, testnetConfig } from '../helpers.mjs';
 
 const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const RECORDED_IDENTITY = 334563111; // the identity issued on testnet for this phrase (provider 0)
@@ -134,7 +134,7 @@ const requestSent = (url) => JSON.parse(new URL(url).searchParams.get('state')).
 
 test('recoverIdentity: the identity comes back from the provider, held and ready to export', async () => {
   const network = networkWithRecovery({ status: 200, body: issued() });
-  const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: network.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: network.fetch });
   const summary = await wallet.recoverIdentity({ providerIndex: 0, identityIndex: RECORDED_IDENTITY });
   assert.deepEqual(summary, {
     providerIndex: 0, identityIndex: RECORDED_IDENTITY,
@@ -146,14 +146,14 @@ test('recoverIdentity: the identity comes back from the provider, held and ready
   // Held, exactly as after retrieveIdentity: it can be exported, and a new wallet object imports it back.
   const kept = await wallet.exportIdentity({ providerIndex: 0, identityIndex: RECORDED_IDENTITY });
   wallet.dispose();
-  const restarted = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: network.fetch });
+  const restarted = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: network.fetch });
   assert.deepEqual(await restarted.importIdentity(kept), summary);
   restarted.dispose();
 });
 
 test('recoverIdentity: none issued for this identity number: null, nothing held', async () => {
   const network = networkWithRecovery({ status: 404, body: { message: 'Identity not found' } });
-  const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: network.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: network.fetch });
   assert.equal(await wallet.recoverIdentity({ providerIndex: 0, identityIndex: 5 }), null);
   await assert.rejects(wallet.exportIdentity({ providerIndex: 0, identityIndex: 5 }), /No identity is held/);
   wallet.dispose();
@@ -162,7 +162,7 @@ test('recoverIdentity: none issued for this identity number: null, nothing held'
 test('recoverIdentity: an identity that is not this seed\'s is refused (not-yours) and never held', async () => {
   // The provider answers identity 1's request with the identity issued for 334563111: another key.
   const network = networkWithRecovery({ status: 200, body: issued() });
-  const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: network.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: network.fetch });
   await rejectsWith(wallet.recoverIdentity({ providerIndex: 0, identityIndex: 1 }), 'not-yours');
   await assert.rejects(wallet.exportIdentity({ providerIndex: 0, identityIndex: 1 }), /No identity is held/);
   wallet.dispose();
@@ -170,7 +170,7 @@ test('recoverIdentity: an identity that is not this seed\'s is refused (not-your
 
 test('recoverIdentity: providerIndex and identityIndex are required (no default number)', async () => {
   const network = networkWithRecovery({ status: 404, body: {} });
-  const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: network.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: network.fetch });
   await assert.rejects(wallet.recoverIdentity({}), /providerIndex is required/);
   await assert.rejects(wallet.recoverIdentity({ providerIndex: 0, identityIndex: -1 }), /identityIndex/);
   await assert.rejects(wallet.recoverIdentity({ providerIndex: 0 }), /identityIndex is required: .*recoverAll/);
@@ -187,8 +187,8 @@ test('recoverIdentity: providerIndex and identityIndex are required (no default 
 test('recoverIdentity: a provider that publishes no recovery address is reported (IdentityProviderError)', async () => {
   const ipInfo = ipInfoFixture('testnet');
   delete ipInfo.find((entry) => entry.ipInfo.ipIdentity === 0).metadata.recoveryStart;
-  const recorded = walletProxyFetch('testnet', { ipInfo });
-  const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: recorded.fetch });
+  const recorded = walletProxyFetch('testnet');
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ identityProviders: ipInfo }), { fetch: recorded.fetch });
   await assert.rejects(wallet.recoverIdentity({ providerIndex: 0, identityIndex: 0 }),
     (e) => e instanceof IdentityProviderError && /no recovery address/.test(e.message) && e.providerIndex === 0);
   await assert.rejects(wallet.recoverIdentity({ providerIndex: 99, identityIndex: 0 }), (e) => e instanceof IdentityProviderError);
@@ -197,7 +197,7 @@ test('recoverIdentity: a provider that publishes no recovery address is reported
 
 test('recoverIdentity: cancelled before it starts; refused once disposed', async () => {
   const network = networkWithRecovery({ status: 200, body: issued() });
-  const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: network.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: network.fetch });
   const cancelled = new AbortController();
   cancelled.abort();
   await rejectsWith(wallet.recoverIdentity({ providerIndex: 0, identityIndex: RECORDED_IDENTITY, signal: cancelled.signal }), 'cancelled');
@@ -243,7 +243,7 @@ function networkWithAccounts(existing, { failures = 0, recovery = [] } = {}) {
   return { fetch, checked };
 }
 
-const newWallet = (network) => new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: network.fetch });
+const newWallet = (network) => new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: network.fetch });
 
 test('findAccounts: accounts 0 and 1 exist: both found, with their paths; it stops after 3 missing in a row', async () => {
   const network = networkWithAccounts([0, 1]);
@@ -381,7 +381,7 @@ function recoveryWorld(world, { down = [], accountsDown = false } = {}) {
     }
     return recorded.fetch(url, options);
   };
-  /** How many times the provider list (/v1/ip_info) was downloaded. */
+  /** How many times the provider list (/v1/ip_info) was downloaded: never, it is passed in. */
   const listDownloads = () => recorded.requests.filter((u) => String(u).endsWith('/v1/ip_info')).length;
   return { fetch, asked, listDownloads };
 }
@@ -390,7 +390,7 @@ const describe = (identities) => identities.map((x) => `${x.providerIndex}/${x.i
 
 test('recoverAll: every identity with every provider comes back, with its accounts, held and ready to export', async () => {
   const world = recoveryWorld({ 0: { 0: [0], 1: [0, 1] } });
-  const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: world.fetch });
   const { identities, problems } = await wallet.recoverAll();
   assert.deepEqual(problems, []);
   assert.deepEqual(identities.map((x) => [x.providerIndex, x.identityIndex, x.accounts.map((a) => a.path)]), [
@@ -400,7 +400,7 @@ test('recoverAll: every identity with every provider comes back, with its accoun
   assert.equal(identities[0].summary.validTo, '202709');
   assert.deepEqual(world.asked, { 0: [0, 1, 2, 3, 4], 3: [0, 1, 2], 5: [0, 1, 2] },
     'each provider is asked 0, 1, 2 … until 3 numbers in a row have no identity');
-  assert.equal(world.listDownloads(), 1, 'the provider list is downloaded once for the whole recovery');
+  assert.equal(world.listDownloads(), 0, 'the provider list is passed in by the wallet, never downloaded');
   for (const { providerIndex, identityIndex } of identities) assert.equal(typeof await wallet.exportIdentity({ providerIndex, identityIndex }), 'string');
   wallet.dispose();
 });
@@ -409,7 +409,7 @@ test('recoverAll: a hole shorter than the gap is skipped over; identityGap and a
   // Provider 0: identities 0, 2, 4 and 6, each one missing number apart: the count of missing numbers starts
   // again after each one found, so all four are found (without that, it would stop before 6).
   const world = recoveryWorld({ 0: { 0: [0], 2: [0], 4: [0], 6: [0] }, 5: { 0: [0, 2] } });
-  const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: world.fetch });
   assert.deepEqual(describe((await wallet.recoverAll()).identities), ['0/0: 0', '0/2: 0', '0/4: 0', '0/6: 0', '5/0: 0,2']);
   assert.deepEqual(describe((await wallet.recoverAll({ identityGap: 1, accountGap: 1 })).identities), ['0/0: 0', '5/0: 0'],
     'gaps of 1: stops at the first missing number');
@@ -420,7 +420,7 @@ test('recoverAll: a hole shorter than the gap is skipped over; identityGap and a
 
 test('recoverAll: a provider that is down is noted in problems; the others are still asked', async () => {
   const world = recoveryWorld({ 0: { 0: [0] }, 5: { 0: [] } }, { down: [3] });
-  const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: world.fetch });
   const { identities, problems } = await wallet.recoverAll();
   assert.deepEqual(identities.map((x) => `${x.providerIndex}/${x.identityIndex}`), ['0/0', '5/0']);
   assert.equal(problems.length, 1);
@@ -432,7 +432,7 @@ test('recoverAll: a provider that is down is noted in problems; the others are s
 
 test('recoverAll: accounts that cannot be looked up: the identity still comes back (accounts null), the problem is noted', async () => {
   const world = recoveryWorld({ 0: { 0: [0] } }, { accountsDown: true });
-  const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: world.fetch });
   const { identities, problems } = await wallet.recoverAll({ providerIndexes: [0] });
   assert.deepEqual(identities.map((x) => [x.identityIndex, x.accounts]), [[0, null]]);
   assert.equal(problems[0].error.reason, 'wallet-proxy');
@@ -442,7 +442,7 @@ test('recoverAll: accounts that cannot be looked up: the identity still comes ba
 
 test('recoverAll: only the providers asked for; an unknown provider is a problem, not a failure', async () => {
   const world = recoveryWorld({ 0: { 0: [0] }, 5: { 0: [0] } });
-  const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: world.fetch });
   const only0 = await wallet.recoverAll({ providerIndexes: [0, 99] });
   assert.deepEqual(only0.identities.map((x) => `${x.providerIndex}/${x.identityIndex}`), ['0/0']);
   assert.deepEqual(world.asked[5], [], 'provider 5 was not asked');
@@ -455,7 +455,7 @@ test('recoverAll: only the providers asked for; an unknown provider is a problem
 
 test('recoverAll: cancelled stops everything; refused once disposed', async () => {
   const world = recoveryWorld({ 0: { 0: [0] } });
-  const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: world.fetch });
   const cancelled = new AbortController();
   cancelled.abort();
   await rejectsWith(wallet.recoverAll({ signal: cancelled.signal }), 'cancelled');
@@ -464,11 +464,11 @@ test('recoverAll: cancelled stops everything; refused once disposed', async () =
   await assert.rejects(wallet.recoverAll(), /disposed/);
 });
 
-// ---- No default numbers: the next free identity and account numbers (Concordium feedback, 5 Nov) -------------
+// ---- No default numbers: the next free identity and account numbers --------------------------------------------
 
 test('nextIdentityIndex: one after the highest identity this seed has with the provider; 0 if none; nothing kept', async () => {
   const world = recoveryWorld({ 0: { 0: [0], 1: [], 3: [0] } }); // identities 0, 1 and 3 (2 is a hole)
-  const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: world.fetch });
   assert.equal(await wallet.nextIdentityIndex({ providerIndex: 0 }), 4, 'past the hole at 2, so 3 is not reused');
   assert.deepEqual(world.asked[0], [0, 1, 2, 3, 4, 5, 6], 'asked until 3 numbers in a row had none');
   assert.equal(await wallet.nextIdentityIndex({ providerIndex: 3 }), 0, 'none with provider 3');
@@ -483,7 +483,7 @@ test('nextIdentityIndex: one after the highest identity this seed has with the p
 
 test('nextCredNumber: one after the highest account the identity has on chain; 0 if none', async () => {
   const world = recoveryWorld({ 0: { 1: [0, 1], 2: [] } });
-  const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: world.fetch });
   assert.equal(await wallet.nextCredNumber({ providerIndex: 0, identityIndex: 1 }), 2);
   assert.equal(await wallet.nextCredNumber({ providerIndex: 0, identityIndex: 2 }), 0);
   await assert.rejects(wallet.nextCredNumber({ providerIndex: 0 }), /identityIndex is required/);

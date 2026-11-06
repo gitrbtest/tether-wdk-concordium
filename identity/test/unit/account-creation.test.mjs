@@ -12,7 +12,7 @@ import {
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
 import { hasExpired } from '../../src/issuance/identity-object.js';
-import { walletProxyFetch } from '../helpers.mjs';
+import { walletProxyFetch, testnetConfig } from '../helpers.mjs';
 
 const TEST_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const CODE_URI = 'https://id-service.testnet.concordium.com/api/v1/identity/51cf6074722e6685934b4d06fba5baf0045d1d8130ead5ba7fac04dabff9ba3a';
@@ -47,7 +47,7 @@ async function identityHolding({ exists = false, submit = json(200, { submission
     if (url.includes('/v0/submissionStatus/')) return json(200, status);
     return recordedWalletProxy(url, options);
   };
-  const identity = new ConcordiumIdentity(TEST_PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch });
+  const identity = new ConcordiumIdentity(TEST_PHRASE, testnetConfig(), { fetch });
   await identity.waitForIdentity(CODE_URI, { ...ISSUED_FOR, intervalMs: 1 });
   return { identity, requests, sent: () => requests.filter((r) => r.url.includes('/v0/submitCredential')) };
 }
@@ -142,7 +142,7 @@ test('after a restart: import the exported identity in a new object, then create
   first.identity.dispose();
 
   const { fetch: recordedWalletProxy } = walletProxyFetch('testnet');
-  const restarted = new ConcordiumIdentity(TEST_PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, {
+  const restarted = new ConcordiumIdentity(TEST_PHRASE, testnetConfig(), {
     fetch: async (url, options = {}) => {
       if (url.includes('/v0/accBalance/')) return json(200, {});
       if (url.includes('/v0/submitCredential')) return json(200, { submissionId: 'x' });
@@ -155,7 +155,7 @@ test('after a restart: import the exported identity in a new object, then create
 });
 
 test('clear errors: no identity held, bad inputs, a disposed identity', async () => {
-  const empty = new ConcordiumIdentity(TEST_PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: async () => { throw new Error('no network'); } });
+  const empty = new ConcordiumIdentity(TEST_PHRASE, testnetConfig(), { fetch: async () => { throw new Error('no network'); } });
   await assert.rejects(create(empty), /No identity is held for provider 0, identity 334563111/);
   await assert.rejects(create(empty, { credNumber: -1 }), /credNumber/);
   // No default account number: leaving it out is an error that says how to find one.

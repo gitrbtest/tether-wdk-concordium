@@ -12,7 +12,7 @@ import {
   IdentityIssuanceError,
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
-import { walletProxyFetch } from '../helpers.mjs';
+import { walletProxyFetch, testnetConfig } from '../helpers.mjs';
 
 const TEST_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const CODE_URI = 'https://id-service.testnet.concordium.com/api/v1/identity/51cf6074722e6685934b4d06fba5baf0045d1d8130ead5ba7fac04dabff9ba3a';
@@ -39,7 +39,7 @@ function identityWithProviderReplies(replies) {
     if (reply.httpStatus) return { ok: false, status: reply.httpStatus, json: async () => ({}) };
     return { ok: true, status: 200, json: async () => reply };
   };
-  return { identity: new ConcordiumIdentity(TEST_PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG, { fetch: fakeFetch }), pollRequests };
+  return { identity: new ConcordiumIdentity(TEST_PHRASE, testnetConfig(), { fetch: fakeFetch }), pollRequests };
 }
 
 test('polls until the identity is issued, keeps it inside, and returns only a summary', async () => {

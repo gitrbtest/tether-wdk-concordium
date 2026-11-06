@@ -1,6 +1,5 @@
-import { parseIdentityConfig } from '../shared/config.js';
 import { IdentityProviderError } from '../shared/errors.js';
-import WalletProxy from './WalletProxy.js';
+import { readProviderList } from './provider-list.js';
 
 /**
  * An address a provider publishes for itself, read exactly as published and
@@ -8,7 +7,7 @@ import WalletProxy from './WalletProxy.js';
  * the ipInfo-level `metadata` is accepted too. `null` when not published.
  */
 function published(entry, key) {
-  return entry?.metadata?.[key] ?? entry?.ipInfo?.metadata?.[key] ?? null;
+  return entry?.metadata?.[key] || entry?.ipInfo?.metadata?.[key] || null; // '' counts as not published
 }
 
 function summary(entry) {
@@ -21,26 +20,28 @@ function summary(entry) {
 }
 
 /**
- * The identity providers published by a Concordium wallet-proxy. Providers are
- * identified by their index (`ipIdentity`), an identifier assigned per network,
- * never by their position in the list.
+ * The identity providers in the list the wallet passes in (the wallet-proxy's /v1/ip_info shape; see
+ * provider-list.js). The package does not fetch the list. Providers are identified by their index (`ipIdentity`),
+ * an identifier assigned per network, never by their position in the list.
  */
 export default class IdentityProviders {
+  #entries;
+
   /**
-   * @param {{ walletProxyUrl: string }} config  e.g. CONCORDIUM_TESTNET_IDENTITY_CONFIG
-   * @param {{ fetch?: typeof fetch }} [options]  HTTP implementation (defaults to the global fetch)
+   * @param {object[]} identityProviders  the identity provider list, e.g. the wallet-proxy's /v1/ip_info
+   * @throws {Error} If the list is missing, empty, or not in that shape (the message names the field).
    */
-  constructor(config, { fetch: fetchFn = (url, options) => fetch(url, options) } = {}) {
-    this._walletProxy = new WalletProxy(parseIdentityConfig(config), { fetch: fetchFn });
+  constructor(identityProviders) {
+    this.#entries = readProviderList(identityProviders);
   }
 
   _entries() {
-    return this._walletProxy.providerEntries();
+    return this.#entries;
   }
 
   /**
-   * Every identity provider published on this network, with the addresses each
-   * one publishes for issuing and recovering identities.
+   * Every identity provider in the list, with the addresses each one publishes for issuing and recovering
+   * identities.
    * @returns {Promise<Array<{index: number, name: string, issuanceStart: string | null, recoveryStart: string | null}>>}
    */
   async list() {
@@ -51,7 +52,7 @@ export default class IdentityProviders {
    * One identity provider by its index, with the keys (`ipInfo`) and anonymity
    * revokers (`arsInfos`) an identity request is built from.
    * @param {number} index  the provider's index on this network
-   * @throws {IdentityProviderError} If no provider with this index is published.
+   * @throws {IdentityProviderError} If no provider with this index is in the list.
    */
   async get(index) {
     if (!Number.isSafeInteger(index) || index < 0) {
@@ -59,15 +60,12 @@ export default class IdentityProviders {
     }
     const entry = (await this._entries()).find((e) => e.ipInfo?.ipIdentity === index);
     if (!entry) {
-      throw new IdentityProviderError(`No identity provider ${index} is published on this network.`, index);
+      throw new IdentityProviderError(`No identity provider ${index} is in the identity provider list.`, index);
     }
     return withDetails(entry);
   }
 
-  /**
-   * Every provider with its details (as get gives for one), from a single download of the list.
-   * Internal: recoverAll uses it so the list is downloaded once for all the providers it works through.
-   */
+  /** Every provider with its details (as get gives for one). Internal: recoverAll works through them. */
   async _allWithDetails() {
     return (await this._entries()).map(withDetails);
   }

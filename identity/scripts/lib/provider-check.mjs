@@ -70,10 +70,16 @@ function providerAnswer(identity, callbackUrl) {
   }
 }
 
-/** Check every provider a network's wallet-proxy publishes, with a fresh random seed that is never stored. */
+/**
+ * Check every provider a network's wallet-proxy publishes, with a fresh random seed that is never stored. The package
+ * does not fetch the provider list, so this check (an operator's tool) fetches it, as a wallet would, and passes it in.
+ */
 export async function checkNetwork(config, { fetch: fetchFn = fetch } = {}) {
-  const providers = await new IdentityProviders(config, { fetch: fetchFn }).list();
-  const identity = new ConcordiumIdentity(randomBytes(64), config, { fetch: fetchFn });
+  const response = await fetchFn(`${config.walletProxyUrl}/v1/ip_info`);
+  if (!response.ok) throw new Error(`The wallet-proxy answered HTTP ${response.status} for the identity provider list.`);
+  const withList = { ...config, identityProviders: await response.json() };
+  const providers = await new IdentityProviders(withList.identityProviders).list();
+  const identity = new ConcordiumIdentity(randomBytes(64), withList, { fetch: fetchFn });
   try {
     const results = [];
     for (const { index, name } of providers) {

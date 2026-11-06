@@ -26,7 +26,6 @@ import {
 } from './chain.mjs';
 import { AccountAddress } from '@concordium/web-sdk';
 
-const CONFIG = CONCORDIUM_TESTNET_IDENTITY_CONFIG;
 
 /** The verification's stages, in order, as the page shows them (progress dots). */
 export const VERIFY_STAGES = ['request sent', 'verifying at the provider', 'reply received', 'identity checked', 'kept, encrypted'];
@@ -41,15 +40,16 @@ export default class DemoFlow {
   #funder = null;   // the funding account's wallet (its seed stays here, never in the state)
   #watchFunds = null;
   #keptFile = null; // where the wallet keeps the exported identity (a file: this demo's own way of keeping it)
+  #config;          // testnet, plus the identity provider list the server fetched at start (the package does not fetch it)
 
   /**
-   * @param {{ settings: object, state: object, fetch?: typeof fetch, checkProviders?: boolean,
+   * @param {{ settings: object, state: object, identityProviders: object[], fetch?: typeof fetch, checkProviders?: boolean,
    *   makeWallet?: (seed: string) => object, pauseMs?: number }} options
    *   fetch: HTTP for this package (tests pass a fake); checkProviders: run the live "online" check (default true);
    *   makeWallet: the wallet package's manager for a seed (tests pass a fake); pauseMs: waits between checks
    */
   constructor({
-    settings, state, fetch: fetchFn = (url, options) => fetch(url, options), checkProviders = true,
+    settings, state, identityProviders, fetch: fetchFn = (url, options) => fetch(url, options), checkProviders = true,
     makeWallet = (seed) => new WalletManagerConcordium(seed, { ...CONCORDIUM_TESTNET_CONFIG }), pauseMs = 2000,
   }) {
     this.#makeWallet = makeWallet;
@@ -59,7 +59,8 @@ export default class DemoFlow {
     this.state = state;
     this.checkProviders = checkProviders;
     // The package stores nothing: it hands the identity to the wallet (exportIdentity), which keeps it its own way.
-    this.#identity = new ConcordiumIdentity(settings.seedPhrase, CONFIG, { fetch: fetchFn });
+    this.#config = { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders };
+    this.#identity = new ConcordiumIdentity(settings.seedPhrase, this.#config, { fetch: fetchFn });
     Object.assign(state, {
       providers: null, verification: null, identity: null, account: null, balances: null, activity: [], busy: null, error: null,
       fundingAddress: null, sponsored: null, lastSend: null, storage: null,
@@ -111,7 +112,7 @@ export default class DemoFlow {
   }
 
   async #listProviders() {
-    const providers = await new IdentityProviders(CONFIG, { fetch: this.#fetch }).list();
+    const providers = await new IdentityProviders(this.#config.identityProviders).list();
     this.state.providers = providers
       .filter((p) => p.issuanceStart)
       .map(({ index, name }) => ({ index, name, online: this.checkProviders ? 'checking' : 'not checked' }));
@@ -124,7 +125,7 @@ export default class DemoFlow {
    * from a throwaway random seed, never the demo's.
    */
   async #checkOnline() {
-    const checker = new ConcordiumIdentity(randomBytes(64), CONFIG, { fetch: this.#fetch });
+    const checker = new ConcordiumIdentity(randomBytes(64), this.#config, { fetch: this.#fetch });
     try {
       await Promise.all((this.state.providers ?? []).map(async (provider) => {
         try {
@@ -140,7 +141,7 @@ export default class DemoFlow {
   }
 
   async #providerName(index) {
-    return (await new IdentityProviders(CONFIG, { fetch: this.#fetch }).get(index)).name;
+    return (await new IdentityProviders(this.#config.identityProviders).get(index)).name;
   }
 
   // ---- Verify -----------------------------------------------------------------------------------------------
@@ -235,7 +236,7 @@ export default class DemoFlow {
 
   /** As after an app restart: a new wallet object, the same seed, the kept text; no network. */
   async #importWithNewWallet() {
-    const restarted = new ConcordiumIdentity(this.#settings.seedPhrase, CONFIG, { fetch: this.#fetch });
+    const restarted = new ConcordiumIdentity(this.#settings.seedPhrase, this.#config, { fetch: this.#fetch });
     try {
       const summary = await restarted.importIdentity(readFileSync(this.#keptFile, 'utf8'));
       return { outcome: 'imported', validTo: summary.validTo };

@@ -35,8 +35,10 @@ export default class ConcordiumIdentity {
 
   /**
    * @param {string | Uint8Array} seed  the wallet's BIP-39 seed phrase, or its 64-byte seed
-   * @param {{ useMainnetKeyDerivation: boolean, walletProxyUrl: string }} config
-   *   e.g. CONCORDIUM_TESTNET_IDENTITY_CONFIG; use the same key derivation as the wallet package
+   * @param {{ useMainnetKeyDerivation: boolean, walletProxyUrl: string, identityProviders: object[] }} config
+   *   e.g. { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders }: use the same key derivation as the wallet
+   *   package; identityProviders is the identity provider list (the wallet-proxy's /v1/ip_info shape), which the
+   *   package does not fetch
    * @param {{ fetch?: typeof fetch }} [options]  fetch: HTTP implementation (defaults to the global fetch)
    */
   constructor(seed, config, { fetch: fetchFn = (url, options) => fetch(url, options), ...rest } = {}) {
@@ -48,7 +50,7 @@ export default class ConcordiumIdentity {
     this._fetch = fetchFn;
     const fetchVia = (url, options) => this._fetch(url, options);
     const walletProxy = new WalletProxy(this._config, { fetch: fetchVia });
-    const providers = new IdentityProviders(this._config, { fetch: fetchVia });
+    const providers = new IdentityProviders(this._config.identityProviders);
     const hdWallet = () => this._hdWallet; // the helpers never see the seed itself
 
     this._held = new HeldIdentities();

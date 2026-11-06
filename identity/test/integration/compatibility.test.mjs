@@ -15,6 +15,7 @@ import { createHash } from 'node:crypto';
 import * as sdk from '@concordium/web-sdk';
 import { ConcordiumIdentity, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
 import { checkPresentation, connectToNode } from '@concordium/wdk-identity-concordium/verify';
+import { liveTestnetConfig } from '../helpers.mjs';
 
 const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const IDENTITY_1 = { providerIndex: 0, identityIndex: 1 };
@@ -26,7 +27,7 @@ const ZK_STATEMENTS = [
 ];
 
 test("Concordium's reward shop: its question, answered by identity 1's account, accepted against the testnet chain", async () => {
-  const wallet = new ConcordiumIdentity(PHRASE, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
+  const wallet = new ConcordiumIdentity(PHRASE, await liveTestnetConfig());
   try {
     assert.ok(await wallet.recoverIdentity(IDENTITY_1), 'identity 1 is back from the provider');
     const node = connectToNode('testnet');

@@ -158,7 +158,10 @@ if (!FUNDING_SEED || !FUNDING_PATH) {
 // - `wallet` (the Phase 1 WDK wallet package, same seed): using those new accounts, i.e. balances, sending, tokens;
 // - `funder` (the wallet package, another seed): the funding account that gives the new accounts something to send,
 //   standing in for an exchange or a friend; later it is also the sponsor that pays a fee.
-const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
+// The identity provider list: the package does not fetch it. The wallet does (here from the wallet-proxy, once)
+// and passes it in; only its shape matters.
+const identityProviders = await (await fetch(`${CONCORDIUM_TESTNET_IDENTITY_CONFIG.walletProxyUrl}/v1/ip_info`)).json();
+const identity = new ConcordiumIdentity(seedPhrase, { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders });
 const wallet = new WalletManagerConcordium(seedPhrase, { ...CONCORDIUM_TESTNET_CONFIG });   // the new accounts, through WDK
 const funder = new WalletManagerConcordium(FUNDING_SEED, { ...CONCORDIUM_TESTNET_CONFIG }); // the funding account
 

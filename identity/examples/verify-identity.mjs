@@ -35,7 +35,10 @@ const folder = process.env.IDENTITY_FOLDER || './demo-identities';
 // The identity package, given the wallet's seed phrase. Every key it needs (for the identity request, and later
 // to encrypt the exported identity) is worked out from the seed; nothing secret is stored, and the package itself
 // stores nothing: it hands the identity to the wallet (here, this sample) to keep.
-const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
+// The identity provider list: the package does not fetch it. The wallet does (here from the wallet-proxy, once)
+// and passes it in; only its shape matters.
+const identityProviders = await (await fetch(`${CONCORDIUM_TESTNET_IDENTITY_CONFIG.walletProxyUrl}/v1/ip_info`)).json();
+const identity = new ConcordiumIdentity(seedPhrase, { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders });
 
 // A "cancel switch" (a standard AbortController): pressing Ctrl+C flips it, and the waits below stop cleanly.
 const cancel = new AbortController();

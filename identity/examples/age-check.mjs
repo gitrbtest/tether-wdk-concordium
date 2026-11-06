@@ -43,7 +43,10 @@ async function shopReceives(answer, question) {
 
 // ─── The wallet's side (on the person's phone) ───────────────────────────────────────────────────────────────────
 
-const identity = new ConcordiumIdentity(seedPhrase, CONCORDIUM_TESTNET_IDENTITY_CONFIG);
+// The identity provider list: the package does not fetch it. The wallet does (here from the wallet-proxy, once)
+// and passes it in; only its shape matters.
+const identityProviders = await (await fetch(`${CONCORDIUM_TESTNET_IDENTITY_CONFIG.walletProxyUrl}/v1/ip_info`)).json();
+const identity = new ConcordiumIdentity(seedPhrase, { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders });
 
 try {
   // Step 1. The shop writes the question. requestFor adds a fresh random challenge, and the shop keeps the question
