@@ -37,8 +37,11 @@ export const ATTRIBUTE_NAMES = Object.keys(sdk.AttributesKeys).filter((name) => 
  *   revealAttributes?: string[],  attribute names to show publicly on the account (default: none)
  *   expiry: Date,                 the chain ignores the credential if it is not included by then
  * }} options
- * @returns {Promise<{ credInfo: object, transactionHash: string, address: string, expiryEpochSeconds: number }>}
- *   credInfo is the signed credential as the wallet-proxy takes it; transactionHash identifies it on chain.
+ * @returns {Promise<{ payload: Uint8Array, expiry: object, credInfo: object, transactionHash: string, address: string,
+ *   expiryEpochSeconds: number }>}
+ *   payload is the signed credential, serialized as a node takes it; expiry its expiry (the SDK's TransactionExpiry);
+ *   credInfo the same credential, readable (keys, policy, proofs); transactionHash identifies it on chain (known before
+ *   it is sent).
  */
 export async function buildAccountCredential({
   provider, globalContext, hdWallet, idObject, identityIndex, credNumber, revealAttributes = [], expiry,
@@ -81,6 +84,9 @@ export async function buildAccountCredential({
   const expiryEpochSeconds = Number(unsigned.expiry.expiryEpochSeconds);
   const details = JSON.parse(getDeploymentDetails([signature], JSON.stringify(unsigned.unsignedCdi), BigInt(expiryEpochSeconds)));
   return {
+    // The credential with its signature, in the bytes a node takes (the SDK's own serializer).
+    payload: new Uint8Array(sdk.serializeCredentialDeploymentPayload([signature], unsigned)),
+    expiry: unsigned.expiry,
     credInfo: details.credInfo,
     transactionHash: details.transactionHash,
     address: sdk.getAccountAddress(unsigned.unsignedCdi.credId).toString(),

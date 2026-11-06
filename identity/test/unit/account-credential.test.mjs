@@ -31,9 +31,9 @@ test('the address is the one the SDK gives when it is handed the seed itself', a
   assert.equal(address, '3Z4WkEMb5msvBRPAZyneFcntHWqceHf7Q9JitSjBAegvQXSB5t'); // account 0 of this identity, exists on testnet
 });
 
-test('the signed credential has the form the wallet-proxy takes, with the account key and nothing revealed', async () => {
+test('the signed credential, with the account key and nothing revealed; its bytes for the node carry the same', async () => {
   const expiry = inAnHour();
-  const { credInfo, transactionHash, expiryEpochSeconds } = await build({ expiry });
+  const { credInfo, payload, transactionHash, expiryEpochSeconds, expiry: transactionExpiry } = await build({ expiry });
   assert.deepEqual(Object.keys(credInfo).sort(),
     ['arData', 'credId', 'credentialPublicKeys', 'ipIdentity', 'policy', 'proofs', 'revocationThreshold']);
   assert.equal(credInfo.ipIdentity, 0);
@@ -47,6 +47,11 @@ test('the signed credential has the form the wallet-proxy takes, with the accoun
   assert.match(credInfo.proofs, /^[0-9a-f]+$/);
   assert.match(transactionHash, /^[0-9a-f]{64}$/);
   assert.equal(expiryEpochSeconds, Math.floor(expiry.getTime() / 1000));
+  assert.equal(Number(transactionExpiry.expiryEpochSeconds), expiryEpochSeconds);
+  // The bytes sent to the node hold the same credential: its id and the account's public key.
+  const hex = Buffer.from(payload).toString('hex');
+  assert.ok(hex.includes(credInfo.credId), 'the credential id is in the bytes');
+  assert.ok(hex.includes(credInfo.credentialPublicKeys.keys[0].verifyKey), 'the account key is in the bytes');
 });
 
 test('chosen attributes are revealed on the account, with the identity\'s values; no others', async () => {

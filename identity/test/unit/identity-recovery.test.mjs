@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import * as sdk from '@concordium/web-sdk';
 import { recoveryRequest, recoveryLink, askProviderForIdentity } from '../../src/recovery/identity-recovery.js';
 import { IdentityRecoveryError } from '../../index.js';
-import { ipInfoFixture, globalFixture, testnetConfig } from '../helpers.mjs';
+import { ipInfoFixture, globalFixture, testnetConfig, recordedNode } from '../helpers.mjs';
 
 const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const RECORDED_IDENTITY = 334563111; // the identity issued on testnet for this phrase (provider 0)
@@ -220,30 +220,27 @@ function addressOf(credNumber, identityIndex = RECORDED_IDENTITY) {
 }
 
 /**
- * The network with a scripted wallet-proxy account check: `existing` lists the account numbers that exist;
- * `failures` makes the first few checks fail (HTTP 502). `checked` notes each address asked about, in order.
+ * The network with a pretend node answering the account checks: `existing` lists the account numbers that exist;
+ * `failures` makes the first few checks fail (the node unreachable). `checked` notes each address asked about, in
+ * order. The provider's recovery address answers `recovery`, in order.
  */
 function networkWithAccounts(existing, { failures = 0, recovery = [] } = {}) {
   const recorded = walletProxyFetch('testnet');
   const provider = scriptedProvider(...recovery);
   const existingAddresses = new Set(existing.map((n) => addressOf(n)));
   const checked = [];
-  const fetch = async (url, options) => {
-    const text = String(url);
-    if (text.startsWith(`${RECOVERY_START}?`)) return provider.fetch(url, options);
-    if (text.includes('/v0/accBalance/')) {
-      if (failures > 0) { failures--; return { ok: false, status: 502, json: async () => ({}) }; }
-      const address = text.split('/v0/accBalance/')[1];
+  const fetch = async (url, options) => (String(url).startsWith(`${RECOVERY_START}?`) ? provider.fetch(url, options) : recorded.fetch(url, options));
+  const node = recordedNode('testnet', {
+    accountExists: (address) => {
+      if (failures > 0) { failures--; return Object.assign(new Error('the node is unreachable'), { name: 'RpcError', code: 'UNAVAILABLE' }); }
       checked.push(address);
-      const body = existingAddresses.has(address) ? { finalizedBalance: { accountAmount: '1000000' } } : {};
-      return { ok: true, status: 200, json: async () => body };
-    }
-    return recorded.fetch(url, options);
-  };
-  return { fetch, checked };
+      return existingAddresses.has(address);
+    },
+  });
+  return { fetch, checked, node };
 }
 
-const newWallet = (network) => new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: network.fetch });
+const newWallet = (network) => new ConcordiumIdentity(PHRASE, testnetConfig({ node: network.node }), { fetch: network.fetch });
 
 test('findAccounts: accounts 0 and 1 exist: both found, with their paths; it stops after 3 missing in a row', async () => {
   const network = networkWithAccounts([0, 1]);
@@ -293,7 +290,7 @@ test('findAccounts: with the identity held, it never looks beyond the identity\'
   wallet.dispose();
 });
 
-test('findAccounts: a brief wallet-proxy failure is tried again; three in a row: wallet-proxy', async () => {
+test('findAccounts: a brief node failure is tried again; three in a row: reason node', async () => {
   const blip = networkWithAccounts([0], { failures: 2 });
   const wallet = newWallet(blip);
   assert.deepEqual((await wallet.findAccounts({ providerIndex: 0, identityIndex: RECORDED_IDENTITY })).map((a) => a.credNumber), [0]);
@@ -303,8 +300,8 @@ test('findAccounts: a brief wallet-proxy failure is tried again; three in a row:
   const other = newWallet(down);
   await assert.rejects(other.findAccounts({ providerIndex: 0, identityIndex: RECORDED_IDENTITY }), (e) => {
     assert.ok(e instanceof IdentityRecoveryError);
-    assert.equal(e.reason, 'wallet-proxy');
-    assert.match(e.detail, /HTTP 502/);
+    assert.equal(e.reason, 'node');
+    assert.match(e.detail, /the node is unreachable/);
     return true;
   });
   other.dispose();
@@ -375,22 +372,23 @@ function recoveryWorld(world, { down = [], accountsDown = false } = {}) {
       asked[p].push(i);
       return world[p]?.[i] ? json(200, identityFor(p, i)) : json(404, { message: 'not found' });
     }
-    if (text.includes('/v0/accBalance/')) {
-      if (accountsDown) return json(502, {});
-      return json(200, addresses.has(text.split('/v0/accBalance/')[1]) ? { finalizedBalance: { accountAmount: '1' } } : {});
-    }
     return recorded.fetch(url, options);
   };
+  const node = recordedNode('testnet', {
+    accountExists: (address) => (accountsDown
+      ? Object.assign(new Error('the node is unreachable'), { name: 'RpcError', code: 'UNAVAILABLE' })
+      : addresses.has(address)),
+  });
   /** How many times the provider list (/v1/ip_info) was downloaded: never, it is passed in. */
   const listDownloads = () => recorded.requests.filter((u) => String(u).endsWith('/v1/ip_info')).length;
-  return { fetch, asked, listDownloads };
+  return { fetch, asked, listDownloads, node };
 }
 
 const describe = (identities) => identities.map((x) => `${x.providerIndex}/${x.identityIndex}: ${x.accounts.map((a) => a.credNumber)}`);
 
 test('recoverAll: every identity with every provider comes back, with its accounts, held and ready to export', async () => {
   const world = recoveryWorld({ 0: { 0: [0], 1: [0, 1] } });
-  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
   const { identities, problems } = await wallet.recoverAll();
   assert.deepEqual(problems, []);
   assert.deepEqual(identities.map((x) => [x.providerIndex, x.identityIndex, x.accounts.map((a) => a.path)]), [
@@ -409,7 +407,7 @@ test('recoverAll: a hole shorter than the gap is skipped over; identityGap and a
   // Provider 0: identities 0, 2, 4 and 6, each one missing number apart: the count of missing numbers starts
   // again after each one found, so all four are found (without that, it would stop before 6).
   const world = recoveryWorld({ 0: { 0: [0], 2: [0], 4: [0], 6: [0] }, 5: { 0: [0, 2] } });
-  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
   assert.deepEqual(describe((await wallet.recoverAll()).identities), ['0/0: 0', '0/2: 0', '0/4: 0', '0/6: 0', '5/0: 0,2']);
   assert.deepEqual(describe((await wallet.recoverAll({ identityGap: 1, accountGap: 1 })).identities), ['0/0: 0', '5/0: 0'],
     'gaps of 1: stops at the first missing number');
@@ -420,7 +418,7 @@ test('recoverAll: a hole shorter than the gap is skipped over; identityGap and a
 
 test('recoverAll: a provider that is down is noted in problems; the others are still asked', async () => {
   const world = recoveryWorld({ 0: { 0: [0] }, 5: { 0: [] } }, { down: [3] });
-  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
   const { identities, problems } = await wallet.recoverAll();
   assert.deepEqual(identities.map((x) => `${x.providerIndex}/${x.identityIndex}`), ['0/0', '5/0']);
   assert.equal(problems.length, 1);
@@ -432,17 +430,17 @@ test('recoverAll: a provider that is down is noted in problems; the others are s
 
 test('recoverAll: accounts that cannot be looked up: the identity still comes back (accounts null), the problem is noted', async () => {
   const world = recoveryWorld({ 0: { 0: [0] } }, { accountsDown: true });
-  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
   const { identities, problems } = await wallet.recoverAll({ providerIndexes: [0] });
   assert.deepEqual(identities.map((x) => [x.identityIndex, x.accounts]), [[0, null]]);
-  assert.equal(problems[0].error.reason, 'wallet-proxy');
+  assert.equal(problems[0].error.reason, 'node');
   assert.equal(typeof await wallet.exportIdentity({ providerIndex: 0, identityIndex: 0 }), 'string'); // held all the same
   wallet.dispose();
 });
 
 test('recoverAll: only the providers asked for; an unknown provider is a problem, not a failure', async () => {
   const world = recoveryWorld({ 0: { 0: [0] }, 5: { 0: [0] } });
-  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
   const only0 = await wallet.recoverAll({ providerIndexes: [0, 99] });
   assert.deepEqual(only0.identities.map((x) => `${x.providerIndex}/${x.identityIndex}`), ['0/0']);
   assert.deepEqual(world.asked[5], [], 'provider 5 was not asked');
@@ -455,7 +453,7 @@ test('recoverAll: only the providers asked for; an unknown provider is a problem
 
 test('recoverAll: cancelled stops everything; refused once disposed', async () => {
   const world = recoveryWorld({ 0: { 0: [0] } });
-  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
   const cancelled = new AbortController();
   cancelled.abort();
   await rejectsWith(wallet.recoverAll({ signal: cancelled.signal }), 'cancelled');
@@ -468,7 +466,7 @@ test('recoverAll: cancelled stops everything; refused once disposed', async () =
 
 test('nextIdentityIndex: one after the highest identity this seed has with the provider; 0 if none; nothing kept', async () => {
   const world = recoveryWorld({ 0: { 0: [0], 1: [], 3: [0] } }); // identities 0, 1 and 3 (2 is a hole)
-  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
   assert.equal(await wallet.nextIdentityIndex({ providerIndex: 0 }), 4, 'past the hole at 2, so 3 is not reused');
   assert.deepEqual(world.asked[0], [0, 1, 2, 3, 4, 5, 6], 'asked until 3 numbers in a row had none');
   assert.equal(await wallet.nextIdentityIndex({ providerIndex: 3 }), 0, 'none with provider 3');
@@ -483,7 +481,7 @@ test('nextIdentityIndex: one after the highest identity this seed has with the p
 
 test('nextCredNumber: one after the highest account the identity has on chain; 0 if none', async () => {
   const world = recoveryWorld({ 0: { 1: [0, 1], 2: [] } });
-  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
   assert.equal(await wallet.nextCredNumber({ providerIndex: 0, identityIndex: 1 }), 2);
   assert.equal(await wallet.nextCredNumber({ providerIndex: 0, identityIndex: 2 }), 0);
   await assert.rejects(wallet.nextCredNumber({ providerIndex: 0 }), /identityIndex is required/);

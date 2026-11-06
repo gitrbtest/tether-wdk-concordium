@@ -10,17 +10,16 @@ export interface IdentityConfig {
    * @concordium/wdk-wallet-concordium; use the same value for both packages.
    */
   useMainnetKeyDerivation: boolean;
-  /** Absolute HTTP(S) URL of a Concordium wallet-proxy; it sends new accounts' credentials and says whether accounts exist. */
-  walletProxyUrl: string;
   /**
    * The wallet's connection to a Concordium node: the package never opens one itself, so it runs wherever the wallet's
    * client does. E.g. the SDK's ConcordiumGRPCNodeClient (Node.js) or ConcordiumGRPCWebClient (browsers, phones).
-   * The network's cryptographic parameters are read from it.
+   * Everything the package needs from the chain goes through it: the network's cryptographic parameters, whether an
+   * account exists, and sending a new account.
    */
   node: ConcordiumNodeConnection;
   /**
    * The identity provider list, which the wallet passes in (the package does not fetch it): the wallet-proxy's
-   * /v1/ip_info shape, e.g. `await (await fetch(`${walletProxyUrl}/v1/ip_info`)).json()`. Checked when the
+   * /v1/ip_info shape, e.g. `await (await fetch('https://wallet-proxy.testnet.concordium.com/v1/ip_info')).json()`. Checked when the
    * ConcordiumIdentity is created; a list in the wrong shape is refused, naming the field.
    */
   identityProviders: IdentityProviderEntry[];
@@ -45,6 +44,9 @@ export interface IdentityProviderEntry {
 /** The node methods the package calls (any Concordium node client from the SDK has them). */
 export interface ConcordiumNodeConnection {
   getCryptographicParameters(): Promise<object>;
+  getAccountInfo(address: object): Promise<object>;
+  sendCredentialDeploymentTransaction(payload: Uint8Array, expiry: object): Promise<object>;
+  getBlockItemStatus(transactionHash: object): Promise<object>;
 }
 
 /** A preset without the provider list and the node: add them, e.g. { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders, node }. */
@@ -55,7 +57,7 @@ export const CONCORDIUM_MAINNET_IDENTITY_CONFIG: Readonly<IdentityConfigPreset>;
 /** Public testnet preset (add identityProviders and node). */
 export const CONCORDIUM_TESTNET_IDENTITY_CONFIG: Readonly<IdentityConfigPreset>;
 
-/** An identity provider as published by the wallet-proxy. */
+/** An identity provider in the list. */
 export interface IdentityProviderSummary {
   /** The provider's index (ipIdentity): an identifier assigned per network, not a list position. */
   index: number;
@@ -91,9 +93,9 @@ export class IdentityIssuanceError extends Error {
  */
 export class IdentityRecoveryError extends Error {
   /** provider-error: the provider answered with an error or not an identity; not-yours: the identity does not belong
- *  to this seed; network: the provider could not be reached; wallet-proxy: finding accounts, the wallet-proxy failed;
+ *  to this seed; network: the provider could not be reached; node: finding accounts, the Concordium node could not be asked;
  *  cancelled: the AbortSignal fired. */
-  reason: 'provider-error' | 'not-yours' | 'network' | 'wallet-proxy' | 'cancelled';
+  reason: 'provider-error' | 'not-yours' | 'network' | 'node' | 'cancelled';
   /** The provider's HTTP status, for provider-error. */
   status?: number;
   /** The provider's explanation, if it gave one. */
@@ -118,23 +120,23 @@ export class AccountCreationError extends Error {
    * identity-expired: the identity's validTo month has passed (verify again for a new identity).
    * max-accounts: credNumber is not below the identity's maxAccounts.
    * unknown-attribute: an attribute to reveal is not one the identity holds (`detail` names it).
-   * rejected: the chain refused the credential (`detail` has its reason, if it gave one).
+   * rejected: the node refused the credential, or it was finalized without creating the account (`detail` says).
    * expired: the credential was not included on chain before its expiry time.
    * timeout: the wait ended before the account was final; it may still be created (call createAccount again).
    * cancelled: the wait was cancelled; if the credential was already sent, the account may still be created.
-   * wallet-proxy: the wallet-proxy failed or answered unexpectedly (`detail` has what it said).
+   * node: the Concordium node could not be asked, or answered unexpectedly (`detail` has what it said).
    */
   reason: 'identity-expired' | 'max-accounts' | 'unknown-attribute'
-    | 'rejected' | 'expired' | 'timeout' | 'cancelled' | 'wallet-proxy';
+    | 'rejected' | 'expired' | 'timeout' | 'cancelled' | 'node';
   /** The account concerned, when known. */
   address?: string;
   /** The credential's transaction hash, once built. */
   transactionHash?: string;
-  /** More about the reason, e.g. the chain's or the wallet-proxy's words, or the unknown attribute's name. */
+  /** More about the reason, e.g. the node's words, or the unknown attribute's name. */
   detail?: string;
 }
 
-/** The identity providers published by a Concordium wallet-proxy. */
+/** The identity providers in the list the wallet passes in. */
 export class IdentityProviders {
   /**
    * The providers in the list the wallet passes in (the package does not fetch it).
@@ -337,7 +339,7 @@ export class ConcordiumIdentity {
    * Find the accounts an identity has on chain (account 0, 1, 2 … from the seed; stops after `gap` missing in a row,
    * or at the identity's maxAccounts if it is held). Read-only: asks whether each address exists; sends no transaction.
    * @throws {IdentityProviderError} If the provider is not published.
-   * @throws {IdentityRecoveryError} reason 'wallet-proxy' or 'cancelled'.
+   * @throws {IdentityRecoveryError} reason 'node' or 'cancelled'.
    */
   findAccounts(options: FindAccountsOptions): Promise<FoundAccount[]>;
   /**
@@ -351,7 +353,7 @@ export class ConcordiumIdentity {
    * The account number for a NEW account under an identity: one after the highest it has on chain (as findAccounts
    * finds them), or 0. Read-only.
    * @throws {IdentityProviderError} If the provider is not published.
-   * @throws {IdentityRecoveryError} reason 'wallet-proxy' or 'cancelled'.
+   * @throws {IdentityRecoveryError} reason 'node' or 'cancelled'.
    */
   nextCredNumber(options: FindAccountsOptions): Promise<number>;
   /**

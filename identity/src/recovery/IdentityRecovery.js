@@ -4,7 +4,7 @@
  *
  *   recover      ─► recovery request (seed's keys) ─► provider's recovery address ─► checked to be this
  *                   wallet's ─► held (ready for exportIdentity / createAccount)
- *   findAccounts ─► account 0, 1, 2 … : address from the seed ─► on chain? (wallet-proxy) ─► stop after
+ *   findAccounts ─► account 0, 1, 2 … : address from the seed ─► on chain? (node) ─► stop after
  *                   `gap` missing numbers in a row
  *   recoverAll   ─► for each provider: identity 0, 1, 2 … (recover, then findAccounts) until
  *                   `identityGap` missing numbers in a row; a provider that fails is noted, not fatal
@@ -18,7 +18,7 @@ import { sleep } from '../shared/sleep.js';
 
 /** findAccounts stops after this many account numbers in a row with no account (wallets number accounts 0, 1, 2 …). */
 export const DEFAULT_GAP = 3;
-const ATTEMPTS = 3;         // a wallet-proxy failure is tried this many times in all
+const ATTEMPTS = 3;         // a node failure is tried this many times in all
 const RETRY_PAUSE_MS = 500;
 
 /** The provider, checked to publish a recovery address (else IdentityProviderError). */
@@ -32,20 +32,18 @@ function requireRecoveryAddress(provider) {
 
 export default class IdentityRecovery {
   #providers;
-  #walletProxy;
   #node;
   #fetch;
   #hdWallet;
   #held;
 
   /**
-   * @param {{ providers: object, walletProxy: object, node: object, fetch: typeof fetch, hdWallet: () => object,
+   * @param {{ providers: object, node: object, fetch: typeof fetch, hdWallet: () => object,
    *   held: import('../shared/HeldIdentities.js').default }} collaborators
    *   hdWallet: returns the key derivation for the wallet's seed (throws once the seed is disposed)
    */
-  constructor({ providers, walletProxy, node, fetch, hdWallet, held }) {
+  constructor({ providers, node, fetch, hdWallet, held }) {
     this.#providers = providers;
-    this.#walletProxy = walletProxy;
     this.#node = node;
     this.#fetch = fetch;
     this.#hdWallet = hdWallet;
@@ -224,17 +222,17 @@ export default class IdentityRecovery {
     return found;
   }
 
-  /** Whether an account exists on chain. Brief wallet-proxy failures are tried again, up to ATTEMPTS times. */
+  /** Whether an account exists on chain. Brief node failures are tried again, up to ATTEMPTS times. */
   async #exists(address, signal) {
     for (let attempt = 1; ; attempt++) {
       if (signal?.aborted) throw cancelledRecovery();
       try {
-        return await this.#walletProxy.accountExists(address, { signal });
+        return await this.#node.accountExists(address);
       } catch (e) {
         if (signal?.aborted) throw cancelledRecovery();
         if (attempt >= ATTEMPTS) {
-          throw new IdentityRecoveryError(`The wallet-proxy could not say whether account ${address} exists: ${e.message}`,
-            { reason: 'wallet-proxy', detail: e.message });
+          throw new IdentityRecoveryError(`The node could not say whether account ${address} exists: ${e.message}`,
+            { reason: 'node', detail: e.message });
         }
         await sleep(RETRY_PAUSE_MS, signal, cancelledRecovery);
       }

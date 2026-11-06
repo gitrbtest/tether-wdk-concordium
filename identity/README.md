@@ -60,8 +60,8 @@ from a separate entry point, `@concordium/wdk-identity-concordium/node`.
 
 ```js
 import {
-  CONCORDIUM_MAINNET_IDENTITY_CONFIG, // { useMainnetKeyDerivation: true,  walletProxyUrl: 'https://wallet-proxy.mainnet.concordium.software' }
-  CONCORDIUM_TESTNET_IDENTITY_CONFIG, // { useMainnetKeyDerivation: false, walletProxyUrl: 'https://wallet-proxy.testnet.concordium.com' }
+  CONCORDIUM_MAINNET_IDENTITY_CONFIG, // { useMainnetKeyDerivation: true }
+  CONCORDIUM_TESTNET_IDENTITY_CONFIG, // { useMainnetKeyDerivation: false }
 } from '@concordium/wdk-identity-concordium';
 
 import { ConcordiumGRPCNodeClient, credentials } from '@concordium/web-sdk/nodejs'; // or ConcordiumGRPCWebClient
@@ -77,13 +77,13 @@ const config = { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders, node 
 
 | Field | Required | Meaning |
 |---|---|---|
-| `useMainnetKeyDerivation` | yes | Derive keys as on mainnet (`true`) or testnet (`false`). Same meaning as in `@concordium/wdk-wallet-concordium`: **use the same value for both packages**, so identities and accounts come from the same keys. It does not check which network the list or the URL belongs to. |
+| `useMainnetKeyDerivation` | yes | Derive keys as on mainnet (`true`) or testnet (`false`). Same meaning as in `@concordium/wdk-wallet-concordium`: **use the same value for both packages**, so identities and accounts come from the same keys. It does not check which network the list or the node belongs to. |
 | `identityProviders` | yes | The identity provider list, in the shape of the wallet-proxy's `/v1/ip_info` (below). The package never fetches it, so if the wallet-proxy is replaced, any source giving the same shape works. It is checked when the `ConcordiumIdentity` is created: a list in the wrong shape is refused, naming the field. To use a newer list, create a new object. |
-| `node` | yes | Your connection to a Concordium node: any Concordium node client from `@concordium/web-sdk`, such as `ConcordiumGRPCNodeClient` (Node.js) or `ConcordiumGRPCWebClient` (browsers and phones), or the one your wallet already has. The package never opens a connection itself, so it runs wherever your client does. The network's cryptographic parameters are read from it, once. |
-| `walletProxyUrl` | yes | Absolute HTTP(S) URL of a Concordium wallet-proxy, through which new accounts are sent and accounts are looked up. A base path is allowed; credentials, query parameters and fragments are not. |
+| `node` | yes | Your connection to a Concordium node: any Concordium node client from `@concordium/web-sdk`, such as `ConcordiumGRPCNodeClient` (Node.js) or `ConcordiumGRPCWebClient` (browsers and phones), or the one your wallet already has. The package never opens a connection itself, so it runs wherever your client does. **Everything the package needs from the chain goes through it**: the network's cryptographic parameters (read once), whether an account exists, and sending a new account. |
 
-The presets hold everything except the list and the node. They can be overridden field by field, e.g. to use your own
-wallet-proxy: `{ ...CONCORDIUM_MAINNET_IDENTITY_CONFIG, walletProxyUrl: 'https://proxy.example.com', identityProviders, node }`.
+The presets hold only the key derivation choice; the wallet adds its provider list and its node. The package talks to
+nothing else: the identity providers (verification and recovery pages) and your node. (A `walletProxyUrl`, used by
+earlier versions, is refused with a message saying so.)
 
 ### The provider list's shape
 
@@ -153,9 +153,9 @@ const { issuanceUrl } = await identity.createIdentityRequest({
   passed to the provider exactly as given, so it can match an address
   registered with the provider. There is no default.
 - **Nothing is sent to the provider** until the wallet opens `issuanceUrl`.
-  Building the request only reads public data from the wallet-proxy (the
-  provider list and the cryptographic parameters); the request itself is
-  computed locally. Nothing is written to the blockchain.
+  Building the request only reads public data: the provider list you passed in
+  and the network's cryptographic parameters (from your node); the request
+  itself is computed locally. Nothing is written to the blockchain.
 - A provider that is not published, or publishes no issuance address, raises
   `IdentityProviderError` before any cryptographic work is done.
 
@@ -325,8 +325,8 @@ own (see the file's header) and the wallet package installed in the repository r
 
 What is sent is the account's *credential*: its public key, the identity provider's number, the identity's
 dates, commitments to the attributes and zero-knowledge proofs that a verified identity stands behind it.
-The identity itself and the person's details are not sent. It goes through the configured wallet-proxy
-(`/v0/submitCredential`), which passes it to the chain; no node connection is needed.
+The identity itself and the person's details are not sent. It goes to the chain through your node connection
+(`config.node`), and the package follows it there until it is final.
 
 ### When it fails
 
@@ -337,14 +337,14 @@ The identity itself and the person's details are not sent. It goes through the c
 | `identity-expired` | the identity's `validTo` month has passed: the user verifies again for a new identity | no |
 | `max-accounts` | `credNumber` is not below the identity's `maxAccounts` | no |
 | `unknown-attribute` | an attribute to reveal is not one the identity holds (`detail` names it) | no |
-| `rejected` | the chain refused the credential (`detail` has its reason, if it gave one) | yes |
+| `rejected` | the node refused the credential, or it was finalized without creating the account (`detail` says) | yes |
 | `expired` | the credential was not included on chain before its expiry time | yes |
 | `timeout` | still not final after `timeoutMs` (default 5 minutes); it may still be created: call again | yes |
 | `cancelled` | the wait was cancelled through `signal`; if already sent, it may still be created | maybe |
-| `wallet-proxy` | the wallet-proxy failed or answered unexpectedly (`detail` has what it said) | maybe |
+| `node` | the node could not be asked, or answered unexpectedly (`detail` has what it said) | maybe |
 
 `address` (and `transactionHash`, once built) are on the error when known. For `timeout`, `cancelled` and
-`wallet-proxy`, calling `createAccount` again is the way to find out: it returns the account if it was
+`node`, calling `createAccount` again is the way to find out: it returns the account if it was
 created, and otherwise tries again.
 
 ### Keys
@@ -438,7 +438,7 @@ If your app leaves bigger gaps (an identity started but never finished, accounts
 |---|---|---|
 | `provider-error` | the provider answered with an error, or with something that is not an identity (`status`, `detail`) | show it; try again later |
 | `network` | the provider could not be reached (after three tries) | check the connection; try again |
-| `wallet-proxy` | finding accounts: the wallet-proxy failed (`detail`) | try `findAccounts` again later |
+| `node` | finding accounts: the node could not be asked (`detail`) | try `findAccounts` again later |
 | `not-yours` | the provider returned an identity that does not belong to this seed; it is never kept | should not happen: report it |
 | `cancelled` | cancelled through `signal` | nothing |
 

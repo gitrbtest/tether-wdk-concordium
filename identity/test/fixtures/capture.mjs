@@ -12,14 +12,10 @@
  * exactly what these fixtures exist to surface.
  */
 import { writeFile } from 'node:fs/promises';
-import {
-  CONCORDIUM_MAINNET_IDENTITY_CONFIG,
-  CONCORDIUM_TESTNET_IDENTITY_CONFIG,
-} from '../../src/shared/config.js';
 
 const NETWORKS = {
-  testnet: CONCORDIUM_TESTNET_IDENTITY_CONFIG.walletProxyUrl,
-  mainnet: CONCORDIUM_MAINNET_IDENTITY_CONFIG.walletProxyUrl,
+  testnet: 'https://wallet-proxy.testnet.concordium.com',
+  mainnet: 'https://wallet-proxy.mainnet.concordium.software',
 };
 
 const here = new URL('./', import.meta.url);

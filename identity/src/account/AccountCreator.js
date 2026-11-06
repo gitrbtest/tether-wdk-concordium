@@ -40,17 +40,15 @@ export function readAccountOptions({
 
 export default class AccountCreator {
   #providers;
-  #walletProxy;
   #node;
   #hdWallet;
 
   /**
-   * @param {{ providers: object, walletProxy: object, node: object, hdWallet: () => object }} collaborators
+   * @param {{ providers: object, node: object, hdWallet: () => object }} collaborators
    *   hdWallet: returns the key derivation for the wallet's seed (throws once the seed is disposed)
    */
-  constructor({ providers, walletProxy, node, hdWallet }) {
+  constructor({ providers, node, hdWallet }) {
     this.#providers = providers;
-    this.#walletProxy = walletProxy;
     this.#node = node;
     this.#hdWallet = hdWallet;
   }
@@ -80,21 +78,22 @@ export default class AccountCreator {
       expiry: new Date(Date.now() + timeoutMs + ACCOUNT_CREDENTIAL_MARGIN_MS),
     });
     const { transactionHash, blockHash } = await submitAndWait({
-      walletProxy: this.#walletProxy, credential, timeoutMs, intervalMs, signal,
+      node: this.#node, credential, timeoutMs, intervalMs, signal,
     });
     return { ...result, created: true, transactionHash, blockHash };
   }
 
-  /** Whether the account exists on chain; a wallet-proxy failure is an AccountCreationError. */
+  /** Whether the account exists on chain; a node failure is an AccountCreationError (reason 'node'). */
   async #exists(address, signal) {
     try {
-      return await this.#walletProxy.accountExists(address, { signal });
+      if (signal?.aborted) throw new Error('cancelled');
+      return await this.#node.accountExists(address);
     } catch (e) {
       if (signal?.aborted) {
         throw new AccountCreationError('Creating the account was cancelled before anything was sent.', { reason: 'cancelled', address });
       }
-      throw new AccountCreationError(`The wallet-proxy could not say whether account ${address} exists: ${e.message}`,
-        { reason: 'wallet-proxy', address, detail: e.message });
+      throw new AccountCreationError(`The node could not say whether account ${address} exists: ${e.message}`,
+        { reason: 'node', address, detail: e.message });
     }
   }
 }

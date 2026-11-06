@@ -245,10 +245,7 @@ async function withIdentityReady(env, run) {
   const json = (body) => ({ ok: true, status: 200, json: async () => body });
   const fetch = async (url, options) => {
     if (url === CODE_URI) return json(issued());
-    if (url.includes('/v0/accBalance/')) return json({});
-    if (url.includes('/v0/submitCredential')) return json({ submissionId: 'x' });
-    if (url.includes('/v0/submissionStatus/')) return json({ status: 'finalized', outcome: 'success', blockHashes: ['b1'] });
-    return recorded(url, options);
+    return recorded(url, options); // the provider list; the account is checked and created through the pretend node
   };
   const storeFolder = mkdtempSync(join(tmpdir(), 'demo-wallet-test-'));
   const wallet = fakeWalletPackage();

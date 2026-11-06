@@ -4,6 +4,7 @@
  * contact a service.
  */
 import { readFileSync } from 'node:fs';
+import * as sdk from '@concordium/web-sdk';
 
 const readFixture = (file) => JSON.parse(readFileSync(new URL(`./fixtures/${file}`, import.meta.url), 'utf8'));
 
@@ -122,17 +123,57 @@ export async function identityConfig(network, overrides = {}) {
   return { ...preset, identityProviders: ipInfoFixture(network), node: recordedNode(network), ...overrides };
 }
 
+/** The node's "not found" answer, as the SDK's gRPC client throws it. */
+export const notFoundError = () => Object.assign(new Error('account or block not found.'), { name: 'RpcError', code: 'NOT_FOUND' });
+
+/** Transaction statuses as a node gives them (getBlockItemStatus), for scripting a pretend node. */
+export const nodeStatus = {
+  received: () => ({ status: 'received' }),
+  committed: () => ({ status: 'committed', outcomes: [] }),
+  /** Final; `type` 'accountCreation' means the account was created. */
+  finalized: (blockHashHex = 'b1'.repeat(32), type = 'accountCreation') => ({
+    status: 'finalized', outcome: { blockHash: sdk.BlockHash.fromHexString(blockHashHex), summary: { type } },
+  }),
+};
+
 /**
- * A pretend Concordium node for one network, answering from recordings: the cryptographic parameters (or
- * `parameters`, e.g. a broken set; or `fail`, an error to throw). `calls` counts the questions asked.
+ * A pretend Concordium node for one network, answering from recordings and scripts. What each option does:
+ *   parameters, fail     the cryptographic parameters it gives (default: recorded), or an error to throw instead
+ *   accountExists        (address) => true | false | Error: whether an account exists (default: none does)
+ *   send                 sending a credential: an Error to throw (e.g. the node refusing it), or a function to call
+ *                        (default: accepted, with transaction hash `hash`)
+ *   statuses             answers to the status checks, in order; the last repeats. Each is a nodeStatus value,
+ *                        'absent' (the node does not know it), or an Error (the node unreachable). Default: final, created.
+ * It records what it was asked: calls (parameters), accountsAsked (addresses), sent (credentials), statusCalls.
  */
-export function recordedNode(network, { parameters, fail } = {}) {
+export function recordedNode(network, { parameters, fail, accountExists, send, statuses, hash = 'ab'.repeat(32) } = {}) {
   const node = {
-    calls: 0,
+    calls: 0, accountsAsked: [], sent: [], statusCalls: 0,
     async getCryptographicParameters() {
       node.calls++;
       if (fail) throw fail;
       return parameters ?? globalFixture(network).value;
+    },
+    async getAccountInfo(address) {
+      const text = address?.address ?? String(address);
+      node.accountsAsked.push(text);
+      const answer = accountExists ? await accountExists(text) : false;
+      if (answer instanceof Error) throw answer;
+      if (!answer) throw notFoundError();
+      return { accountAddress: address };
+    },
+    async sendCredentialDeploymentTransaction(payload, expiry) {
+      node.sent.push({ payload, expiry });
+      if (send instanceof Error) throw send;
+      if (typeof send === 'function') return send();
+      return sdk.TransactionHash.fromHexString(hash);
+    },
+    async getBlockItemStatus() {
+      const list = statuses ?? [nodeStatus.finalized()];
+      const answer = list[Math.min(node.statusCalls++, list.length - 1)];
+      if (answer instanceof Error) throw answer;
+      if (answer === 'absent') throw notFoundError();
+      return answer;
     },
   };
   return node;
@@ -141,16 +182,14 @@ export function recordedNode(network, { parameters, fail } = {}) {
 /** The testnet configuration with the recorded provider list and a recorded node (synchronous: for constructors). */
 export function testnetConfig(overrides = {}) {
   return {
-    useMainnetKeyDerivation: false, walletProxyUrl: 'https://wallet-proxy.testnet.concordium.com',
-    identityProviders: ipInfoFixture('testnet'), node: recordedNode('testnet'), ...overrides,
+    useMainnetKeyDerivation: false, identityProviders: ipInfoFixture('testnet'), node: recordedNode('testnet'), ...overrides,
   };
 }
 
 /** The mainnet configuration with the recorded provider list and a recorded node. */
 export function mainnetConfig(overrides = {}) {
   return {
-    useMainnetKeyDerivation: true, walletProxyUrl: 'https://wallet-proxy.mainnet.concordium.software',
-    identityProviders: ipInfoFixture('mainnet'), node: recordedNode('mainnet'), ...overrides,
+    useMainnetKeyDerivation: true, identityProviders: ipInfoFixture('mainnet'), node: recordedNode('mainnet'), ...overrides,
   };
 }
 
@@ -160,7 +199,7 @@ export function mainnetConfig(overrides = {}) {
  */
 export async function liveTestnetConfig(overrides = {}) {
   const config = testnetConfig();
-  const response = await fetch(`${config.walletProxyUrl}/v1/ip_info`);
+  const response = await fetch('https://wallet-proxy.testnet.concordium.com/v1/ip_info');
   if (!response.ok) throw new Error(`The wallet-proxy answered HTTP ${response.status} for the identity provider list.`);
   const { ConcordiumGRPCNodeClient, credentials } = await import('@concordium/web-sdk/nodejs');
   const node = new ConcordiumGRPCNodeClient('grpc.testnet.concordium.com', 20000, credentials.createSsl());

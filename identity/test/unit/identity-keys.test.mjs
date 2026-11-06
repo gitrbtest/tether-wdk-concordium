@@ -42,7 +42,7 @@ test('a raw seed must be exactly 64 bytes, and the error never repeats it', () =
 });
 
 test('the configuration is checked before the seed', () => {
-  assert.throws(() => new ConcordiumIdentity('not a valid phrase', { walletProxyUrl: 'https://wallet-proxy.example' }),
+  assert.throws(() => new ConcordiumIdentity('not a valid phrase', { identityProviders: [] }),
     /useMainnetKeyDerivation is required/);
 });
 

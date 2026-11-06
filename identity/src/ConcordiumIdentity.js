@@ -4,7 +4,6 @@ import { parseIdentityConfig } from './shared/config.js';
 import { requireIndex, toSeedBytes } from './shared/inputs.js';
 import HeldIdentities from './shared/HeldIdentities.js';
 import IdentityProviders from './providers/IdentityProviders.js';
-import WalletProxy from './providers/WalletProxy.js';
 import ChainNode from './chain/ChainNode.js';
 import IdentityIssuance from './issuance/IdentityIssuance.js';
 import IdentityRecovery from './recovery/IdentityRecovery.js';
@@ -36,7 +35,7 @@ export default class ConcordiumIdentity {
 
   /**
    * @param {string | Uint8Array} seed  the wallet's BIP-39 seed phrase, or its 64-byte seed
-   * @param {{ useMainnetKeyDerivation: boolean, walletProxyUrl: string, identityProviders: object[], node: object }} config
+   * @param {{ useMainnetKeyDerivation: boolean, identityProviders: object[], node: object }} config
    *   e.g. { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders, node }: use the same key derivation as the
    *   wallet package; identityProviders is the identity provider list (the wallet-proxy's /v1/ip_info shape), which
    *   the package does not fetch; node is the wallet's connection to a Concordium node (the package never opens one)
@@ -50,19 +49,18 @@ export default class ConcordiumIdentity {
     this._config = parseIdentityConfig(config); // validated before the seed is touched
     this._fetch = fetchFn;
     const fetchVia = (url, options) => this._fetch(url, options);
-    const walletProxy = new WalletProxy(this._config, { fetch: fetchVia });
     const node = new ChainNode(this._config.node); // the wallet's own node connection
     const providers = new IdentityProviders(this._config.identityProviders);
     const hdWallet = () => this._hdWallet; // the helpers never see the seed itself
 
     this._held = new HeldIdentities();
     this._issuance = new IdentityIssuance({ providers, node, fetch: fetchVia, hdWallet, held: this._held });
-    this._recovery = new IdentityRecovery({ providers, walletProxy, node, fetch: fetchVia, hdWallet, held: this._held });
+    this._recovery = new IdentityRecovery({ providers, node, fetch: fetchVia, hdWallet, held: this._held });
     this._proofs = new IdentityProofs({
       node, hdWallet, held: this._held, network: this._config.derivationNetwork,
       findAccounts: (options) => this._recovery.findAccounts(options),
     });
-    this._accounts = new AccountCreator({ providers, walletProxy, node, hdWallet });
+    this._accounts = new AccountCreator({ providers, node, hdWallet });
     this._seed = toSeedBytes(seed);
   }
 
@@ -206,7 +204,7 @@ export default class ConcordiumIdentity {
 
   /**
    * Find the accounts an identity has on chain, e.g. after recoverIdentity on a new device. Each
-   * account's address comes from this wallet's seed (account 0, 1, 2 …) and the wallet-proxy says
+   * account's address comes from this wallet's seed (account 0, 1, 2 …) and the node says
    * whether it exists; the search stops after `gap` account numbers in a row with no account, or at the
    * identity's maxAccounts when the identity is held here. Read-only: it only asks whether each address
    * exists, and sends no transaction (nothing changes on chain, no fee). The addresses come from the seed
@@ -222,7 +220,7 @@ export default class ConcordiumIdentity {
    * @returns {Promise<Array<{ credNumber: number, address: string, path: string }>>}  the accounts found,
    *   in order; `path` is what the wallet package's getAccountByPath takes ('provider/identity/credNumber')
    * @throws {IdentityProviderError} If the provider is not published.
-   * @throws {IdentityRecoveryError} reason 'wallet-proxy' or 'cancelled'.
+   * @throws {IdentityRecoveryError} reason 'node' or 'cancelled'.
    */
   async findAccounts(options) {
     this._requireNotDisposed();
@@ -260,7 +258,7 @@ export default class ConcordiumIdentity {
    * @param {AbortSignal} [options.signal]  cancels the search
    * @returns {Promise<number>}
    * @throws {IdentityProviderError} If the provider is not published.
-   * @throws {IdentityRecoveryError} reason 'wallet-proxy' or 'cancelled'.
+   * @throws {IdentityRecoveryError} reason 'node' or 'cancelled'.
    */
   async nextCredNumber(options) {
     this._requireNotDisposed();
@@ -467,7 +465,7 @@ export default class ConcordiumIdentity {
    * @returns {Promise<{ providerIndex: number, identityIndex: number, credNumber: number, path: string, address: string,
    *   created: boolean, transactionHash?: string, blockHash?: string }>}
    * @throws {AccountCreationError} reason 'identity-expired', 'max-accounts' or 'unknown-attribute' (nothing
-   *   sent); 'rejected', 'expired', 'timeout', 'cancelled' or 'wallet-proxy' (see AccountCreationError)
+   *   sent); 'rejected', 'expired', 'timeout', 'cancelled' or 'node' (see AccountCreationError)
    * @throws {Error} If no identity is held for these numbers, an input is invalid, or the identity has been disposed.
    */
   async createAccount(options) {

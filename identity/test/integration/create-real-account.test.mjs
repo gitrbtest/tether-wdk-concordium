@@ -24,7 +24,8 @@ const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon 
 const ISSUED_FOR = { providerIndex: 0, identityIndex: 334563111 };
 const CODE_URI = 'https://id-service.testnet.concordium.com/api/v1/identity/51cf6074722e6685934b4d06fba5baf0045d1d8130ead5ba7fac04dabff9ba3a';
 const recordedReply = () => JSON.parse(readFileSync(new URL('../fixtures/identity-done.testnet.json', import.meta.url), 'utf8'));
-const WALLET_PROXY = CONCORDIUM_TESTNET_IDENTITY_CONFIG.walletProxyUrl;
+// A second opinion, independent of the package (which only talks to the node): the wallet-proxy's own view.
+const WALLET_PROXY = 'https://wallet-proxy.testnet.concordium.com';
 /** The account numbers reserved for this test (the identity allows 0–199). */
 const TEST_ACCOUNTS = { first: 100, last: 199 };
 

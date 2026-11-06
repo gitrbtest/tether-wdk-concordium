@@ -40,13 +40,13 @@ export class IdentityIssuanceError extends Error {
  *   (`status` and `detail` carry what it said)
  * - not-yours: the provider returned an identity that does not belong to this wallet's seed
  * - network: the provider could not be reached (after a few tries)
- * - wallet-proxy: finding accounts, the wallet-proxy failed or answered unexpectedly (`detail` has what it said)
+ * - node: finding accounts, the Concordium node could not be asked (`detail` has what it said)
  * - cancelled: the wallet cancelled it (its AbortSignal)
  */
 export class IdentityRecoveryError extends Error {
   /**
    * @param {string} message
-   * @param {{ reason: 'provider-error' | 'not-yours' | 'network' | 'wallet-proxy' | 'cancelled', status?: number, detail?: string }} info
+   * @param {{ reason: 'provider-error' | 'not-yours' | 'network' | 'node' | 'cancelled', status?: number, detail?: string }} info
    */
   constructor(message, { reason, status, detail } = {}) {
     super(message);
@@ -91,18 +91,18 @@ export class ProofError extends Error {
  * - 'max-accounts': the account number is not below the identity's maxAccounts
  * - 'unknown-attribute': an attribute to reveal is not one the identity holds (`detail` names it)
  * While sending and waiting:
- * - rejected: the chain refused the credential (`detail` has the reason, if the chain gave one)
+ * - rejected: the node refused the credential, or it was finalized without creating the account (`detail` says)
  * - expired: the credential was not included on chain before its expiry time
  * - timeout: the wait ended before the account was final; it may still be created (ask again)
  * - cancelled: the wait was cancelled; if the credential was sent, the account may still be created
- * - wallet-proxy: the wallet-proxy failed or answered unexpectedly (`detail` has what it said)
+ * - node: the Concordium node could not be asked, or answered unexpectedly (`detail` has what it said)
  * Carries the new account's `address` and the `transactionHash` when they are known.
  */
 export class AccountCreationError extends Error {
   /**
    * @param {string} message
    * @param {{ reason: 'identity-expired' | 'max-accounts' | 'unknown-attribute'
-   *   | 'rejected' | 'expired' | 'timeout' | 'cancelled' | 'wallet-proxy',
+   *   | 'rejected' | 'expired' | 'timeout' | 'cancelled' | 'node',
    *   address?: string, transactionHash?: string, detail?: string }} info
    */
   constructor(message, { reason, address, transactionHash, detail } = {}) {

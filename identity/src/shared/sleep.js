@@ -1,6 +1,6 @@
 /**
  * Wait `ms`, or stop early when `signal` aborts: then reject with the error `cancelled()` returns.
- * Used while polling (the identity provider, the wallet-proxy) so a wallet can cancel a wait at any time.
+ * Used while polling (the identity provider, the node) so a wallet can cancel a wait at any time.
  *
  * @param {number} ms
  * @param {AbortSignal | undefined} signal

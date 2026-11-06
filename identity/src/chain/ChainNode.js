@@ -1,12 +1,14 @@
 /**
  * The Concordium node, through the connection the wallet passes in (`config.node`). Internal: ConcordiumIdentity's
- * helpers use it. The package never opens a connection itself, so it runs wherever the wallet's own client does: a
- * gRPC client in Node.js (ConcordiumGRPCNodeClient), gRPC-web in browsers and phones (ConcordiumGRPCWebClient), or
- * the client a WDK wallet already has.
+ * helpers use it for everything they need from the chain: the network's cryptographic parameters, whether an account
+ * exists, and sending a new account's credential and following it. The package never opens a connection itself, so
+ * it runs wherever the wallet's own client does: a gRPC client in Node.js (ConcordiumGRPCNodeClient), gRPC-web in
+ * browsers and phones (ConcordiumGRPCWebClient), or the client a WDK wallet already has.
  */
+import * as sdk from '@concordium/web-sdk';
 
 /** The node methods the package calls. */
-export const NODE_METHODS = ['getCryptographicParameters'];
+export const NODE_METHODS = ['getCryptographicParameters', 'getAccountInfo', 'sendCredentialDeploymentTransaction', 'getBlockItemStatus'];
 
 /**
  * Check the node connection the wallet passed in has the methods the package calls.
@@ -22,6 +24,9 @@ export function requireNode(node) {
   }
   return node;
 }
+
+/** The node's "not found" answer (gRPC status NOT_FOUND): no such account, or no such transaction. */
+export const isNotFound = (e) => e?.code === 'NOT_FOUND' || e?.code === 5;
 
 export default class ChainNode {
   #client;
@@ -51,5 +56,61 @@ export default class ChainNode {
       this.#globalContext = parameters;
     }
     return this.#globalContext;
+  }
+
+  /**
+   * Whether an account exists on chain (at the last finalized block). The node answers "not found" for an address
+   * with no account; any other failure is thrown, so it is never mistaken for "no account".
+   * @param {string} address  base58
+   */
+  async accountExists(address) {
+    try {
+      await this.#client.getAccountInfo(sdk.AccountAddress.fromBase58(address));
+      return true;
+    } catch (e) {
+      if (isNotFound(e)) return false;
+      throw e;
+    }
+  }
+
+  /**
+   * Send a signed credential that creates an account.
+   * @param {{ payload: Uint8Array, expiry: object }} credential  the serialized credential and its expiry (see
+   *   account/credential.js)
+   * @returns {Promise<string>}  the transaction hash, hex
+   * @throws whatever the node answers when it refuses it (e.g. an invalid credential), as the node's error
+   */
+  async sendCredential({ payload, expiry }) {
+    const hash = await this.#client.sendCredentialDeploymentTransaction(payload, expiry);
+    return sdk.TransactionHash.toHexString(hash);
+  }
+
+  /**
+   * Where a sent transaction is:
+   *   { status: 'absent' }      the node does not know it (not yet seen, or dropped)
+   *   { status: 'received' }    waiting to be put in a block
+   *   { status: 'committed' }   in a block, not yet final
+   *   { status: 'finalized', created: boolean, blockHash, detail? }  final; created says whether it made an account
+   *   { status: 'unexpected', detail }  an answer the package does not know (reported, not waited on)
+   * @param {string} transactionHash  hex
+   */
+  async transactionStatus(transactionHash) {
+    let status;
+    try {
+      status = await this.#client.getBlockItemStatus(sdk.TransactionHash.fromHexString(transactionHash));
+    } catch (e) {
+      if (isNotFound(e)) return { status: 'absent' };
+      throw e;
+    }
+    if (status?.status === 'finalized') {
+      const { blockHash, summary } = status.outcome ?? {};
+      const created = summary?.type === sdk.TransactionSummaryType.AccountCreation;
+      return {
+        status: 'finalized', created, blockHash: blockHash && sdk.BlockHash.toHexString(blockHash),
+        ...(created ? {} : { detail: `finalized as ${summary?.type ?? 'unknown'}` }),
+      };
+    }
+    if (status?.status === 'received' || status?.status === 'committed') return { status: status.status };
+    return { status: 'unexpected', detail: JSON.stringify(status?.status) }; // reported by the caller, not waited on
   }
 }

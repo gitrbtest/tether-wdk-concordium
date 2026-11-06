@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import * as sdk from '@concordium/web-sdk';
 import { ConcordiumIdentity, ProofError, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
 import { requestFor } from '@concordium/wdk-identity-concordium/verify';
-import { walletProxyFetch, globalFixture, testnetConfig } from '../helpers.mjs';
+import { walletProxyFetch, globalFixture, testnetConfig, recordedNode } from '../helpers.mjs';
 
 const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const RECORDED = { providerIndex: 0, identityIndex: 334563111 };
@@ -25,13 +25,10 @@ async function walletWithIdentity({ accountsOnChain = [ACCOUNT_0.address], valid
       if (validTo) issued.token.identityObject.value.attributeList.validTo = validTo; // e.g. an expired identity
       return { ok: true, status: 200, json: async () => issued };
     }
-    if (String(url).includes('/v0/accBalance/')) {
-      const address = String(url).split('/v0/accBalance/')[1];
-      return { ok: true, status: 200, json: async () => (accountsOnChain.includes(address) ? { finalizedBalance: { accountAmount: '1' } } : {}) };
-    }
     return recorded.fetch(url, options);
   };
-  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch });
+  const node = recordedNode('testnet', { accountExists: (address) => accountsOnChain.includes(address) });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node }), { fetch });
   await wallet.waitForIdentity(CODE_URI, { ...RECORDED, intervalMs: 1 });
   return wallet;
 }

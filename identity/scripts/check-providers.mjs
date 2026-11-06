@@ -21,6 +21,11 @@ const NETWORKS = {
   testnet: { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, node: nodeAt('grpc.testnet.concordium.com') },
   mainnet: { ...CONCORDIUM_MAINNET_IDENTITY_CONFIG, node: nodeAt('grpc.mainnet.concordium.software') },
 };
+// Where each network's identity provider list is published today: the wallet-proxy's /v1/ip_info.
+const LIST_URLS = {
+  testnet: 'https://wallet-proxy.testnet.concordium.com/v1/ip_info',
+  mainnet: 'https://wallet-proxy.mainnet.concordium.software/v1/ip_info',
+};
 const MARK = { accepted: '✔', 'provider-error': '✖', 'http-error': '✖', unreachable: '✖', 'no-issuance-address': '–' };
 const SAYS = {
   accepted: 'request accepted, verification page opens at',
@@ -41,7 +46,7 @@ let failed = false;
 for (const network of chosen.length ? chosen : Object.keys(NETWORKS)) {
   let results;
   try {
-    results = await checkNetwork(NETWORKS[network]);
+    results = await checkNetwork(NETWORKS[network], { listUrl: LIST_URLS[network] });
   } catch (e) {
     console.log(`${network.padEnd(8)} the wallet-proxy could not be read: ${e.message}`);
     failed = true;
