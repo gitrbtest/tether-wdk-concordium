@@ -44,7 +44,10 @@ function get(url, { host, token } = {}) {
 }
 
 async function withDemo(env, run) {
-  const demo = await startDemoServer({ settings: readSettings(env), port: 0, checkProviders: false });
+  const { walletProxyFetch, recordedNode } = await import('../helpers.mjs');
+  const demo = await startDemoServer({
+    settings: readSettings(env), port: 0, checkProviders: false, fetch: walletProxyFetch('testnet').fetch, node: recordedNode('testnet'),
+  });
   try { await run(demo); } finally { await demo.close(); }
 }
 
@@ -117,7 +120,8 @@ async function withRecordedDemo(changes, run) {
   const fetch = async (url, options) => (url === CODE_URI ? { ok: true, status: 200, json: async () => issued() } : recorded(url, options));
   const storeFolder = mkdtempSync(join(tmpdir(), 'demo-wallet-test-'));
   const settings = { ...readSettings({}), identityIndex: RECORDED_IDENTITY, identityFolder: storeFolder, ...changes };
-  const demo = await startDemoServer({ settings, port: 0, fetch, checkProviders: false });
+  const { recordedNode } = await import('../helpers.mjs');
+  const demo = await startDemoServer({ settings, port: 0, fetch, node: recordedNode('testnet'), checkProviders: false });
   try { await run(demo, storeFolder); } finally { await demo.close(); rmSync(storeFolder, { recursive: true, force: true }); }
 }
 
@@ -250,7 +254,8 @@ async function withIdentityReady(env, run) {
   const wallet = fakeWalletPackage();
   // A fresh identity (verified below), whatever the env says about reusing one.
   const settings = { ...readSettings(env), identityIndex: RECORDED_IDENTITY, reuseIdentity: false, identityFolder: storeFolder };
-  const demo = await startDemoServer({ settings, port: 0, fetch, checkProviders: false, makeWallet: wallet.makeWallet, pauseMs: 5 });
+  const { recordedNode } = await import('../helpers.mjs');
+  const demo = await startDemoServer({ settings, port: 0, fetch, node: recordedNode('testnet'), checkProviders: false, makeWallet: wallet.makeWallet, pauseMs: 5 });
   try {
     await post(demo, '/api/start');
     await post(demo, '/api/verify', { providerIndex: 0 });

@@ -1,10 +1,11 @@
 import { readProviderList } from '../providers/provider-list.js';
+import { requireNode } from '../chain/ChainNode.js';
 
 /**
  * Public presets. `useMainnetKeyDerivation` has the same name and meaning as in
  * @concordium/wdk-wallet-concordium, so both packages derive keys from the same
- * tree; the wallet-proxy serves the network's cryptographic parameters. The identity provider list is not in the
- * presets: the wallet passes it in as identityProviders (e.g. fetched from `${walletProxyUrl}/v1/ip_info`).
+ * tree. Two things are not in the presets, and the wallet passes them in: the identity provider list
+ * (identityProviders, e.g. fetched from the wallet-proxy's /v1/ip_info) and its connection to a Concordium node (node).
  * The derivation flag does not verify the connected network.
  */
 export const CONCORDIUM_MAINNET_IDENTITY_CONFIG = {
@@ -32,7 +33,7 @@ function parseHttpUrl(value, field) {
 /** Validate the identity configuration, without contacting any services. */
 export function parseIdentityConfig(config) {
   if (!config || typeof config !== 'object' || Array.isArray(config)) {
-    throw new Error('A configuration with useMainnetKeyDerivation, walletProxyUrl and identityProviders is required.');
+    throw new Error('A configuration with useMainnetKeyDerivation, walletProxyUrl, identityProviders and node is required.');
   }
   if (typeof config.useMainnetKeyDerivation !== 'boolean') {
     throw new Error('config.useMainnetKeyDerivation is required and must be a boolean.');
@@ -45,6 +46,8 @@ export function parseIdentityConfig(config) {
     ...config,
     // The identity provider list the wallet passed in, checked (the package does not fetch it).
     identityProviders: readProviderList(config.identityProviders),
+    // The wallet's connection to a Concordium node, checked to have the methods the package calls.
+    node: requireNode(config.node),
     // The SDK's ConcordiumHdWallet takes the derivation network by name.
     derivationNetwork: config.useMainnetKeyDerivation ? 'Mainnet' : 'Testnet',
     // A base path is allowed (e.g. a proxy mounted under /concordium); paths are joined onto it.

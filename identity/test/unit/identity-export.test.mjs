@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import {
   ConcordiumIdentity, IdentityStorageError, CONCORDIUM_TESTNET_IDENTITY_CONFIG, CONCORDIUM_MAINNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
-import { walletProxyFetch, testnetConfig, mainnetConfig } from '../helpers.mjs';
+import { walletProxyFetch, testnetConfig, mainnetConfig, recordedNode } from '../helpers.mjs';
 
 const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const OTHER_PHRASE = 'legal winner thank year wave sausage worth useful legal winner thank yellow';
@@ -101,9 +101,10 @@ test('plain export (encrypted: false): JSON with the identity in the clear, impo
     ['concordium-wdk-identity', 1, 'testnet', 0, 334563111]);
   assert.deepEqual(json.identityObject, issuedIdentity());
 
-  const after = wallet();
+  const node = recordedNode('testnet');
+  const after = wallet(PHRASE, testnetConfig({ node }));
   assert.equal((await after.importIdentity(text)).validTo, '202709');
-  assert.ok(after.calls.some((u) => u.endsWith('/v0/global')), 'the ownership check uses the network\'s parameters');
+  assert.equal(node.calls, 1, 'the ownership check uses the network\'s parameters, from the node');
   after.dispose();
 
   await assert.rejects(wallet(OTHER_PHRASE).importIdentity(text), (e) => e instanceof IdentityStorageError && e.reason === 'not-yours');

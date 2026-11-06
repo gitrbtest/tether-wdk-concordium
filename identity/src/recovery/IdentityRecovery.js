@@ -33,18 +33,20 @@ function requireRecoveryAddress(provider) {
 export default class IdentityRecovery {
   #providers;
   #walletProxy;
+  #node;
   #fetch;
   #hdWallet;
   #held;
 
   /**
-   * @param {{ providers: object, walletProxy: object, fetch: typeof fetch, hdWallet: () => object,
+   * @param {{ providers: object, walletProxy: object, node: object, fetch: typeof fetch, hdWallet: () => object,
    *   held: import('../shared/HeldIdentities.js').default }} collaborators
    *   hdWallet: returns the key derivation for the wallet's seed (throws once the seed is disposed)
    */
-  constructor({ providers, walletProxy, fetch, hdWallet, held }) {
+  constructor({ providers, walletProxy, node, fetch, hdWallet, held }) {
     this.#providers = providers;
     this.#walletProxy = walletProxy;
+    this.#node = node;
     this.#fetch = fetch;
     this.#hdWallet = hdWallet;
     this.#held = held;
@@ -78,7 +80,7 @@ export default class IdentityRecovery {
    */
   async #askFor(provider, identityIndex, signal) {
     const providerIndex = provider.index;
-    const globalContext = await this.#walletProxy.globalContext();
+    const globalContext = await this.#node.globalContext();
     const request = recoveryRequest({ provider, globalContext, hdWallet: this.#hdWallet(), identityIndex });
     const identityObject = await askProviderForIdentity({
       fetch: this.#fetch, url: recoveryLink(provider.recoveryStart, request), signal,
@@ -200,7 +202,7 @@ export default class IdentityRecovery {
   /** findAccounts, for a provider already looked up. */
   async #findAccountsFrom(provider, identityIndex, gap, signal) {
     const providerIndex = provider.index;
-    const globalContext = await this.#walletProxy.globalContext();
+    const globalContext = await this.#node.globalContext();
     const hdWallet = this.#hdWallet();
     // An identity held here says how many accounts it allows; there is no point looking beyond that.
     const limit = this.#held.has(providerIndex, identityIndex)

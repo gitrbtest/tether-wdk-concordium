@@ -25,6 +25,7 @@ import {
 } from '@concordium/wdk-identity-concordium';
 import { listenForIdentityCallback } from '@concordium/wdk-identity-concordium/node';
 import { keepIdentity } from './kept-identities.mjs';
+import { ConcordiumGRPCNodeClient, credentials } from '@concordium/web-sdk/nodejs';
 
 // Public demonstration phrase only. Never use it for anything of value.
 const DEMO_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
@@ -38,7 +39,10 @@ const folder = process.env.IDENTITY_FOLDER || './demo-identities';
 // The identity provider list: the package does not fetch it. The wallet does (here from the wallet-proxy, once)
 // and passes it in; only its shape matters.
 const identityProviders = await (await fetch(`${CONCORDIUM_TESTNET_IDENTITY_CONFIG.walletProxyUrl}/v1/ip_info`)).json();
-const identity = new ConcordiumIdentity(seedPhrase, { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders });
+// The wallet's own connection to a Concordium node (here Concordium's public testnet node): the package never
+// opens one itself.
+const node = new ConcordiumGRPCNodeClient('grpc.testnet.concordium.com', 20000, credentials.createSsl());
+const identity = new ConcordiumIdentity(seedPhrase, { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders, node });
 
 // A "cancel switch" (a standard AbortController): pressing Ctrl+C flips it, and the waits below stop cleanly.
 const cancel = new AbortController();

@@ -5,6 +5,7 @@ import { requireIndex, toSeedBytes } from './shared/inputs.js';
 import HeldIdentities from './shared/HeldIdentities.js';
 import IdentityProviders from './providers/IdentityProviders.js';
 import WalletProxy from './providers/WalletProxy.js';
+import ChainNode from './chain/ChainNode.js';
 import IdentityIssuance from './issuance/IdentityIssuance.js';
 import IdentityRecovery from './recovery/IdentityRecovery.js';
 import IdentityProofs from './proofs/IdentityProofs.js';
@@ -35,10 +36,10 @@ export default class ConcordiumIdentity {
 
   /**
    * @param {string | Uint8Array} seed  the wallet's BIP-39 seed phrase, or its 64-byte seed
-   * @param {{ useMainnetKeyDerivation: boolean, walletProxyUrl: string, identityProviders: object[] }} config
-   *   e.g. { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders }: use the same key derivation as the wallet
-   *   package; identityProviders is the identity provider list (the wallet-proxy's /v1/ip_info shape), which the
-   *   package does not fetch
+   * @param {{ useMainnetKeyDerivation: boolean, walletProxyUrl: string, identityProviders: object[], node: object }} config
+   *   e.g. { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders, node }: use the same key derivation as the
+   *   wallet package; identityProviders is the identity provider list (the wallet-proxy's /v1/ip_info shape), which
+   *   the package does not fetch; node is the wallet's connection to a Concordium node (the package never opens one)
    * @param {{ fetch?: typeof fetch }} [options]  fetch: HTTP implementation (defaults to the global fetch)
    */
   constructor(seed, config, { fetch: fetchFn = (url, options) => fetch(url, options), ...rest } = {}) {
@@ -50,17 +51,18 @@ export default class ConcordiumIdentity {
     this._fetch = fetchFn;
     const fetchVia = (url, options) => this._fetch(url, options);
     const walletProxy = new WalletProxy(this._config, { fetch: fetchVia });
+    const node = new ChainNode(this._config.node); // the wallet's own node connection
     const providers = new IdentityProviders(this._config.identityProviders);
     const hdWallet = () => this._hdWallet; // the helpers never see the seed itself
 
     this._held = new HeldIdentities();
-    this._issuance = new IdentityIssuance({ providers, walletProxy, fetch: fetchVia, hdWallet, held: this._held });
-    this._recovery = new IdentityRecovery({ providers, walletProxy, fetch: fetchVia, hdWallet, held: this._held });
+    this._issuance = new IdentityIssuance({ providers, node, fetch: fetchVia, hdWallet, held: this._held });
+    this._recovery = new IdentityRecovery({ providers, walletProxy, node, fetch: fetchVia, hdWallet, held: this._held });
     this._proofs = new IdentityProofs({
-      walletProxy, hdWallet, held: this._held, network: this._config.derivationNetwork,
+      node, hdWallet, held: this._held, network: this._config.derivationNetwork,
       findAccounts: (options) => this._recovery.findAccounts(options),
     });
-    this._accounts = new AccountCreator({ providers, walletProxy, hdWallet });
+    this._accounts = new AccountCreator({ providers, walletProxy, node, hdWallet });
     this._seed = toSeedBytes(seed);
   }
 

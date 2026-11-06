@@ -16,18 +16,18 @@ import { identityContent, hasExpired } from '../issuance/identity-object.js';
 import { readProofRequest, attributeLabel } from './proof-request.js';
 
 export default class IdentityProofs {
-  #walletProxy;
+  #node;
   #hdWallet;
   #held;
   #network;
   #findAccounts;
 
   /**
-   * @param {{ walletProxy: object, hdWallet: () => object, held: object, network: 'Testnet' | 'Mainnet',
+   * @param {{ node: object, hdWallet: () => object, held: object, network: 'Testnet' | 'Mainnet',
    *   findAccounts: (options: object) => Promise<Array<{ credNumber: number, address: string, path: string }>> }} collaborators
    */
-  constructor({ walletProxy, hdWallet, held, network, findAccounts }) {
-    this.#walletProxy = walletProxy;
+  constructor({ node, hdWallet, held, network, findAccounts }) {
+    this.#node = node;
     this.#hdWallet = hdWallet;
     this.#held = held;
     this.#network = network;
@@ -50,7 +50,7 @@ export default class IdentityProofs {
     this.#checkCanAnswer(credentialStatements, providerIndex, attributeList.chosenAttributes);
 
     // Which account answers: its credential id (worked out from the seed) names it, as a "DID".
-    const globalContext = await this.#walletProxy.globalContext();
+    const globalContext = await this.#node.globalContext();
     const hdWallet = this.#hdWallet();
     const credId = bytesToHex(hdWallet.getCredentialId(providerIndex, identityIndex, credNumber, globalContext));
     const did = sdk.createAccountDID(this.#network, credId);

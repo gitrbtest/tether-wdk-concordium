@@ -14,7 +14,7 @@ import { identityContent, summaryOf } from './identity-object.js';
 
 export default class IdentityIssuance {
   #providers;
-  #walletProxy;
+  #node;
   #fetch;
   #hdWallet;
   #held;
@@ -26,13 +26,13 @@ export default class IdentityIssuance {
   requestAwaitingIdentity = null;
 
   /**
-   * @param {{ providers: object, walletProxy: object, fetch: typeof fetch, hdWallet: () => object,
+   * @param {{ providers: object, node: object, fetch: typeof fetch, hdWallet: () => object,
    *   held: import('../shared/HeldIdentities.js').default }} collaborators
    *   hdWallet: returns the key derivation for the wallet's seed (throws once the seed is disposed)
    */
-  constructor({ providers, walletProxy, fetch, hdWallet, held }) {
+  constructor({ providers, node, fetch, hdWallet, held }) {
     this.#providers = providers;
-    this.#walletProxy = walletProxy;
+    this.#node = node;
     this.#fetch = fetch;
     this.#hdWallet = hdWallet;
     this.#held = held;
@@ -56,7 +56,7 @@ export default class IdentityIssuance {
       throw new IdentityProviderError(
         `Identity provider ${providerIndex} publishes no issuance address on this network.`, providerIndex);
     }
-    const globalContext = await this.#walletProxy.globalContext();
+    const globalContext = await this.#node.globalContext();
     const idObjectRequest = buildIdentityRequest({ provider, globalContext, hdWallet: this.#hdWallet(), identityIndex });
     this.requestAwaitingIdentity = { providerIndex, identityIndex };
     return { issuanceUrl: issuanceLink(provider.issuanceStart, idObjectRequest, redirectUri), providerIndex, identityIndex };
@@ -99,7 +99,7 @@ export default class IdentityIssuance {
   /** The idCredPub an identity for this seed, provider and identity index must carry. */
   async expectedIdCredPub(providerIndex, identityIndex) {
     const provider = await this.#providers.get(providerIndex);
-    const globalContext = await this.#walletProxy.globalContext();
+    const globalContext = await this.#node.globalContext();
     return expectedIdCredPub({ provider, globalContext, hdWallet: this.#hdWallet(), identityIndex });
   }
 

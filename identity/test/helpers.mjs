@@ -119,26 +119,50 @@ export async function pretendNode({ validTo = '202709', createdAt = '202609', co
 export async function identityConfig(network, overrides = {}) {
   const { CONCORDIUM_TESTNET_IDENTITY_CONFIG, CONCORDIUM_MAINNET_IDENTITY_CONFIG } = await import('../index.js');
   const preset = network === 'mainnet' ? CONCORDIUM_MAINNET_IDENTITY_CONFIG : CONCORDIUM_TESTNET_IDENTITY_CONFIG;
-  return { ...preset, identityProviders: ipInfoFixture(network), ...overrides };
+  return { ...preset, identityProviders: ipInfoFixture(network), node: recordedNode(network), ...overrides };
 }
 
-/** The testnet configuration with the recorded provider list (synchronous: for use inside constructors). */
+/**
+ * A pretend Concordium node for one network, answering from recordings: the cryptographic parameters (or
+ * `parameters`, e.g. a broken set; or `fail`, an error to throw). `calls` counts the questions asked.
+ */
+export function recordedNode(network, { parameters, fail } = {}) {
+  const node = {
+    calls: 0,
+    async getCryptographicParameters() {
+      node.calls++;
+      if (fail) throw fail;
+      return parameters ?? globalFixture(network).value;
+    },
+  };
+  return node;
+}
+
+/** The testnet configuration with the recorded provider list and a recorded node (synchronous: for constructors). */
 export function testnetConfig(overrides = {}) {
-  return { useMainnetKeyDerivation: false, walletProxyUrl: 'https://wallet-proxy.testnet.concordium.com', identityProviders: ipInfoFixture('testnet'), ...overrides };
+  return {
+    useMainnetKeyDerivation: false, walletProxyUrl: 'https://wallet-proxy.testnet.concordium.com',
+    identityProviders: ipInfoFixture('testnet'), node: recordedNode('testnet'), ...overrides,
+  };
 }
 
-/** The mainnet configuration with the recorded provider list. */
+/** The mainnet configuration with the recorded provider list and a recorded node. */
 export function mainnetConfig(overrides = {}) {
-  return { useMainnetKeyDerivation: true, walletProxyUrl: 'https://wallet-proxy.mainnet.concordium.software', identityProviders: ipInfoFixture('mainnet'), ...overrides };
+  return {
+    useMainnetKeyDerivation: true, walletProxyUrl: 'https://wallet-proxy.mainnet.concordium.software',
+    identityProviders: ipInfoFixture('mainnet'), node: recordedNode('mainnet'), ...overrides,
+  };
 }
 
 /**
  * For live tests: the testnet configuration with the LIVE provider list, fetched from the wallet-proxy as a wallet
- * would (the package does not fetch it), so a change on the network shows up.
+ * would (the package does not fetch it), and a real testnet node connection, so a change on the network shows up.
  */
 export async function liveTestnetConfig(overrides = {}) {
   const config = testnetConfig();
   const response = await fetch(`${config.walletProxyUrl}/v1/ip_info`);
   if (!response.ok) throw new Error(`The wallet-proxy answered HTTP ${response.status} for the identity provider list.`);
-  return { ...config, identityProviders: await response.json(), ...overrides };
+  const { ConcordiumGRPCNodeClient, credentials } = await import('@concordium/web-sdk/nodejs');
+  const node = new ConcordiumGRPCNodeClient('grpc.testnet.concordium.com', 20000, credentials.createSsl());
+  return { ...config, identityProviders: await response.json(), node, ...overrides };
 }

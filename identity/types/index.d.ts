@@ -10,8 +10,14 @@ export interface IdentityConfig {
    * @concordium/wdk-wallet-concordium; use the same value for both packages.
    */
   useMainnetKeyDerivation: boolean;
-  /** Absolute HTTP(S) URL of a Concordium wallet-proxy; it serves the network's cryptographic parameters. */
+  /** Absolute HTTP(S) URL of a Concordium wallet-proxy; it sends new accounts' credentials and says whether accounts exist. */
   walletProxyUrl: string;
+  /**
+   * The wallet's connection to a Concordium node: the package never opens one itself, so it runs wherever the wallet's
+   * client does. E.g. the SDK's ConcordiumGRPCNodeClient (Node.js) or ConcordiumGRPCWebClient (browsers, phones).
+   * The network's cryptographic parameters are read from it.
+   */
+  node: ConcordiumNodeConnection;
   /**
    * The identity provider list, which the wallet passes in (the package does not fetch it): the wallet-proxy's
    * /v1/ip_info shape, e.g. `await (await fetch(`${walletProxyUrl}/v1/ip_info`)).json()`. Checked when the
@@ -36,12 +42,17 @@ export interface IdentityProviderEntry {
   metadata?: { issuanceStart?: string; recoveryStart?: string; icon?: string; support?: string };
 }
 
-/** A preset without the provider list: add it, e.g. { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders }. */
-export type IdentityConfigPreset = Omit<IdentityConfig, 'identityProviders'>;
+/** The node methods the package calls (any Concordium node client from the SDK has them). */
+export interface ConcordiumNodeConnection {
+  getCryptographicParameters(): Promise<object>;
+}
 
-/** Public mainnet preset (add identityProviders). */
+/** A preset without the provider list and the node: add them, e.g. { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders, node }. */
+export type IdentityConfigPreset = Omit<IdentityConfig, 'identityProviders' | 'node'>;
+
+/** Public mainnet preset (add identityProviders and node). */
 export const CONCORDIUM_MAINNET_IDENTITY_CONFIG: Readonly<IdentityConfigPreset>;
-/** Public testnet preset (add identityProviders). */
+/** Public testnet preset (add identityProviders and node). */
 export const CONCORDIUM_TESTNET_IDENTITY_CONFIG: Readonly<IdentityConfigPreset>;
 
 /** An identity provider as published by the wallet-proxy. */

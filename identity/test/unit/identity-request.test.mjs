@@ -11,7 +11,7 @@ import {
   CONCORDIUM_MAINNET_IDENTITY_CONFIG,
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
-import { ipInfoFixture, walletProxyFetch, testnetConfig, mainnetConfig } from '../helpers.mjs';
+import { ipInfoFixture, walletProxyFetch, testnetConfig, mainnetConfig, recordedNode } from '../helpers.mjs';
 
 const TEST_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const CONFIG = { testnet: testnetConfig, mainnet: mainnetConfig }; // each with the recorded provider list
@@ -21,13 +21,15 @@ const REDIRECT = 'https://wallet.example/identity/return';
 const PROVIDERS = [['testnet', 0], ['testnet', 3], ['mainnet', 1], ['mainnet', 2]];
 
 /**
- * An identity that sees one network's recorded data; `requests` records every URL asked for. `identityProviders`
- * replaces the provider list the wallet passes in (e.g. an edited one); `global` the cryptographic parameters.
+ * An identity that sees one network's recorded data; `requests` records every URL asked for over HTTP, `node` the
+ * pretend node. `identityProviders` replaces the provider list the wallet passes in (e.g. an edited one); `parameters`
+ * the node's cryptographic parameters.
  */
-function offlineIdentity(network, { identityProviders, global } = {}) {
-  const { fetch, requests } = walletProxyFetch(network, { global });
-  const config = CONFIG[network](identityProviders ? { identityProviders } : {});
-  return { identity: new ConcordiumIdentity(TEST_PHRASE, config, { fetch }), requests };
+function offlineIdentity(network, { identityProviders, parameters } = {}) {
+  const { fetch, requests } = walletProxyFetch(network);
+  const node = recordedNode(network, { parameters });
+  const config = CONFIG[network]({ node, ...(identityProviders ? { identityProviders } : {}) });
+  return { identity: new ConcordiumIdentity(TEST_PHRASE, config, { fetch }), requests, node };
 }
 
 const published = (network, index) => ipInfoFixture(network).find((e) => e.ipInfo.ipIdentity === index).metadata;
@@ -35,7 +37,7 @@ const requestOf = (issuanceUrl) => JSON.parse(new URL(issuanceUrl).searchParams.
 
 for (const [network, index] of PROVIDERS) {
   test(`${network} provider ${index}: the link opens its published issuance address with the request`, async () => {
-    const { identity, requests } = offlineIdentity(network);
+    const { identity, requests, node } = offlineIdentity(network);
     const result = await identity.createIdentityRequest({ providerIndex: index, identityIndex: 0, redirectUri: REDIRECT });
 
     const url = new URL(result.issuanceUrl);
@@ -50,7 +52,8 @@ for (const [network, index] of PROVIDERS) {
     }
     assert.deepEqual({ providerIndex: result.providerIndex, identityIndex: result.identityIndex },
       { providerIndex: index, identityIndex: 0 });
-    assert.deepEqual(requests, [`${CONFIG[network]().walletProxyUrl}/v0/global`], 'only the parameters: the provider list is passed in');
+    assert.deepEqual(requests, [], 'nothing over HTTP: the provider list is passed in, the parameters come from the node');
+    assert.equal(node.calls, 1, 'the parameters, from the node');
   });
 }
 
@@ -112,7 +115,7 @@ test('a provider without an issuance address fails clearly, before any cryptogra
 });
 
 test('cryptographic parameters in an unexpected format are reported', async () => {
-  const { identity } = offlineIdentity('testnet', { global: { v: 0, value: {} } });
+  const { identity } = offlineIdentity('testnet', { parameters: {} });
   await assert.rejects(() => identity.createIdentityRequest({ providerIndex: 0, identityIndex: 0, redirectUri: REDIRECT }),
     /cryptographic parameters in an unexpected format/);
 });

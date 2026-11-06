@@ -64,20 +64,26 @@ import {
   CONCORDIUM_TESTNET_IDENTITY_CONFIG, // { useMainnetKeyDerivation: false, walletProxyUrl: 'https://wallet-proxy.testnet.concordium.com' }
 } from '@concordium/wdk-identity-concordium';
 
+import { ConcordiumGRPCNodeClient, credentials } from '@concordium/web-sdk/nodejs'; // or ConcordiumGRPCWebClient
+
 // The identity provider list: the package does not fetch it. Get it once, from wherever you like (today, the
 // wallet-proxy), and pass it in:
 const identityProviders = await (await fetch('https://wallet-proxy.testnet.concordium.com/v1/ip_info')).json();
-const config = { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders };
+// Your connection to a Concordium node: the package never opens one itself.
+const node = new ConcordiumGRPCNodeClient('grpc.testnet.concordium.com', 20000, credentials.createSsl());
+
+const config = { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders, node };
 ```
 
 | Field | Required | Meaning |
 |---|---|---|
 | `useMainnetKeyDerivation` | yes | Derive keys as on mainnet (`true`) or testnet (`false`). Same meaning as in `@concordium/wdk-wallet-concordium`: **use the same value for both packages**, so identities and accounts come from the same keys. It does not check which network the list or the URL belongs to. |
 | `identityProviders` | yes | The identity provider list, in the shape of the wallet-proxy's `/v1/ip_info` (below). The package never fetches it, so if the wallet-proxy is replaced, any source giving the same shape works. It is checked when the `ConcordiumIdentity` is created: a list in the wrong shape is refused, naming the field. To use a newer list, create a new object. |
-| `walletProxyUrl` | yes | Absolute HTTP(S) URL of a Concordium wallet-proxy, which serves the network's cryptographic parameters. A base path is allowed; credentials, query parameters and fragments are not. |
+| `node` | yes | Your connection to a Concordium node: any Concordium node client from `@concordium/web-sdk`, such as `ConcordiumGRPCNodeClient` (Node.js) or `ConcordiumGRPCWebClient` (browsers and phones), or the one your wallet already has. The package never opens a connection itself, so it runs wherever your client does. The network's cryptographic parameters are read from it, once. |
+| `walletProxyUrl` | yes | Absolute HTTP(S) URL of a Concordium wallet-proxy, through which new accounts are sent and accounts are looked up. A base path is allowed; credentials, query parameters and fragments are not. |
 
-The presets hold everything except the list. They can be overridden field by field, e.g. to use your own
-wallet-proxy: `{ ...CONCORDIUM_MAINNET_IDENTITY_CONFIG, walletProxyUrl: 'https://proxy.example.com', identityProviders }`.
+The presets hold everything except the list and the node. They can be overridden field by field, e.g. to use your own
+wallet-proxy: `{ ...CONCORDIUM_MAINNET_IDENTITY_CONFIG, walletProxyUrl: 'https://proxy.example.com', identityProviders, node }`.
 
 ### The provider list's shape
 

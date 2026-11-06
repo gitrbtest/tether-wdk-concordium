@@ -13,7 +13,14 @@ import {
 } from '../index.js';
 import { checkNetwork } from './lib/provider-check.mjs';
 
-const NETWORKS = { testnet: CONCORDIUM_TESTNET_IDENTITY_CONFIG, mainnet: CONCORDIUM_MAINNET_IDENTITY_CONFIG };
+import { ConcordiumGRPCNodeClient, credentials } from '@concordium/web-sdk/nodejs';
+
+// Each network's preset, plus a connection to Concordium's public node there (the package never opens one itself).
+const nodeAt = (host) => new ConcordiumGRPCNodeClient(host, 20000, credentials.createSsl());
+const NETWORKS = {
+  testnet: { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, node: nodeAt('grpc.testnet.concordium.com') },
+  mainnet: { ...CONCORDIUM_MAINNET_IDENTITY_CONFIG, node: nodeAt('grpc.mainnet.concordium.software') },
+};
 const MARK = { accepted: '✔', 'provider-error': '✖', 'http-error': '✖', unreachable: '✖', 'no-issuance-address': '–' };
 const SAYS = {
   accepted: 'request accepted, verification page opens at',

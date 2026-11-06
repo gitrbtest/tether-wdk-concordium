@@ -41,15 +41,17 @@ export function readAccountOptions({
 export default class AccountCreator {
   #providers;
   #walletProxy;
+  #node;
   #hdWallet;
 
   /**
-   * @param {{ providers: object, walletProxy: object, hdWallet: () => object }} collaborators
+   * @param {{ providers: object, walletProxy: object, node: object, hdWallet: () => object }} collaborators
    *   hdWallet: returns the key derivation for the wallet's seed (throws once the seed is disposed)
    */
-  constructor({ providers, walletProxy, hdWallet }) {
+  constructor({ providers, walletProxy, node, hdWallet }) {
     this.#providers = providers;
     this.#walletProxy = walletProxy;
+    this.#node = node;
     this.#hdWallet = hdWallet;
   }
 
@@ -64,7 +66,7 @@ export default class AccountCreator {
     checkBeforeSending(identity, request);
 
     const provider = await this.#providers.get(providerIndex);
-    const globalContext = await this.#walletProxy.globalContext();
+    const globalContext = await this.#node.globalContext();
     const hdWallet = this.#hdWallet();
     const address = accountAddressOf({ provider, globalContext, hdWallet, identityIndex, credNumber });
     // path: how the wallet package asks for this account, getAccountByPath('provider/identity/credNumber').

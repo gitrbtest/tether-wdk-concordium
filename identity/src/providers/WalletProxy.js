@@ -1,11 +1,9 @@
 /**
- * The Concordium wallet-proxy: reading the network's cryptographic parameters, and sending a new account's credential
- * to the chain and following it. Internal: ConcordiumIdentity uses it. (The identity provider list is passed in by the
+ * The Concordium wallet-proxy: sending a new account's credential to the chain and following it, and asking whether
+ * an account exists. Internal: ConcordiumIdentity uses it. (The identity provider list is passed in by the
  * wallet: the package does not fetch it.)
  */
 
-/** The network's cryptographic parameters (the same as the node's). */
-const GLOBAL_PATH = '/v0/global';
 /** Sending a credential that creates an account, and the status of a sent transaction. */
 const SUBMIT_CREDENTIAL_PATH = '/v0/submitCredential';
 const SUBMISSION_STATUS_PATH = '/v0/submissionStatus/';
@@ -28,7 +26,6 @@ export class WalletProxyHttpError extends Error {
 export default class WalletProxy {
   #url;
   #fetch;
-  #globalContext; // fetched once: the parameters do not change
 
   /**
    * @param {{ walletProxyUrl: string }} config  a parsed identity configuration
@@ -37,12 +34,6 @@ export default class WalletProxy {
   constructor({ walletProxyUrl }, { fetch: fetchFn }) {
     this.#url = walletProxyUrl;
     this.#fetch = fetchFn;
-  }
-
-  async #getJson(path, what) {
-    const response = await this.#fetch(this.#url + path);
-    if (!response.ok) throw new Error(`The wallet-proxy answered HTTP ${response.status} for ${what}.`);
-    return response.json();
   }
 
   /**
@@ -83,25 +74,5 @@ export default class WalletProxy {
     }
     const balances = await response.json();
     return Boolean(balances?.currentBalance ?? balances?.finalizedBalance);
-  }
-
-  /**
-   * The network's cryptographic parameters ("global context" in Concordium's SDK): public values that every
-   * wallet and node on the network uses for zero-knowledge proofs, the same for everyone and fixed for the
-   * network. Identity requests, ownership checks and account credentials are all built against them.
-   *   genesisString          the network's name, mixed into proofs so they cannot be reused on another network
-   *   onChainCommitmentKey   the key for commitments ("sealed envelopes" holding attribute values)
-   *   bulletproofGenerators  public numbers for range proofs (e.g. "over 18"); about 49 KB of hex
-   * Read once, then reused: they never change, and the generators are large. They match the node's.
-   */
-  async globalContext() {
-    if (!this.#globalContext) {
-      const { value } = await this.#getJson(GLOBAL_PATH, 'the cryptographic parameters');
-      if (!value?.onChainCommitmentKey || !value?.bulletproofGenerators || !value?.genesisString) {
-        throw new Error('The wallet-proxy returned cryptographic parameters in an unexpected format.');
-      }
-      this.#globalContext = value;
-    }
-    return this.#globalContext;
   }
 }

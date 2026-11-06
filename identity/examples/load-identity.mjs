@@ -17,6 +17,7 @@ import {
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
 import { keptIdentity, keptIdentityNumbers } from './kept-identities.mjs';
+import { ConcordiumGRPCNodeClient, credentials } from '@concordium/web-sdk/nodejs';
 
 // Public demonstration phrase only. Never use it for anything of value.
 const DEMO_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
@@ -47,7 +48,10 @@ const identityIndex = Number(process.env.IDENTITY_INDEX);
 // and passes it in; only its shape matters.
 const identityProviders = await (await fetch(`${CONCORDIUM_TESTNET_IDENTITY_CONFIG.walletProxyUrl}/v1/ip_info`)).json();
 // A brand-new ConcordiumIdentity, as when a wallet app starts again: it holds nothing yet, only the seed phrase.
-const identity = new ConcordiumIdentity(seedPhrase, { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders });
+// The wallet's own connection to a Concordium node (here Concordium's public testnet node): the package never
+// opens one itself.
+const node = new ConcordiumGRPCNodeClient('grpc.testnet.concordium.com', 20000, credentials.createSsl());
+const identity = new ConcordiumIdentity(seedPhrase, { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders, node });
 
 try {
   // The wallet's own copy: here, the text file verify-identity kept (a real wallet reads it from wherever it keeps it).

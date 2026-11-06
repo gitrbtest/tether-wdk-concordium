@@ -40,16 +40,16 @@ export default class DemoFlow {
   #funder = null;   // the funding account's wallet (its seed stays here, never in the state)
   #watchFunds = null;
   #keptFile = null; // where the wallet keeps the exported identity (a file: this demo's own way of keeping it)
-  #config;          // testnet, plus the identity provider list the server fetched at start (the package does not fetch it)
+  #config;          // testnet, plus the provider list the server fetched at start and its node connection
 
   /**
-   * @param {{ settings: object, state: object, identityProviders: object[], fetch?: typeof fetch, checkProviders?: boolean,
+   * @param {{ settings: object, state: object, identityProviders: object[], node: object, fetch?: typeof fetch, checkProviders?: boolean,
    *   makeWallet?: (seed: string) => object, pauseMs?: number }} options
    *   fetch: HTTP for this package (tests pass a fake); checkProviders: run the live "online" check (default true);
    *   makeWallet: the wallet package's manager for a seed (tests pass a fake); pauseMs: waits between checks
    */
   constructor({
-    settings, state, identityProviders, fetch: fetchFn = (url, options) => fetch(url, options), checkProviders = true,
+    settings, state, identityProviders, node, fetch: fetchFn = (url, options) => fetch(url, options), checkProviders = true,
     makeWallet = (seed) => new WalletManagerConcordium(seed, { ...CONCORDIUM_TESTNET_CONFIG }), pauseMs = 2000,
   }) {
     this.#makeWallet = makeWallet;
@@ -59,7 +59,7 @@ export default class DemoFlow {
     this.state = state;
     this.checkProviders = checkProviders;
     // The package stores nothing: it hands the identity to the wallet (exportIdentity), which keeps it its own way.
-    this.#config = { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders };
+    this.#config = { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders, node };
     this.#identity = new ConcordiumIdentity(settings.seedPhrase, this.#config, { fetch: fetchFn });
     Object.assign(state, {
       providers: null, verification: null, identity: null, account: null, balances: null, activity: [], busy: null, error: null,

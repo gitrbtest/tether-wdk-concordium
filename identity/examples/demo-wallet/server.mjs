@@ -16,6 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { readSettings } from './settings.mjs';
 import DemoFlow, { VERIFY_STAGES } from './flow.mjs';
 import { CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
+import { ConcordiumGRPCNodeClient, credentials } from '@concordium/web-sdk/nodejs';
 
 const PUBLIC = new URL('./public/', import.meta.url);
 const STATIC_FILES = {
@@ -41,12 +42,14 @@ const MAX_BODY_BYTES = 64 * 1024;
  * @param {ReturnType<typeof readSettings>} [options.settings]  defaults to the environment's
  * @param {number} [options.port]  overrides settings.port (0: any free port, for tests)
  * @param {typeof fetch} [options.fetch]  HTTP for the packages (tests pass a fake)
+ * @param {object} [options.node]  the connection to a Concordium node (default: Concordium's public testnet node;
+ *   tests pass a pretend one)
  * @param {boolean} [options.checkProviders]  run the live "online" check of the providers (default true)
  * @param {(seed: string) => object} [options.makeWallet]  the wallet package's manager for a seed (tests pass a fake)
  * @param {number} [options.pauseMs]  waits between checks of the chain (tests make it short)
  * @returns {Promise<{ url: string, token: string, state: object, close: () => Promise<void> }>}
  */
-export async function startDemoServer({ settings = readSettings(), port = settings.port, fetch: fetchFn, checkProviders, makeWallet, pauseMs } = {}) {
+export async function startDemoServer({ settings = readSettings(), port = settings.port, fetch: fetchFn, node, checkProviders, makeWallet, pauseMs } = {}) {
   const token = randomBytes(16).toString('hex');
   // Everything the page draws. It holds no secrets: no seeds, no keys.
   const state = {
@@ -64,6 +67,8 @@ export async function startDemoServer({ settings = readSettings(), port = settin
   const identityProviders = await listResponse.json();
   const flow = new DemoFlow({
     settings, state, checkProviders, identityProviders,
+    // The wallet's own connection to a Concordium node (the identity package never opens one).
+    node: node ?? new ConcordiumGRPCNodeClient('grpc.testnet.concordium.com', 20000, credentials.createSsl()),
     ...(fetchFn ? { fetch: fetchFn } : {}), ...(makeWallet ? { makeWallet } : {}), ...(pauseMs ? { pauseMs } : {}),
   });
   let host; // "127.0.0.1:<port>", known once listening
