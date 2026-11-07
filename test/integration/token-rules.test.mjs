@@ -14,12 +14,14 @@
  *      getTokenAccountStatus('UPEU', governance) the governance account: on the allow list
  *   3. getTokenRules('TN'), its status ────────► no lists: null; the test account's TN balance
  *   4. checkTransfer (nothing sent) ───────────► UPEU: refused (holds none; not on the allow list); TN: ok, with the fee
+ *   5. transfer UPEU ──────────────────────────► refused before sending: ConcordiumTransferError, nothing sent
  *
  * The tokens' rules belong to their owners and may change; the test says which token to look at if one does.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeManager, ACCOUNT_PATH, KNOWN_ADDRESS, PLT_TOKEN } from './helpers.mjs';
+import { ConcordiumTransferError } from '../../index.js';
 
 const ALLOW_LISTED = process.env.ALLOW_LISTED_TOKEN || 'UPEU';
 
@@ -69,6 +71,19 @@ test(`checkTransfer on testnet: ${ALLOW_LISTED} is refused with its reasons; ${P
     const fine = await a.checkTransfer({ token: PLT_TOKEN, recipient: governance, amount: 1n });
     assert.deepEqual([fine.ok, fine.reasons], [true, []]);
     assert.ok(fine.fee > 0n);
+  } finally {
+    m.dispose();
+  }
+});
+
+// Step 5. Read-only: the transfer is refused before anything is sent.
+test(`transfer on testnet: ${ALLOW_LISTED} is refused before sending, with WDK's TransferError and every reason`, async () => {
+  const m = makeManager();
+  try {
+    const a = await m.getAccountByPath(ACCOUNT_PATH);
+    const governance = (await a.getTokenRules(ALLOW_LISTED)).governanceAccount;
+    await assert.rejects(a.transfer({ token: ALLOW_LISTED, recipient: governance, amount: 1n }), (e) => e instanceof ConcordiumTransferError
+      && e.hash === null && e.reasons.some((r) => r.reason === 'SENDER_NOT_ON_ALLOW_LIST'));
   } finally {
     m.dispose();
   }

@@ -31,14 +31,28 @@ function tokenState(id, change = {}) {
  *   tokens    changes a token's state: { UPEU: { paused: true } }
  *   accounts  adds an account or replaces one: { address: { ccd: '1000000', tokens: [{ id, balance, moduleState }] } },
  *             where moduleState is CBOR hex as recorded, or an object such as { denyList: true }; null: not on chain
- * It records the questions asked (`asked`: method names, in order).
+ *   later     the chain changing in the moment after the wallet's own check (an issuer pausing the token, or
+ *             changing a list): { afterTokenReads: 1, tokens, accounts } replaces `tokens` / `accounts` from the token's
+ *             second read on (the transfer re-reads it); { afterSend: true, tokens, accounts } from the sending on
+ *   outcome   what the chain says when a sent transaction is final: 'success' (default), or a reject reason
+ *             (e.g. a TokenUpdateTransactionFailed one, see rejection())
+ * It records the questions asked (`asked`: method names, in order) and the transactions sent (`sent`).
  */
-export function tokenChain({ tokens = {}, accounts = {} } = {}) {
+export function tokenChain({ tokens: tokensAtFirst = {}, accounts: accountsAtFirst = {}, later, outcome = 'success' } = {}) {
   const ratio = ({ numerator, denominator }) => ({ numerator: BigInt(numerator), denominator: BigInt(denominator) });
+  let tokenReads = 0;
+  let sentAny = false;
+  const changed = () => later && ((later.afterTokenReads !== undefined && tokenReads > later.afterTokenReads) || (later.afterSend && sentAny));
+  const state = () => (changed()
+    ? { tokens: { ...tokensAtFirst, ...later.tokens }, accounts: { ...accountsAtFirst, ...later.accounts } }
+    : { tokens: tokensAtFirst, accounts: accountsAtFirst });
   const node = {
     asked: [],
+    sent: [],
     async getTokenInfo(tokenId) {
       node.asked.push('getTokenInfo');
+      tokenReads++;
+      const { tokens } = state();
       const id = Object.keys(RECORDED.tokens).find((t) => t.toLowerCase() === tokenId.value.toLowerCase());
       if (!id) throw notFound('tokenId or block');
       const r = RECORDED.tokens[id];
@@ -54,6 +68,7 @@ export function tokenChain({ tokens = {}, accounts = {} } = {}) {
     },
     async getAccountInfo(address) {
       node.asked.push('getAccountInfo');
+      const { accounts } = state();
       const text = address.address ?? String(address);
       const account = text in accounts ? accounts[text] : RECORDED.accounts[text];
       if (!account) throw notFound('account or block');
@@ -73,8 +88,42 @@ export function tokenChain({ tokens = {}, accounts = {} } = {}) {
       node.asked.push('getBlockChainParameters');
       return { euroPerEnergy: ratio(RECORDED.feeRates.euroPerEnergy), microGTUPerEuro: ratio(RECORDED.feeRates.microGTUPerEuro) };
     },
+    async getNextAccountNonce() {
+      node.asked.push('getNextAccountNonce');
+      return { nonce: sdk.SequenceNumber.create(7) };
+    },
+    async sendTransaction(transaction) { return node._send(transaction); },
+    async sendAccountTransaction(transaction) { return node._send(transaction); },
+    _send(transaction) {
+      node.asked.push('send');
+      node.sent.push(transaction);
+      sentAny = true;
+      return sdk.TransactionHash.fromHexString('5e'.repeat(32));
+    },
+    async waitForTransactionFinalization(hash) {
+      node.asked.push('waitForTransactionFinalization');
+      const summary = outcome === 'success'
+        ? { type: 'accountTransaction', transactionType: 'tokenUpdate', cost: sdk.CcdAmount.fromMicroCcd(4647253n), hash }
+        : { type: 'accountTransaction', transactionType: 'failed', rejectReason: outcome, cost: sdk.CcdAmount.fromMicroCcd(4647253n), hash };
+      return { blockHash: sdk.BlockHash.fromHexString('b5'.repeat(32)), summary };
+    },
   };
   return node;
+}
+
+/**
+ * The chain's reject reason for a token transfer the token refused, as the node gives it: TokenUpdateTransactionFailed
+ * with the token module's reason (`type`: e.g. 'operationNotPermitted', 'tokenBalanceInsufficient', 'addressNotFound')
+ * and its details (`address`: the account it concerns; `reason`: the module's own words).
+ */
+export function rejection(tokenId, type, { address, reason, availableBalance, requiredBalance } = {}) {
+  const details = { index: 0 };
+  if (address) details.address = plt.CborAccountAddress.fromAccountAddress(sdk.AccountAddress.fromBase58(address));
+  if (reason) details.reason = reason;
+  const decimals = RECORDED.tokens[tokenId].decimals;
+  if (availableBalance !== undefined) details.availableBalance = plt.TokenAmount.create(BigInt(availableBalance), decimals);
+  if (requiredBalance !== undefined) details.requiredBalance = plt.TokenAmount.create(BigInt(requiredBalance), decimals);
+  return { tag: 'TokenUpdateTransactionFailed', contents: { tokenId: plt.TokenId.fromString(tokenId), type, details: plt.Cbor.encode(details) } };
 }
 
 /** The test account, with its node replaced by `node`. Call dispose() when done. */

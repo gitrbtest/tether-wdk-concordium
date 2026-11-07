@@ -294,10 +294,19 @@ See [`types/index.d.ts`](types/index.d.ts) for request, result, and option types
 
 `getAccountByPath()` throws `AccountNotCreatedError` when the credential is not
 on-chain. Address-based balance reads also use this error for a missing account,
-with `error.address` set. Submission methods throw
-`TransactionRejectedError` when a transaction finalizes with a rejected outcome;
-its `hash` and `rejectReason` identify the failure. A rejected transaction can
-still incur a fee.
+with `error.address` set.
+
+Token transfers (`transfer`, `buildSponsorableTransfer`, `submitSponsored`) that
+cannot happen throw `ConcordiumTransferError`, which extends WDK's `TransferError`:
+`reason` is the first problem (a `ConcordiumTransferErrorReason` value, e.g.
+`TOKEN_PAUSED` or `RECIPIENT_NOT_ON_ALLOW_LIST`) and `reasons` lists every
+problem found. They are checked first, as `checkTransfer` checks them, so nothing
+is sent; if the chain refuses a transfer after all (a rule changed in the moment
+between), the error has the transaction's `hash` and the chain's `rejectReason`,
+and the fee was still charged. Native CCD transfers (`sendTransaction`) with too
+little CCD throw WDK's `TransactionError` with reason `INSUFFICIENT_BALANCE`. Other
+transactions that finalize rejected throw `TransactionRejectedError`, with its
+`hash` and `rejectReason`; a rejected transaction can still incur a fee.
 
 ## Security
 

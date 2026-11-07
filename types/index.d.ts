@@ -10,6 +10,7 @@ import WalletManager, {
   WalletAccountReadOnly,
   IWalletAccount,
   WalletConfig,
+  TransferError,
 } from '@tetherto/wdk-wallet';
 
 export interface WalletManagerConcordiumConfig extends WalletConfig {
@@ -158,7 +159,27 @@ export const ConcordiumTransferErrorReason: {
   readonly RECIPIENT_ON_DENY_LIST: 'RECIPIENT_ON_DENY_LIST';
   /** A CIS-2 token's contract would refuse the transfer (its own rules). */
   readonly CONTRACT_REFUSED: 'CONTRACT_REFUSED';
+  /** Only when the chain refused a sent transfer: the token did not permit it, and its rules now do not say why. */
+  readonly OPERATION_NOT_PERMITTED: 'OPERATION_NOT_PERMITTED';
+  /** Only when the chain refused a sent transfer, for another reason (see rejectReason). */
+  readonly REJECTED: 'REJECTED';
 };
+
+/**
+ * A token transfer that cannot happen (nothing sent), or that the chain refused (`hash` set; the fee was charged):
+ * WDK's TransferError with Concordium's reasons.
+ */
+export class ConcordiumTransferError extends TransferError {
+  constructor(message: string, options: { reason: ConcordiumTransferErrorReason; reasons?: TransferCheck['reasons']; hash?: string; rejectReason?: unknown; cause?: unknown });
+  /** The first reason. */
+  reason: ConcordiumTransferErrorReason;
+  /** Every reason found, each with a plain message and the account it concerns. */
+  reasons: TransferCheck['reasons'];
+  /** The transaction's hash, only when it was sent and the chain refused it. */
+  hash: string | null;
+  /** The chain's own reject reason, when it refused it. */
+  rejectReason: unknown | null;
+}
 export type ConcordiumTransferErrorReason = typeof ConcordiumTransferErrorReason[keyof typeof ConcordiumTransferErrorReason];
 
 /** Options for checkTransfer: the transfer, and for a sponsored one, who pays the fee. */

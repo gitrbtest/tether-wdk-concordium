@@ -15,9 +15,9 @@
  */
 
 import WalletManagerConcordium from './src/WalletManagerConcordium.js';
-import WalletAccountConcordium, { AccountNotCreatedError, TransactionRejectedError, ConcordiumTransferErrorReason } from './src/WalletAccountConcordium.js';
+import WalletAccountConcordium, { AccountNotCreatedError, TransactionRejectedError, ConcordiumTransferErrorReason, ConcordiumTransferError } from './src/WalletAccountConcordium.js';
 
 export { CONCORDIUM_MAINNET_CONFIG, CONCORDIUM_TESTNET_CONFIG } from './src/config.js';
 
 export default WalletManagerConcordium;
-export { WalletManagerConcordium, WalletAccountConcordium, AccountNotCreatedError, TransactionRejectedError, ConcordiumTransferErrorReason };
+export { WalletManagerConcordium, WalletAccountConcordium, AccountNotCreatedError, TransactionRejectedError, ConcordiumTransferErrorReason, ConcordiumTransferError };

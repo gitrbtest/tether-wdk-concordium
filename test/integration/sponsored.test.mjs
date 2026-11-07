@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { makeManager, ACCOUNT_PATH, KNOWN_ADDRESS, PLT_TOKEN, RUN_WRITE, submissionStatus } from './helpers.mjs';
-import { TransactionRejectedError } from '../../index.js';
+import { ConcordiumTransferError } from '../../index.js';
 
 const sponsorable = (a) => a.buildSponsorableTransfer({
   token: PLT_TOKEN, recipient: KNOWN_ADDRESS, amount: 1n, sponsorAddress: KNOWN_ADDRESS,
@@ -43,15 +43,14 @@ test('sponsored submission finalizes with outcome: success (WRITE=1)', { skip: !
   m.dispose();
 });
 
-test('submitSponsored throws TransactionRejectedError for an unheld token (WRITE=1)', { skip: !RUN_WRITE }, async () => {
+test('buildSponsorableTransfer refuses a transfer of an unheld token before anything is built (nothing sent, no fee)', async () => {
   const m = makeManager();
   const a = await m.getAccountByPath(ACCOUNT_PATH);
-  // USDT exists on testnet but this account holds none, so the transfer finalizes
-  // in a rejected state — submitSponsored must surface that as a throw, not a
-  // normal { hash, fee } result.
-  let tx = await a.buildSponsorableTransfer({ token: 'USDT', recipient: KNOWN_ADDRESS, amount: 1n, sponsorAddress: KNOWN_ADDRESS });
-  tx = await a.signAsSponsorToBeSigned(tx);
-  tx = await a.signAsAccountPreSponsored(tx);
-  await assert.rejects(() => a.submitSponsored(tx), TransactionRejectedError);
+  // USDT exists on testnet but this account holds none: the transfer is refused before it is built, so it is never
+  // sent and the sponsor is not charged (it used to be sent and rejected on chain, the sponsor still paying the fee).
+  await assert.rejects(
+    () => a.buildSponsorableTransfer({ token: 'USDT', recipient: KNOWN_ADDRESS, amount: 1n, sponsorAddress: KNOWN_ADDRESS }),
+    (e) => e instanceof ConcordiumTransferError && e.reason === 'INSUFFICIENT_TOKEN_BALANCE' && e.hash === null,
+  );
   m.dispose();
 });

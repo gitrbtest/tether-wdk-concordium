@@ -13,13 +13,13 @@
  * sender holds the token (set PLT_TOKEN to one it holds, e.g. "TN"), both orders
  * finalize with outcome: success — the sponsor pays the fee and the token moves,
  * with the sender spending 0 CCD. (If the sender holds none of the token,
- * submitSponsored THROWS TransactionRejectedError — the transfer finalized in a
- * rejected state — though the sponsor was still charged the fee.)
+ * buildSponsorableTransfer refuses it first with ConcordiumTransferError, reason
+ * INSUFFICIENT_TOKEN_BALANCE: nothing is sent and no fee is charged.)
  *
  * Run:  npm run example:sponsored
  */
 
-import WalletManagerConcordium, { TransactionRejectedError, CONCORDIUM_TESTNET_CONFIG } from '../index.js';
+import WalletManagerConcordium, { ConcordiumTransferError, CONCORDIUM_TESTNET_CONFIG } from '../index.js';
 
 const TEST_SEED =
   'abandon abandon abandon abandon abandon abandon ' +
@@ -36,12 +36,14 @@ async function outcome(hash) {
   catch { return {}; }
 }
 
-// submitSponsored throws TransactionRejectedError when the transfer finalizes
-// rejected (e.g. the sender holds none of the token); anything else is unexpected.
+// A transfer that cannot happen (e.g. the sender holds none of the token, or a token rule blocks it) is refused
+// with ConcordiumTransferError: by buildSponsorableTransfer before anything is built (nothing sent, no fee), or by
+// submitSponsored if the chain refuses it after all (then it has a hash, and the sponsor was charged the fee).
 function reportSponsoredError(e) {
-  if (e instanceof TransactionRejectedError) {
-    console.log('    ⚠️  rejected on-chain:', e.rejectReason?.tag ?? '(see node)', '| hash:', e.hash);
-    console.log('        (sponsor was still charged the fee; sender spent 0 CCD.)');
+  if (e instanceof ConcordiumTransferError) {
+    console.log('    ⚠️  refused:', e.reason, '-', e.message);
+    if (e.hash) console.log('        on chain (hash', e.hash + '): the sponsor was still charged the fee; the sender spent 0 CCD.');
+    else console.log('        before sending: nothing was sent, no fee was charged.');
   } else {
     console.log('    ⚠️ ', (e.message || '').split('\n')[0]);
   }
@@ -64,7 +66,7 @@ async function main() {
     let tx = await build();
     tx = await account.signAsSponsorToBeSigned(tx);    // (3) sponsor signs first
     tx = await account.signAsAccountPreSponsored(tx);  // (2) account completes
-    const r = await account.submitSponsored(tx);       // throws TransactionRejectedError on reject
+    const r = await account.submitSponsored(tx);       // throws ConcordiumTransferError if refused
     const st = await outcome(r.hash);                  // wallet-proxy: what the sponsor paid
     console.log('    ✅ success. hash:', r.hash, '| sponsor paid:', st.sponsor?.cost ?? '(see node)', 'microCCD (sender spent 0)');
   } catch (e) { reportSponsoredError(e); }
@@ -75,15 +77,15 @@ async function main() {
     let tx = await build();
     tx = await account.signAsAccountToBeSponsored(tx);  // (1) account signs first
     tx = await account.signAsSponsorSigned(tx);         // (4) sponsor completes
-    const r = await account.submitSponsored(tx);        // throws TransactionRejectedError on reject
+    const r = await account.submitSponsored(tx);        // throws ConcordiumTransferError if refused
     const st = await outcome(r.hash);                   // wallet-proxy: what the sponsor paid
     console.log('    ✅ success. hash:', r.hash, '| sponsor paid:', st.sponsor?.cost ?? '(see node)', 'microCCD (sender spent 0)');
   } catch (e) { reportSponsoredError(e); }
 
   console.log('\nAll four signing scenarios exercised through WDK, in both orders — the');
   console.log('sponsor covers the fee and the sender spends 0 CCD. With a held token the');
-  console.log('submit succeeds and the token moves; with none, submitSponsored throws');
-  console.log('TransactionRejectedError (the sponsor is still charged).');
+  console.log('submit succeeds and the token moves; with none, buildSponsorableTransfer refuses it');
+  console.log('first with ConcordiumTransferError (nothing sent, no fee charged).');
   manager.dispose();
 }
 
