@@ -74,6 +74,42 @@ export interface Cis2Metadata {
 }
 
 /**
+ * A token's rules, from getTokenRules. For a protocol-level token (PLT): whether it is paused, and whether it keeps an
+ * allow list (only accounts on it may send or receive) and a deny list (accounts on it may not). A CIS-2 token has no
+ * standard rules (its contract decides when transferring): every rule is null.
+ */
+export interface TokenRules {
+  kind: 'plt' | 'cis2';
+  /** The token's identifier, e.g. 'UPEU' (as the chain spells it) or 'cis2:12754:0:01'. */
+  token: string;
+  name: string | null;
+  decimals: number | null;
+  totalSupply: bigint | null;
+  paused: boolean | null;
+  allowList: boolean | null;
+  denyList: boolean | null;
+  mintable: boolean | null;
+  burnable: boolean | null;
+  /** The account that manages the token (its lists, pausing). */
+  governanceAccount: string | null;
+  metadataUrl: string | null;
+}
+
+/** One account's standing with a token, from getTokenAccountStatus. */
+export interface TokenAccountStatus {
+  token: string;
+  address: string;
+  /** false for an address with no account on chain (its balance is then 0). */
+  exists: boolean;
+  /** In the token's base units. */
+  balance: bigint;
+  /** null when the token keeps no allow list (and for CIS-2 tokens). */
+  onAllowList: boolean | null;
+  /** null when the token keeps no deny list (and for CIS-2 tokens). */
+  onDenyList: boolean | null;
+}
+
+/**
  * A serialized sponsored transaction (Transaction.JSON) passed between the
  * build/sign/submit steps. Treat it as an opaque value.
  */
@@ -140,6 +176,19 @@ export class WalletAccountConcordium extends WalletAccountReadOnly implements IW
   quoteTransfer(options: TransferOptions): Promise<FeeQuote>;
   /** Resolve a CIS-2 token's off-chain metadata (name/symbol/decimals) via its URL. */
   getCis2Metadata(tokenAddress: string): Promise<Cis2Metadata>;
+
+  // ---- token rules (regulated tokens) ----
+  /**
+   * A token's rules as the chain holds them now: paused? an allow list? a deny list? (CIS-2: all null).
+   * @throws {InvalidTokenError} If there is no such PLT on this network.
+   */
+  getTokenRules(tokenAddress: string): Promise<TokenRules>;
+  /**
+   * An account's standing with a token: on chain? its balance; on the allow list? on the deny list?
+   * @param address The account (Base58); default: this account.
+   * @throws {InvalidTokenError} If there is no such PLT on this network.
+   */
+  getTokenAccountStatus(tokenAddress: string, address?: string): Promise<TokenAccountStatus>;
 
   // ---- sponsored transactions (Concordium extension) ----
   /** SENDER builds the unsigned sponsorable PLT transfer (sets sender metadata + sponsor). */

@@ -7,6 +7,7 @@ User-facing changes to `@concordium/wdk-wallet-concordium` are recorded here.
 ### Added
 
 - Package changelog, included in the npm distribution.
+- Token rules for regulated tokens: `getTokenRules(token)` reads a protocol-level token's rules as the chain holds them (paused, allow list, deny list, mintable, burnable, its governance account, name, decimals, supply, metadata URL), and `getTokenAccountStatus(token, address?)` an account's standing with it (on chain, balance, on the allow list, on the deny list), so a wallet can tell before offering a transfer whether it can happen. A CIS-2 token has no standard rules: they read as null. An unknown PLT is reported with WDK's `InvalidTokenError`. Types `TokenRules`, `TokenAccountStatus`. Tests offline over recorded testnet tokens (`test/fixtures/plt.testnet.json`, `capture-plt.mjs`) and live, read-only, on testnet.
 
 ## [0.1.0] - 2026-10-16
 

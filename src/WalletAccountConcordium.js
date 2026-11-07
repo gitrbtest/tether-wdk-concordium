@@ -10,7 +10,7 @@
  * account that hasn't been created yet (rather than a misleading 0).
  */
 
-import { WalletAccountReadOnly, NotImplementedError } from '@tetherto/wdk-wallet';
+import { WalletAccountReadOnly, NotImplementedError, InvalidTokenError } from '@tetherto/wdk-wallet';
 import * as sdk from '@concordium/web-sdk';
 import * as plt from '@concordium/web-sdk/plt';
 
@@ -288,6 +288,116 @@ export default class WalletAccountConcordium extends WalletAccountReadOnly {
     return { url, metadata };
   }
 
+  // ---- token rules (regulated tokens) ----
+  //
+  // Protocol-level tokens (PLTs) can restrict who may hold or move them: a token may keep an allow list (only accounts
+  // on it may send or receive), a deny list (accounts on it may not), and may be paused (no transfers at all). These
+  // reads let a wallet see the rules before it offers a transfer, rather than finding out when it fails. CIS-2 tokens
+  // have no standard rules: their smart contract decides when a transfer is made, so their rules read as null
+  // ("not known").
+
+  /**
+   * A token's rules, as the chain holds them now.
+   * @param {string} tokenAddress  a PLT ("UPEU" or "plt:UPEU") or a CIS-2 token ("cis2:<index>:<subindex>:<tokenIdHex>")
+   * @returns {Promise<{kind: 'plt' | 'cis2', token: string, name: string | null, decimals: number | null,
+   *   totalSupply: bigint | null, paused: boolean | null, allowList: boolean | null, denyList: boolean | null,
+   *   mintable: boolean | null, burnable: boolean | null, governanceAccount: string | null, metadataUrl: string | null}>}
+   *   For a PLT: `allowList` / `denyList` say whether the token keeps such a list; `governanceAccount` is the account
+   *   that manages the token (its lists, pausing). For a CIS-2 token every rule is null.
+   * @throws {InvalidTokenError} If there is no such PLT on this network.
+   */
+  async getTokenRules(tokenAddress) {
+    const ref = parseTokenRef(tokenAddress);
+    if (ref.kind === 'cis2') {
+      return {
+        kind: 'cis2', token: String(tokenAddress).trim(), name: null, decimals: null, totalSupply: null,
+        paused: null, allowList: null, denyList: null, mintable: null, burnable: null, governanceAccount: null, metadataUrl: null,
+      };
+    }
+    const tok = await this._pltToken(ref);
+    const m = tok.moduleState ?? {};
+    const governance = m.governanceAccount?.address ?? m.governanceAccount;
+    return {
+      kind: 'plt',
+      token: tok.info.id.value,
+      name: m.name ?? null,
+      decimals: tokenDecimals(tok) ?? null,
+      totalSupply: tok.info.state?.totalSupply ? BigInt(tok.info.state.totalSupply.value) : null,
+      paused: m.paused === true,
+      allowList: m.allowList === true,
+      denyList: m.denyList === true,
+      mintable: m.mintable === true,
+      burnable: m.burnable === true,
+      governanceAccount: governance ? governance.toString() : null,
+      metadataUrl: m.metadata?.url ?? null,
+    };
+  }
+
+  /**
+   * One account's standing with a token: whether it is on chain, its balance, and whether it is on the token's
+   * allow list and deny list.
+   * @param {string} tokenAddress  a PLT or a CIS-2 token (as getTokenRules)
+   * @param {string} [address]  the account (Base58); default: this account
+   * @returns {Promise<{token: string, address: string, exists: boolean, balance: bigint,
+   *   onAllowList: boolean | null, onDenyList: boolean | null}>}  `onAllowList` / `onDenyList` are null when the token
+   *   keeps no such list (and for CIS-2 tokens); an account not on chain has `exists: false` and a balance of 0
+   * @throws {InvalidTokenError} If there is no such PLT on this network.
+   */
+  async getTokenAccountStatus(tokenAddress, address) {
+    const s = this._sdk;
+    const who = address ?? await this.getAddress();
+    const accountAddress = s.AccountAddress.fromBase58(who);
+    const ref = parseTokenRef(tokenAddress);
+    if (ref.kind === 'cis2') {
+      const exists = await this._accountExists(accountAddress);
+      const contract = await this._cis2Contract(ref);
+      const balance = exists ? BigInt(await contract.balanceOf({ tokenId: ref.tokenId, address: accountAddress })) : 0n;
+      return { token: String(tokenAddress).trim(), address: who, exists, balance, onAllowList: null, onDenyList: null };
+    }
+    const tok = await this._pltToken(ref);
+    const m = tok.moduleState ?? {};
+    const client = await this._getClient();
+    let info;
+    try {
+      info = await client.getAccountInfo(accountAddress);
+    } catch (e) {
+      if (!isNotFound(e)) throw e;
+    }
+    // The account's entry for this token (none if it never held it); its module state holds its list memberships.
+    const entry = info?.accountTokens?.find((t) => t.id.value === tok.info.id.value);
+    const memberships = entry?.state?.moduleState ? plt.Cbor.decode(entry.state.moduleState, 'TokenModuleAccountState') : {};
+    return {
+      token: tok.info.id.value,
+      address: who,
+      exists: info !== undefined,
+      balance: entry ? BigInt(entry.state.balance.value) : 0n,
+      onAllowList: m.allowList === true ? memberships.allowList === true : null,
+      onDenyList: m.denyList === true ? memberships.denyList === true : null,
+    };
+  }
+
+  /** The PLT a reference names, read from the chain; InvalidTokenError if this network has none by that name. */
+  async _pltToken(ref) {
+    const client = await this._getClient();
+    try {
+      return await plt.Token.fromId(client, plt.TokenId.fromString(ref.symbol));
+    } catch (e) {
+      if (isNotFound(e)) throw new InvalidTokenError(`There is no protocol-level token "${ref.symbol}" on this network.`);
+      throw e;
+    }
+  }
+
+  /** Whether an account exists on chain (the node answers "not found" for one that does not). */
+  async _accountExists(accountAddress) {
+    try {
+      await (await this._getClient()).getAccountInfo(accountAddress);
+      return true;
+    } catch (e) {
+      if (isNotFound(e)) return false;
+      throw e;
+    }
+  }
+
   // ---- PLT (protocol-level token) ----
 
   async _pltBalance(ref) {
@@ -516,6 +626,11 @@ export function parseTokenRef(ref) {
   }
   const symbol = str.toLowerCase().startsWith('plt:') ? str.slice(4) : str;
   return { kind: 'plt', symbol };
+}
+
+/** The node's "not found" answer (gRPC NOT_FOUND, or its message): no such account, token or transaction. */
+function isNotFound(e) {
+  return e?.code === 'NOT_FOUND' || e?.code === 5 || /not found/i.test(e?.message ?? '');
 }
 
 /** Best-effort lookup of a PLT's decimals from the Token instance. */
