@@ -7,5 +7,5 @@
  */
 export { requestFor } from './src/verify/request-for.js';
 export { checkPresentation, connectToNode } from './src/verify/check-presentation.js';
-export { describeProofRequest } from './src/proofs/proof-request.js';
+export { describeProofRequest, describeProofContext } from './src/proofs/proof-request.js';
 export { ProofError } from './src/shared/errors.js';

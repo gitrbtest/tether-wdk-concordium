@@ -465,11 +465,72 @@ export interface ProofAsk {
 }
 
 /**
+ * A version 1 question (identity-based): Concordium's VerificationRequestV1, as JSON. The website records it on
+ * chain first (the anchor, `transactionRef`); the wallet answers it from the identity itself, or from an account.
+ */
+export interface ProofRequestV1 {
+  type: 'ConcordiumVerificationRequestV1';
+  context: {
+    type: 'ConcordiumUnfilledContextInformationV1';
+    /** What the website gives, e.g. { label: 'ResourceID', context: 'shop.example' }; a Nonce keeps it fresh. */
+    given: Array<{ label: 'Nonce' | 'ConnectionID' | 'ResourceID' | 'ContextString' | 'BlockHash' | 'PaymentHash'; context: string }>;
+    /** What the wallet fills in when it answers (usually ['BlockHash']: the anchor's block). */
+    requested: Array<'Nonce' | 'ConnectionID' | 'ResourceID' | 'ContextString' | 'BlockHash' | 'PaymentHash'>;
+  };
+  subjectClaims: Array<{
+    type: 'identity';
+    /** Where the answer may come from: the identity itself, an account made from it, or either. */
+    source: Array<'identityCredential' | 'accountCredential'>;
+    statements: ProofStatement[];
+    /** The accepted identity providers, e.g. 'did:ccd:testnet:idp:0'. */
+    issuers: string[];
+  }>;
+  /** The anchor transaction's hash (hex). */
+  transactionRef: string;
+}
+
+/**
+ * A website's question, in any form the wallet may receive it: version 0 ({ challenge, credentialStatements }),
+ * version 1 (as JSON, as JSON text, or as the SDK's VerificationRequestV1 object), or WalletConnect's `{ paramsJson }`.
+ */
+export type AnyProofRequest = ProofRequest | ProofRequestV1 | string | { toJSON(): ProofRequestV1 } | { paramsJson: string };
+
+/** One part of a question, for a consent screen, from describeProofRequest. */
+export interface ProofRequestPart {
+  /** The identity providers whose identities are accepted (their numbers). */
+  providers: number[];
+  /** Version 1 only: the network the question is about. */
+  network?: 'testnet' | 'mainnet';
+  /** Version 1 only: where the answer may come from. */
+  answerFrom?: 'identity' | 'account' | 'identity or account';
+  asks: ProofAsk[];
+}
+
+/**
  * Describe a website's proof request in plain English, for the person's consent screen (no network, no secrets).
- * Accepts the request, or WalletConnect's `{ paramsJson }` wrapper. One entry per credential statement.
+ * Accepts either version, in any form it arrives (AnyProofRequest). One entry per group of questions (usually one).
  * @throws {ProofError} reason 'invalid-request' or 'unknown-attribute'.
  */
-export function describeProofRequest(request: ProofRequest | { paramsJson: string }, options?: { now?: Date }): Array<{ providers: number[]; asks: ProofAsk[] }>;
+export function describeProofRequest(request: AnyProofRequest, options?: { now?: Date }): ProofRequestPart[];
+
+/** Who is asking a version 1 question, as the website wrote it into the question (see describeProofContext). */
+export interface ProofContext {
+  network: 'testnet' | 'mainnet';
+  /** Its ResourceID, e.g. 'shop.example'. Chosen by the website: compare it with the site the wallet is connected to. */
+  website?: string;
+  /** Its ContextString, e.g. 'age check'. */
+  purpose?: string;
+  /** Its ConnectionID. */
+  connection?: string;
+  /** The anchor transaction's hash (hex), e.g. to show it on a block explorer. */
+  anchor: string;
+}
+
+/**
+ * Who is asking a version 1 question, for the consent screen. No network.
+ * @throws {ProofError} reason 'invalid-request' (also for a version 0 request, which carries none of this).
+ */
+export function describeProofContext(request: AnyProofRequest): ProofContext;
 
 /**
  * Thrown when a proof cannot be asked for, made or checked. cannot-prove: the identity's details do not satisfy the

@@ -1,10 +1,11 @@
 // Proofs, piece 1: a website's proof request — building it (requestFor, the website's side), reading and checking
-// it, and describing it in plain English for the consent screen (the wallet's side). No network.
+// it, and describing it in plain English for the consent screen (the wallet's side), for both versions. No network.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { describeProofRequest, ProofError } from '@concordium/wdk-identity-concordium';
+import * as sdk from '@concordium/web-sdk';
+import { describeProofRequest, describeProofContext, ProofError } from '@concordium/wdk-identity-concordium';
 import { requestFor } from '@concordium/wdk-identity-concordium/verify';
-import { readProofRequest } from '../../src/proofs/proof-request.js';
+import { readProofRequest, readProofRequestV1, isProofRequestV1 } from '../../src/proofs/proof-request.js';
 
 const NOW = new Date(Date.UTC(2026, 10, 3, 12)); // 3 Nov 2026, for the plain-English dates
 const rejectsWith = (fn, reason, pattern) => assert.throws(fn, (e) => {
@@ -144,4 +145,109 @@ test('describeProofRequest: "at least N years old" is right on the edges (the da
   // Born 29 Feb 2000 (the latest allowed by "before 1 Mar 2000"): in 2026 (no 29 Feb) the birthday counts from 1 Mar.
   assert.equal(minAge('20000301', '2026-02-28T12:00Z'), 25);
   assert.equal(minAge('20000301', '2026-03-01T12:00Z'), 26);
+});
+
+// ---- Version 1: an identity-based question, anchored on chain -------------------------------------------------
+
+// A version 1 question as a wallet receives it: Concordium's VerificationRequestV1 as JSON, written out by hand
+// (the format, not our code, decides what it looks like). Reading does not check the anchor on chain.
+const ANCHOR = '2d84d189a6ec7cee7714ed4cbe4e9c428da250406a76eb8d143d3b11fa44e47f';
+const V1_AGE_CHECK = {
+  type: 'ConcordiumVerificationRequestV1',
+  context: {
+    type: 'ConcordiumUnfilledContextInformationV1',
+    given: [
+      { label: 'Nonce', context: '07'.repeat(32) },
+      { label: 'ConnectionID', context: 'connection-1' },
+      { label: 'ResourceID', context: 'shop.example' },
+      { label: 'ContextString', context: 'age check at the till' },
+    ],
+    requested: ['BlockHash'],
+  },
+  subjectClaims: [{
+    type: 'identity',
+    source: ['identityCredential'],
+    statements: [{ type: 'AttributeInRange', attributeTag: 'dob', lower: '18000101', upper: '20081104' }],
+    issuers: ['did:ccd:testnet:idp:0', 'did:ccd:testnet:idp:3'],
+  }],
+  transactionRef: ANCHOR,
+};
+/** A copy of V1_AGE_CHECK with `change` applied to it (to break one thing at a time). */
+const v1With = (change) => { const q = structuredClone(V1_AGE_CHECK); change(q); return q; };
+
+test('readProofRequestV1: a version 1 question is read, with its network, providers, context and anchor', () => {
+  const read = readProofRequestV1(V1_AGE_CHECK);
+  assert.equal(read.version, 1);
+  assert.equal(read.network, 'Testnet');
+  assert.deepEqual(read.claims, [{ providers: [0, 3], source: ['identityCredential'], statements: V1_AGE_CHECK.subjectClaims[0].statements }]);
+  assert.deepEqual(read.given, { Nonce: '07'.repeat(32), ConnectionID: 'connection-1', ResourceID: 'shop.example', ContextString: 'age check at the till' });
+  assert.deepEqual(read.requested, ['BlockHash']);
+  assert.equal(read.anchor, ANCHOR);
+  assert.deepEqual(read.request.toJSON(), V1_AGE_CHECK, 'the SDK\'s own object, ready for answering, says the same');
+});
+
+test('readProofRequestV1: the same question as JSON text, as the SDK\'s object, or in WalletConnect\'s wrapper', () => {
+  const sdkObject = sdk.VerificationRequestV1.fromJSON(V1_AGE_CHECK);
+  for (const form of [JSON.stringify(V1_AGE_CHECK), sdkObject, { paramsJson: JSON.stringify(V1_AGE_CHECK) }]) {
+    assert.equal(isProofRequestV1(form), true);
+    assert.deepEqual(readProofRequestV1(form).claims[0].providers, [0, 3]);
+  }
+  assert.equal(isProofRequestV1(BEER_STORE), false, 'a version 0 request is not one');
+  assert.equal(isProofRequestV1('{not json'), false);
+});
+
+test('readProofRequestV1: a question made with Concordium\'s own builder is read as it is', () => {
+  const context = sdk.VerificationRequestV1.createSimpleContext(new Uint8Array(32).fill(1), 'c-1', 'bar.example', 'entry');
+  const claims = sdk.VerificationRequestV1.claimsBuilder()
+    .addIdentityClaims([new sdk.IdentityProviderDID('Mainnet', 1)], (b) => b.addMinimumAge(18).revealAttribute('nationality'))
+    .addAccountOrIdentityClaims([new sdk.IdentityProviderDID('Mainnet', 2)], (b) => b.addNonMembership('countryOfResidence', ['US']))
+    .getClaims();
+  const read = readProofRequestV1(sdk.VerificationRequestV1.create(context, claims, sdk.TransactionHash.fromHexString(ANCHOR)));
+  assert.equal(read.network, 'Mainnet');
+  assert.deepEqual(read.claims.map((c) => [c.providers, c.source]), [[[1], ['identityCredential']], [[2], ['accountCredential', 'identityCredential']]]);
+  assert.deepEqual(read.requested, ['BlockHash']);
+});
+
+test('readProofRequestV1: a question it cannot answer correctly is refused, saying what is wrong', () => {
+  const broken = (change, reason, pattern) => rejectsWith(() => readProofRequestV1(v1With(change)), reason, pattern);
+  rejectsWith(() => readProofRequestV1(BEER_STORE), 'invalid-request', /Not a version 1 question/);
+  broken((q) => { q.context.type = 'Filled'; }, 'invalid-request', /context must be/);
+  broken((q) => { q.context.given.push({ label: 'Mood', context: 'x' }); }, 'invalid-request', /known label/);
+  broken((q) => { q.context.given.push({ label: 'Nonce', context: 'aa' }); }, 'invalid-request', /Nonce is given twice/);
+  broken((q) => { q.context.requested.push('Nonce'); }, 'invalid-request', /both given and requested/);
+  broken((q) => { delete q.transactionRef; }, 'invalid-request', /needs its anchor/);
+  broken((q) => { q.subjectClaims = []; }, 'invalid-request', /asks for nothing/);
+  broken((q) => { q.subjectClaims[0].type = 'web3id'; }, 'invalid-request', /only 'identity'/);
+  broken((q) => { q.subjectClaims[0].source = ['passport']; }, 'invalid-request', /source must list/);
+  broken((q) => { q.subjectClaims[0].issuers = ['did:ccd:testnet:sci:1:0']; }, 'invalid-request', /not an identity provider/);
+  broken((q) => { q.subjectClaims[0].issuers.push('did:ccd:mainnet:idp:1'); }, 'invalid-request', /mixes networks/);
+  broken((q) => { q.subjectClaims[0].statements[0].attributeTag = 'shoeSize'; }, 'unknown-attribute');
+  broken((q) => { q.subjectClaims[0].statements = []; }, 'invalid-request', /statements must be a non-empty list/);
+});
+
+test('readProofRequest (version 0) refuses a version 1 question instead of misreading it', () => {
+  rejectsWith(() => readProofRequest(V1_AGE_CHECK), 'invalid-request', /version 1 question/);
+});
+
+test('describeProofRequest: a version 1 question, in plain English, with its network and where the answer comes from', () => {
+  assert.deepEqual(describeProofRequest(V1_AGE_CHECK, { now: NOW }), [{
+    providers: [0, 3],
+    network: 'testnet',
+    answerFrom: 'identity',
+    asks: [{ kind: 'range', attribute: 'dob', text: 'prove you were born before 4 Nov 2008 (at least 18 years old), without showing your date of birth' }],
+  }]);
+  const either = v1With((q) => { q.subjectClaims[0].source = ['accountCredential', 'identityCredential']; });
+  assert.equal(describeProofRequest(either)[0].answerFrom, 'identity or account');
+  const account = v1With((q) => { q.subjectClaims[0].source = ['accountCredential']; });
+  assert.equal(describeProofRequest(account)[0].answerFrom, 'account');
+  rejectsWith(() => describeProofRequest(v1With((q) => { q.subjectClaims = []; })), 'invalid-request');
+});
+
+test('describeProofContext: who is asking a version 1 question, as the website wrote it', () => {
+  assert.deepEqual(describeProofContext(V1_AGE_CHECK), {
+    network: 'testnet', website: 'shop.example', purpose: 'age check at the till', connection: 'connection-1', anchor: ANCHOR,
+  });
+  const bare = v1With((q) => { q.context.given = [{ label: 'Nonce', context: 'aa' }]; });
+  assert.deepEqual(describeProofContext(bare), { network: 'testnet', anchor: ANCHOR }, 'only what the website gave');
+  rejectsWith(() => describeProofContext(BEER_STORE), 'invalid-request', /Only a version 1 question/);
 });

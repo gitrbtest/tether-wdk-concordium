@@ -13,4 +13,4 @@ export { CONCORDIUM_MAINNET_IDENTITY_CONFIG, CONCORDIUM_TESTNET_IDENTITY_CONFIG 
 export { default as IdentityProviders } from './src/providers/IdentityProviders.js';
 export { IdentityProviderError, IdentityIssuanceError, IdentityRecoveryError, IdentityStorageError, AccountCreationError, ProofError } from './src/shared/errors.js';
 export { default as ConcordiumIdentity } from './src/ConcordiumIdentity.js';
-export { describeProofRequest } from './src/proofs/proof-request.js';
+export { describeProofRequest, describeProofContext } from './src/proofs/proof-request.js';

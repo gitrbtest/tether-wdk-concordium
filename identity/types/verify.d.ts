@@ -1,7 +1,7 @@
 // Type definitions for @concordium/wdk-identity-concordium/verify: the website's side of proofs (servers).
 import type { ProofRequest } from './index.js';
-export type { ProofRequest, CredentialStatement, ProofStatement, ProofAsk } from './index.js';
-export { describeProofRequest, ProofError } from './index.js';
+export type { ProofRequest, ProofRequestV1, AnyProofRequest, ProofRequestPart, ProofContext, CredentialStatement, ProofStatement, ProofAsk } from './index.js';
+export { describeProofRequest, describeProofContext, ProofError } from './index.js';
 
 /** Options for requestFor: what to ask, and whose identities to accept. */
 export interface RequestForOptions {
