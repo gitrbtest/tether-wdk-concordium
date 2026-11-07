@@ -395,6 +395,16 @@ export class ConcordiumIdentity {
    */
   prove(options: ProveOptions): Promise<ProofAnswer>;
   /**
+   * Answer a website's version 1 question from the identity itself: no account is named or needed. The question's
+   * anchor must be on chain and final; the answer is tied to its block. Show describeProofRequest's and
+   * describeProofContext's wording and get the person's agreement first. Refuses before building anything if the
+   * answer would not be true or acceptable. Reads the anchor and the network's parameters from config.node.
+   * @returns The proof; JSON.stringify(proof) is what to send back.
+   * @throws {ProofError} reason 'invalid-request', 'unknown-attribute', 'not-held', 'identity-expired', 'account-only',
+   *   'provider-not-accepted', 'cannot-prove', 'anchor-not-found', 'anchor-mismatch' or 'node'.
+   */
+  proveIdentity(options: ProveIdentityOptions): Promise<ProofAnswerV1>;
+  /**
    * The identity's accounts on chain that can answer a website's question: none if the identity cannot truly
    * answer (expired, provider not accepted, or its details do not satisfy it). Read-only.
    * @throws {ProofError} reason 'invalid-request', 'unknown-attribute' or 'not-held'.
@@ -437,6 +447,31 @@ export type ProveOptions = {
   /** Which of the identity's accounts answers (accountsThatCanAnswer lists the ones that can; no default). */
   credNumber: number;
 } & (ProofRequest | { paramsJson: string });
+
+/** Options for proveIdentity: the identity, the website's version 1 question, and anything it asks the wallet to fill in. */
+export interface ProveIdentityOptions {
+  /** The identity's provider. */
+  providerIndex: number;
+  /** Which of the wallet's identities with that provider (no default). */
+  identityIndex: number;
+  /** The website's version 1 question, in any form it arrives. */
+  request: AnyProofRequest;
+  /**
+   * What the question asks the wallet to fill in besides the anchor's block, if anything (text only), e.g.
+   * { ResourceID: 'shop.example' }: the site the wallet is connected to.
+   */
+  context?: Partial<Record<'ResourceID' | 'ContextString' | 'ConnectionID', string>>;
+}
+
+/** A proof made by proveIdentity (Concordium's VerifiablePresentationV1). JSON.stringify it to send it back. */
+export interface ProofAnswerV1 {
+  /** The question's context, with what the wallet filled in (the anchor's block). */
+  presentationContext: object;
+  /** One part per part of the question. */
+  verifiableCredential: object[];
+  proof: object;
+  toJSON(): object;
+}
 
 /** The identity, plus the website's question; gap and signal as for findAccounts. */
 export type AccountsThatCanAnswerOptions = {
@@ -534,12 +569,15 @@ export function describeProofContext(request: AnyProofRequest): ProofContext;
 
 /**
  * Thrown when a proof cannot be asked for, made or checked. cannot-prove: the identity's details do not satisfy the
- * request (nothing is built, so a wallet never produces a false proof). node: checking an answer, the node could not
- * be asked (a refused answer does not throw: checkPresentation returns ok: false).
+ * request (nothing is built, so a wallet never produces a false proof). node: the node could not be asked (checking an
+ * answer, or answering a version 1 question; a refused answer does not throw: checkPresentation returns ok: false).
+ * Version 1 only: account-only (the question accepts answers from an account only), anchor-not-found (the anchor is not
+ * on chain, or not final yet: detail 'absent', 'received' or 'committed'), anchor-mismatch (the anchor does not record
+ * this question: do not answer).
  */
 export class ProofError extends Error {
   reason: 'invalid-request' | 'unknown-attribute' | 'not-held' | 'identity-expired' | 'provider-not-accepted' | 'cannot-prove'
-    | 'node';
+    | 'node' | 'account-only' | 'anchor-not-found' | 'anchor-mismatch';
   /** More detail, e.g. the attribute named. */
   detail?: string;
 }

@@ -1,7 +1,7 @@
 /**
  * The Concordium node, through the connection the wallet passes in (`config.node`). Internal: ConcordiumIdentity's
  * helpers use it for everything they need from the chain: the network's cryptographic parameters, whether an account
- * exists, and sending a new account's credential and following it. The package never opens a connection itself, so
+ * exists, sending a new account's credential and following it, and finding a version 1 question's anchor. The package never opens a connection itself, so
  * it runs wherever the wallet's own client does: a gRPC client in Node.js (ConcordiumGRPCNodeClient), gRPC-web in
  * browsers and phones (ConcordiumGRPCWebClient), or the client a WDK wallet already has.
  */
@@ -112,5 +112,35 @@ export default class ChainNode {
     }
     if (status?.status === 'received' || status?.status === 'committed') return { status: status.status };
     return { status: 'unexpected', detail: JSON.stringify(status?.status) }; // reported by the caller, not waited on
+  }
+
+  /**
+   * Where a version 1 question's anchor is: the transaction the website sent to record the question on chain.
+   *   { status: 'absent' }      the node does not know it (not sent, or sent on another network)
+   *   { status: 'received' }    sent, waiting to be put in a block
+   *   { status: 'committed' }   in a block, not yet final
+   *   { status: 'finalized', blockHash }  final, and it really records this question (the SDK's own check)
+   *   { status: 'mismatch', detail }      final, but it does not record this question (another question, or not
+   *                                       a registerData transaction at all)
+   *   { status: 'unexpected', detail }    an answer the package does not know
+   * @param {object} request  the SDK's VerificationRequestV1
+   */
+  async anchorOf(request) {
+    let status;
+    try {
+      status = await this.#client.getBlockItemStatus(request.transactionRef);
+    } catch (e) {
+      if (isNotFound(e)) return { status: 'absent' };
+      throw e;
+    }
+    if (status?.status === 'received' || status?.status === 'committed') return { status: status.status };
+    if (status?.status !== 'finalized') return { status: 'unexpected', detail: JSON.stringify(status?.status) };
+    try {
+      // The SDK's check (registerData, holding this question's hash), on the status already read: no second call.
+      const outcome = await sdk.VerificationRequestV1.verifyAnchor(request, { getBlockItemStatus: async () => status });
+      return { status: 'finalized', blockHash: outcome.blockHash };
+    } catch (e) {
+      return { status: 'mismatch', detail: e.message };
+    }
   }
 }

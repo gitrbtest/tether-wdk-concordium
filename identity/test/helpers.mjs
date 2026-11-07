@@ -66,8 +66,9 @@ export function recordedAccount0() {
  * A wallet holding the recorded identity (the test provider's made-up details: John Doe, born 1970-01-01, lives in
  * DK, nationality DK, national ID N-1234), with the network answered from recordings. `details` replaces some of
  * those details in the wallet's copy (e.g. { countryOfResidence: 'US' }), to try an identity that cannot answer.
+ * `node` replaces the pretend node (see recordedNode).
  */
-export async function walletWithRecordedIdentity({ details } = {}) {
+export async function walletWithRecordedIdentity({ details, node } = {}) {
   const { ConcordiumIdentity } = await import('@concordium/wdk-identity-concordium');
   const recorded = walletProxyFetch('testnet');
   const fetch = async (url, options) => {
@@ -76,7 +77,7 @@ export async function walletWithRecordedIdentity({ details } = {}) {
     Object.assign(issued.token.identityObject.value.attributeList.chosenAttributes, details);
     return { ok: true, status: 200, json: async () => issued };
   };
-  const wallet = new ConcordiumIdentity(RECORDED_PHRASE, testnetConfig(), { fetch });
+  const wallet = new ConcordiumIdentity(RECORDED_PHRASE, testnetConfig(node ? { node } : {}), { fetch });
   await wallet.waitForIdentity(RECORDED_CODE_URI, { ...RECORDED_IDENTITY, intervalMs: 1 });
   return wallet;
 }

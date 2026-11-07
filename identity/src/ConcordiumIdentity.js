@@ -58,7 +58,7 @@ export default class ConcordiumIdentity {
     this._recovery = new IdentityRecovery({ providers, node, fetch: fetchVia, hdWallet, held: this._held });
     this._proofs = new IdentityProofs({
       node, hdWallet, held: this._held, network: this._config.derivationNetwork,
-      findAccounts: (options) => this._recovery.findAccounts(options),
+      findAccounts: (options) => this._recovery.findAccounts(options), providers,
     });
     this._accounts = new AccountCreator({ providers, node, hdWallet });
     this._seed = toSeedBytes(seed);
@@ -295,6 +295,36 @@ export default class ConcordiumIdentity {
   async prove(options) {
     this._requireNotDisposed();
     return this._proofs.prove(options);
+  }
+
+  /**
+   * Answer a website's version 1 question with a proof from the identity itself: no account is named or needed
+   * (identity-based). The website recorded the question on chain first (its anchor); the answer is tied to the
+   * anchor's block, so it answers this question only.
+   *
+   * The question comes in as it arrived (Concordium's VerificationRequestV1, as JSON, JSON text or the SDK's object,
+   * or WalletConnect's `{ paramsJson }`). Show the person describeProofRequest's and describeProofContext's wording
+   * and get their agreement first. The identity never leaves the wallet: the proof shows only what was asked, plus
+   * any detail the question asks to show, and which provider issued the identity.
+   *
+   * Refuses before building anything if the answer would not be true or acceptable (as prove does), and refuses a
+   * question whose anchor is not on chain and final, or does not record this question. Reads the anchor and the
+   * network's parameters from the node (config.node).
+   *
+   * @param {object} options
+   * @param {number} options.providerIndex  the identity's provider
+   * @param {number} options.identityIndex  which of the wallet's identities with that provider
+   * @param {object|string} options.request  the website's version 1 question
+   * @param {Record<string, string>} [options.context]  what the question asks the wallet to fill in besides the
+   *   anchor's block, if anything: e.g. { ResourceID: 'shop.example' }, the site the wallet is connected to
+   * @returns {Promise<object>}  the proof (Concordium's VerifiablePresentationV1); JSON.stringify(proof) is what to
+   *   send back to the website
+   * @throws {ProofError} reason 'invalid-request', 'unknown-attribute', 'not-held', 'identity-expired',
+   *   'account-only', 'provider-not-accepted', 'cannot-prove', 'anchor-not-found', 'anchor-mismatch' or 'node'
+   */
+  async proveIdentity(options) {
+    this._requireNotDisposed();
+    return this._proofs.proveIdentity(options);
   }
 
   /**
