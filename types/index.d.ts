@@ -182,6 +182,21 @@ export class ConcordiumTransferError extends TransferError {
 }
 export type ConcordiumTransferErrorReason = typeof ConcordiumTransferErrorReason[keyof typeof ConcordiumTransferErrorReason];
 
+/** WDK's standard receipt, from getTransaction, with Concordium's block reference. */
+export interface ConcordiumTransactionReceipt {
+  hash: string;
+  /** 'pending': received, or in a block not yet final. 'final': for good. (Concordium has no 'dropped'.) */
+  finality: 'pending' | 'final';
+  /** Once final: false if the chain rejected the transaction (its fee was still charged). */
+  success?: boolean;
+  /** Once final: the block's height. */
+  block?: number;
+  /** Once final: the fee in microCCD; for a sponsored transaction, what the sponsor paid. */
+  fee?: bigint;
+  /** Once final: the block's hash (Concordium's own block reference). */
+  blockHash?: string;
+}
+
 /** Options for checkTransfer: the transfer, and for a sponsored one, who pays the fee. */
 export interface CheckTransferOptions {
   token: string;
@@ -219,9 +234,18 @@ export class WalletAccountConcordium extends WalletAccountReadOnly implements IW
   getBalance(): Promise<bigint>;
   /** Read the CCD balance of an explicit Base58 address (any account). */
   getBalanceForAddress(address: string): Promise<bigint>;
+  /** The node's own status for a transaction (Concordium's form), or null. WDK prefers getTransaction. */
   getTransactionReceipt(hash: string): Promise<unknown | null>;
-  /** Normalized receipts are unsupported; rejects with NotImplementedError. */
-  getTransaction(hash: string): Promise<never>;
+  /**
+   * A transaction's status as WDK's standard receipt: 'pending' (received, or in a block not yet final) or 'final'
+   * (with success, fee, block and Concordium's blockHash). WDK's waitForTransaction builds on it. Concordium has no
+   * 'dropped': a transaction that never lands stops being known, and waitForTransaction ends with TimeoutError.
+   * @throws {NoSuchElementError} If the node does not know the transaction.
+   * @throws {ProviderError} If the node could not be asked.
+   */
+  getTransaction(hash: string): Promise<ConcordiumTransactionReceipt>;
+  /** How often waitForTransaction asks, in ms: 2000 (Concordium makes a block about every 2 seconds). */
+  get defaultWaitInterval(): number;
   toReadOnlyAccount(): Promise<WalletAccountReadOnly>;
   dispose(): void;
 

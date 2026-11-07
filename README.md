@@ -289,7 +289,6 @@ See [`types/index.d.ts`](types/index.d.ts) for request, result, and option types
 | `getAccount()` | Unsupported; use `getAccountByPath()` with all three identity coordinates. |
 | `getFeeRates()` | Unsupported; use the transaction-specific quote methods. |
 | Named signers | Unsupported; use seed-based accounts. |
-| `getTransaction()` / `waitForTransaction()` | Unsupported; use `getTransactionReceipt()`. |
 | `toReadOnlyAccount()` | Returns the same account instance, **not** a signing-isolated view. |
 
 `getAccountByPath()` throws `AccountNotCreatedError` when the credential is not

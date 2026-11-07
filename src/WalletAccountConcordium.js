@@ -12,7 +12,7 @@
 
 import {
   WalletAccountReadOnly, NotImplementedError, InvalidTokenError, ValueError, TransferError, TransferErrorReason,
-  TransactionError, TransactionErrorReason,
+  TransactionError, TransactionErrorReason, NoSuchElementError, ProviderError, ProviderErrorReason,
 } from '@tetherto/wdk-wallet';
 import * as sdk from '@concordium/web-sdk';
 import * as plt from '@concordium/web-sdk/plt';
@@ -311,9 +311,64 @@ export default class WalletAccountConcordium extends WalletAccountReadOnly {
     return s.verifyMessageSignature(message, JSON.parse(signature), info);
   }
 
-  /** Normalized receipts are unsupported; use getTransactionReceipt. */
-  async getTransaction(_hash) {
-    throw new NotImplementedError('getTransaction is not supported. Use getTransactionReceipt.');
+  // ---- transaction status (WDK's standard receipt) ----
+  //
+  // WDK describes every chain's transactions in the same words, so a wallet app handles them all alike; these
+  // translate Concordium's. The node says a transaction is received (waiting for a block), committed (in a block, not
+  // final yet: blocks can still be reorganised for a few seconds) or finalized (for good). WDK's words:
+  //   received, committed   →  'pending'  (WDK's 'confirmed' means "reversible only under extreme conditions", which
+  //                                        committed is not; Concordium is final within seconds anyway)
+  //   finalized              →  'final', with success (false if the chain rejected it), fee and block
+  //   not known to the node  →  NoSuchElementError, as WDK specifies for an unknown hash
+  // WDK's 'dropped' has no Concordium counterpart: a transaction that never lands (it expired before reaching a block)
+  // just stops being known. waitForTransaction then ends with WDK's TimeoutError.
+
+  /**
+   * How often waitForTransaction asks (ms): Concordium makes a block about every 2 seconds, and is final within
+   * seconds. The time budget stays WDK's (60 s, defaultWaitTimeout).
+   */
+  get defaultWaitInterval() { return 2000; }
+
+  /**
+   * A transaction's status, as WDK's standard receipt (WDK's waitForTransaction builds on it).
+   * @param {string} hash  the transaction's hash (hex)
+   * @returns {Promise<{hash: string, finality: 'pending' | 'final', success?: boolean, block?: number, fee?: bigint,
+   *   blockHash?: string}>}  once final: `success` (false if rejected), `fee` (microCCD; for a sponsored transaction,
+   *   what the sponsor paid), `block` (the block's height) and `blockHash` (Concordium's own block reference)
+   * @throws {NoSuchElementError} If the node does not know the transaction.
+   * @throws {ProviderError} If the node could not be asked (waitForTransaction tries again, up to 3 times in a row).
+   * @throws {ValueError} If `hash` is not a transaction hash.
+   */
+  async getTransaction(hash) {
+    const s = this._sdk;
+    let transactionHash;
+    try { transactionHash = s.TransactionHash.fromHexString(hash); } catch {
+      throw new ValueError('hash must be a transaction hash (64 hex characters).');
+    }
+    const client = await this._getClient();
+    const askNode = async (question) => {
+      try {
+        return await question();
+      } catch (e) {
+        if (isNotFound(e)) throw new NoSuchElementError(`The node does not know transaction ${hash}.`);
+        throw new ProviderError(`The node could not be asked: ${e?.message ?? e}`, { reason: ProviderErrorReason.NETWORK_ERROR, cause: e });
+      }
+    };
+    const status = await askNode(() => client.getBlockItemStatus(transactionHash));
+    if (status?.status === 'received' || status?.status === 'committed') return { hash, finality: 'pending' };
+    if (status?.status !== 'finalized') {
+      throw new ProviderError(`The node gave an unexpected status: ${JSON.stringify(status?.status)}.`, { reason: ProviderErrorReason.INTERNAL_SERVER_ERROR });
+    }
+    const { blockHash, summary } = status.outcome;
+    const info = await askNode(() => client.getBlockInfo(blockHash));
+    return {
+      hash,
+      finality: 'final',
+      success: !s.isRejectTransaction(summary),
+      block: Number(info.blockHeight),
+      fee: feePaid(summary),
+      blockHash: s.BlockHash.toHexString(blockHash),
+    };
   }
 
   async getTransactionReceipt(hash) {
@@ -923,6 +978,12 @@ export function parseTokenRef(ref) {
   }
   const symbol = str.toLowerCase().startsWith('plt:') ? str.slice(4) : str;
   return { kind: 'plt', symbol };
+}
+
+/** The fee a final transaction cost, in microCCD: for a sponsored one, what the sponsor paid (the sender pays 0). */
+function feePaid(summary) {
+  const cost = summary?.sponsor?.cost ?? summary?.cost;
+  try { return BigInt(cost?.microCcdAmount ?? cost ?? 0n); } catch { return 0n; }
 }
 
 /** An amount in base units as a decimal number for people, e.g. units(1500000n, 6) = '1.5'. */
