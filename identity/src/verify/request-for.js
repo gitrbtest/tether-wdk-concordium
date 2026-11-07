@@ -45,7 +45,24 @@ function countries(list, option) {
  * @returns {{ challenge: string, credentialStatements: object[] }}
  * @throws {ProofError} reason 'invalid-request' (e.g. no providers, or an attribute used twice) or 'unknown-attribute'
  */
-export function requestFor({
+export function requestFor(options = {}) {
+  const { providers, ask } = readAsks(options);
+  const credentialStatements = new sdk.Web3StatementBuilder().addForIdentityCredentials(providers, ask).getStatements();
+  // 32 fresh random bytes: a challenge no one can guess or reuse from another request.
+  return readProofRequest({ challenge: randomBytes(32).toString('hex'), credentialStatements });
+}
+
+/** The options a question can ask (see requestFor), shared by both versions. */
+export const ASK_OPTIONS = ['providers', 'adult', 'minAge', 'residentIn', 'notResidentIn', 'nationalityIn', 'nationalityNotIn',
+  'documentValid', 'reveal'];
+
+/**
+ * Check what a website wants to ask (requestFor's options) and turn it into Concordium's statements. Used by both
+ * versions: returns the accepted providers and `ask`, which adds the statements to one of Concordium's statement
+ * builders (the same methods in both versions).
+ * @throws {ProofError} reason 'invalid-request' or 'unknown-attribute'
+ */
+export function readAsks({
   providers, adult, minAge, residentIn, notResidentIn, nationalityIn, nationalityNotIn, documentValid, reveal = [],
 } = {}) {
   if (!Array.isArray(providers) || providers.length === 0 || !providers.every((p) => Number.isSafeInteger(p) && p >= 0)) {
@@ -78,8 +95,12 @@ export function requestFor({
     use(name, 'reveal');
   }
   if (used.size === 0) throw invalid('The request asks for nothing: give at least one of adult, minAge, residentIn, … or reveal.');
+  if (residentIn) countries(residentIn, 'residentIn');
+  if (notResidentIn) countries(notResidentIn, 'notResidentIn');
+  if (nationalityIn) countries(nationalityIn, 'nationalityIn');
+  if (nationalityNotIn) countries(nationalityNotIn, 'nationalityNotIn');
 
-  const credentialStatements = new sdk.Web3StatementBuilder().addForIdentityCredentials([...providers], (b) => {
+  const ask = (b) => {
     if (age !== undefined) b.addMinimumAge(age);
     if (residentIn) b.addMembership('countryOfResidence', countries(residentIn, 'residentIn'));
     if (notResidentIn) b.addNonMembership('countryOfResidence', countries(notResidentIn, 'notResidentIn'));
@@ -88,8 +109,6 @@ export function requestFor({
     if (documentValid) b.documentExpiryNoEarlierThan(yyyymmdd(documentValid instanceof Date ? documentValid : new Date()));
     for (const name of reveal) b.revealAttribute(name);
     return b;
-  }).getStatements();
-
-  // 32 fresh random bytes: a challenge no one can guess or reuse from another request.
-  return readProofRequest({ challenge: randomBytes(32).toString('hex'), credentialStatements });
+  };
+  return { providers: [...providers], ask };
 }

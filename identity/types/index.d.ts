@@ -573,11 +573,11 @@ export function describeProofContext(request: AnyProofRequest): ProofContext;
  * answer, or answering a version 1 question; a refused answer does not throw: checkPresentation returns ok: false).
  * Version 1 only: account-only (the question accepts answers from an account only), anchor-not-found (the anchor is not
  * on chain, or not final yet: detail 'absent', 'received' or 'committed'), anchor-mismatch (the anchor does not record
- * this question: do not answer).
+ * this question: do not answer), anchor-failed (the website's side: recording the question on chain failed).
  */
 export class ProofError extends Error {
   reason: 'invalid-request' | 'unknown-attribute' | 'not-held' | 'identity-expired' | 'provider-not-accepted' | 'cannot-prove'
-    | 'node' | 'account-only' | 'anchor-not-found' | 'anchor-mismatch';
+    | 'node' | 'account-only' | 'anchor-not-found' | 'anchor-mismatch' | 'anchor-failed';
   /** More detail, e.g. the attribute named. */
   detail?: string;
 }

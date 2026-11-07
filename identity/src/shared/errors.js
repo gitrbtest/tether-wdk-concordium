@@ -76,12 +76,14 @@ export class IdentityRecoveryError extends Error {
  *   'received' or 'committed'); just after the website sent it, try again in a few seconds
  * - anchor-mismatch (version 1): the anchor is on chain but does not record this question (it was changed after
  *   the website recorded it, or the anchor is another transaction); do not answer
+ * - anchor-failed (version 1, the website's side): recording the question on chain failed: the node refused the
+ *   anchor, or it was rejected on chain (e.g. not enough CCD for the fee; `detail` says)
  */
 export class ProofError extends Error {
   /**
    * @param {string} message
    * @param {{ reason: 'invalid-request' | 'unknown-attribute' | 'not-held' | 'identity-expired' | 'provider-not-accepted'
-   *   | 'cannot-prove' | 'node' | 'account-only' | 'anchor-not-found' | 'anchor-mismatch',
+   *   | 'cannot-prove' | 'node' | 'account-only' | 'anchor-not-found' | 'anchor-mismatch' | 'anchor-failed',
    *   detail?: string }} info
    */
   constructor(message, { reason, detail } = {}) {

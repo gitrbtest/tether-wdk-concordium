@@ -54,7 +54,7 @@ const STATUS_WORDS = {
  * other values) of a "one of" / "none of" list are in. Concordium's proof writes such a list back sorted (asked
  * ['US', 'KP'], answered ['KP', 'US']): the same list, so it must not count as a different question.
  */
-function sameStatements(asked, answered) {
+export function sameStatements(asked, answered) {
   const plain = (v) => (Array.isArray(v) ? v.map(plain)
     : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k,
       k === 'set' && Array.isArray(v[k]) ? [...v[k]].map(String).sort() : plain(v[k])])) : v);
