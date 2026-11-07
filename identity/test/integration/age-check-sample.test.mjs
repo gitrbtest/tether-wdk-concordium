@@ -5,6 +5,25 @@
  * Nothing is sent to the chain and nothing is spent, so it runs with the other live tests:
  *
  *   npm run test:integration
+ *
+ * Who is who:
+ *   SHOP       the website asking "are you over 18?" (version 0: no account, no fee), on its server
+ *   WALLET     a "new phone": only the sample's public demonstration seed phrase. Its identity 0 has expired;
+ *              identity 1's account 46aPXi34… answers
+ *   PROVIDERS  the testnet identity providers, which give the identities back (recovery)
+ *
+ *   SHOP                          WALLET (new phone)                   PROVIDERS / TESTNET CHAIN
+ *   ────                          ──────────────────                   ─────────────────────────
+ *   1. asks "over 18?" ─────────► 2. shows the person the question
+ *                                 3. gets its identities back ───────► providers (recoverAll)
+ *                                    from the seed phrase only
+ *                                 4. finds an account that can truly answer: identity 0 cannot (expired),
+ *                                    identity 1's account 46aPXi34… can
+ *   6. checks the answer ◄─────── 5. answers with a proof
+ *      against the chain ────────────────────────────────────────────► chain: accepted
+ *   7. the same answer arrives again: refused ("already answered")
+ *
+ * The steps are the sample's own numbers (examples/age-check.mjs prints them); the test reads what it prints.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,6 +33,7 @@ import { fileURLToPath } from 'node:url';
 
 const packageRoot = fileURLToPath(new URL('../../', import.meta.url));
 
+// Steps 1-7: the sample run as a person would. Read-only.
 test('the age-check sample: accepted once on testnet, then the same answer refused', async () => {
   const env = { ...process.env };
   delete env.SEED_PHRASE; // the sample's public demonstration phrase

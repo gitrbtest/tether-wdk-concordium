@@ -1,6 +1,21 @@
 // Proofs, piece 3: the website checks a wallet's answer (checkPresentation, on the /verify entry). No network: the
 // wallet holds the identity recorded from testnet, and a pretend node answers with the record of that identity's
 // account 0 as recorded from the chain (its sealed details). Each test breaks one thing and expects a refusal.
+//
+// The scenario (version 0):
+//   WEBSITE       asks with requestFor and checks with checkPresentation
+//   WALLET        the recorded identity, answering with its account 0
+//   PRETEND NODE  holds account 0's record as recorded from testnet: its sealed details and validity
+//
+//   WEBSITE                         WALLET                     PRETEND NODE
+//   ───────                         ──────                     ────────────
+//   requestFor ───────────────────► prove (account 0)
+//   checkPresentation ◄──────────── the answer
+//     1. readable?
+//     2. for our question? (challenge, statements, provider, network): checked without asking the chain
+//     3. account 0's record ───────────────────────────────────► sealed details, validity (or: not on chain)
+//     4. still Active? (not expired, not "not yet valid")
+//     5. the maths holds, against the sealed details → accepted: account 0, the details shown
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -57,6 +72,7 @@ function pretendNode({ validTo = '202709', createdAt = '202609', commitments = A
 const check = (presentation, request, node = pretendNode()) => checkPresentation(presentation, request, { node, network: 'testnet' });
 const refusedFor = (result) => { assert.equal(result.ok, false); return result.reasons.map((r) => r.reason); };
 
+// Steps 1-5: accepted.
 test('checkPresentation: a true answer to our question is accepted, naming the account and what was shown', async () => {
   const w = await wallet();
   const request = requestFor({ providers: [0, 1, 2], adult: true, reveal: ['nationality'] });
@@ -73,6 +89,7 @@ test('checkPresentation: a true answer to our question is accepted, naming the a
   w.dispose();
 });
 
+// Step 2: the challenge.
 test('checkPresentation: an answer to another request (another challenge) is refused, without asking the chain', async () => {
   const w = await wallet();
   const request = requestFor({ providers: [0], adult: true });
@@ -84,6 +101,7 @@ test('checkPresentation: an answer to another request (another challenge) is ref
   w.dispose();
 });
 
+// Step 2: the statements.
 test('checkPresentation: an answer to an easier question ("over 5" for "over 18") is refused, though its maths holds', async () => {
   const w = await wallet();
   const asked = requestFor({ providers: [0], adult: true });
@@ -94,6 +112,7 @@ test('checkPresentation: an answer to an easier question ("over 5" for "over 18"
   w.dispose();
 });
 
+// Step 2: the provider.
 test('checkPresentation: an identity from a provider the request does not accept is refused', async () => {
   const w = await wallet();
   const request = requestFor({ providers: [0, 1], adult: true });
@@ -104,6 +123,7 @@ test('checkPresentation: an identity from a provider the request does not accept
   w.dispose();
 });
 
+// Step 2: the network.
 test('checkPresentation: a testnet answer is refused by a mainnet website', async () => {
   const w = await wallet();
   const request = requestFor({ providers: [0], adult: true });
@@ -113,6 +133,7 @@ test('checkPresentation: a testnet answer is refused by a mainnet website', asyn
   w.dispose();
 });
 
+// Step 4.
 test('checkPresentation: an identity no longer valid (expired) or not yet valid is refused, though its maths holds', async () => {
   const w = await wallet();
   const request = requestFor({ providers: [0], adult: true });
@@ -126,6 +147,7 @@ test('checkPresentation: an identity no longer valid (expired) or not yet valid 
   w.dispose();
 });
 
+// Step 3.
 test('checkPresentation: an account not on chain is refused', async () => {
   const w = await wallet();
   const request = requestFor({ providers: [0], adult: true });
@@ -136,6 +158,7 @@ test('checkPresentation: an account not on chain is refused', async () => {
   w.dispose();
 });
 
+// Step 5.
 test('checkPresentation: a proof whose maths does not hold is refused (tampered, or other sealed details)', async () => {
   const w = await wallet();
   const request = requestFor({ providers: [0], adult: true });
@@ -150,6 +173,7 @@ test('checkPresentation: a proof whose maths does not hold is refused (tampered,
   w.dispose();
 });
 
+// Step 1.
 test('checkPresentation: something that is not an answer is refused as unreadable', async () => {
   const request = requestFor({ providers: [0], adult: true });
   for (const junk of ['hello', {}, null, { verifiablePresentationJson: '{' }]) {
@@ -157,6 +181,7 @@ test('checkPresentation: something that is not an answer is refused as unreadabl
   }
 });
 
+// Step 3: the node down; and missing options.
 test('checkPresentation: the node cannot be asked: ProofError node (not a refusal); missing options: an error', async () => {
   const w = await wallet();
   const request = requestFor({ providers: [0], adult: true });
@@ -172,6 +197,7 @@ test('checkPresentation: the node cannot be asked: ProofError node (not a refusa
   w.dispose();
 });
 
+// The website's node connection, used in step 3.
 test('connectToNode: Concordium\'s public node by network name, or your own node\'s address', () => {
   for (const where of ['testnet', 'mainnet', 'https://my-node.example.com:20000', 'http://localhost:20000']) {
     assert.equal(typeof connectToNode(where).getAccountInfo, 'function', where);

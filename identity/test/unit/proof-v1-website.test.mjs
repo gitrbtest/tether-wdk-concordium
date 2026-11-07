@@ -2,6 +2,26 @@
 // or by a sponsor) and checkPresentationV1 checks the wallet's answer. No network: one pretend chain plays the
 // node for both the website and the wallet, holding the anchors the website sends; the wallet holds the identity
 // recorded from testnet, and the providers' keys are the recorded ones.
+//
+// The scenario, as in test/integration/proof-v1.test.mjs but on one pretend chain (the node for both sides):
+//   SHOP      account 13 (its keys only): asks, and sends the anchor
+//   SPONSOR   account 11 (its keys only): pays the anchor's fee, when used
+//   WALLET    the recorded identity: answers from the identity (or, in one test, an account answer built with the SDK)
+//
+//   SPONSOR (11)          SHOP (13)                         PRETEND CHAIN                WALLET
+//   ────────────          ─────────                         ─────────────                ──────
+//                         1. requestForV1: checks the
+//                            options, builds the question
+//   2. signs too ◄─────── (with a sponsor only)
+//                         3. sends the anchor ────────────► kept as an anchor, final
+//                                                           (or: refused / rejected)
+//                         4. sends the question ───────────────────────────────────────► 5. reads it
+//                                                           anchor on chain? ◄────────── 6. answers
+//                         8. checkPresentationV1 ◄────────────────────────────────────── 7. the answer
+//                            8a. for our question? (context, statements, providers, where from, network)
+//                            8b. the anchor: on chain, final, this question; the answer tied to its block
+//                            8c. the chain's public data; the identity still Active
+//                            8d. the maths holds → accepted, with an audit record
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
@@ -89,6 +109,7 @@ const rejectsWith = (promise, reason, pattern) => assert.rejects(promise, (e) =>
 
 // ---- requestForV1 ---------------------------------------------------------------------------------------------
 
+// Steps 1 and 3, without a sponsor: the website pays.
 test('requestForV1: the question is recorded on chain by the website, and is what wallets read', async () => {
   const chain = pretendChain();
   const question = await requestForV1({ ...AGE_CHECK, reveal: ['nationality'] }, { node: chain, ...SHOP });
@@ -107,6 +128,7 @@ test('requestForV1: the question is recorded on chain by the website, and is wha
   assert.deepEqual(question.context.requested, ['BlockHash']);
 });
 
+// Steps 1-3, with the sponsor.
 test('requestForV1: with a sponsor, the sponsor pays the fee: both accounts sign, the website needs no CCD', async () => {
   const chain = pretendChain();
   await requestForV1(AGE_CHECK, { node: chain, ...SHOP, sponsor: SPONSOR });
@@ -115,6 +137,7 @@ test('requestForV1: with a sponsor, the sponsor pays the fee: both accounts sign
   assert.ok(anchor.signatures.sender && anchor.signatures.sponsor, 'signed by the website and by the sponsor');
 });
 
+// Step 1: a fresh nonce each time; answerFrom; connection.
 test('requestForV1: every question is new (a fresh nonce), and answerFrom chooses where answers may come from', async () => {
   const chain = pretendChain();
   const a = await requestForV1(AGE_CHECK, { node: chain, ...SHOP });
@@ -126,6 +149,7 @@ test('requestForV1: every question is new (a fresh nonce), and answerFrom choose
   assert.equal(describeProofContext(b).connection, 'till-3');
 });
 
+// Step 1: refused before step 3 (nothing sent).
 test('requestForV1: bad options are refused before anything is sent', async () => {
   const chain = pretendChain();
   const tries = [
@@ -144,6 +168,7 @@ test('requestForV1: bad options are refused before anything is sent', async () =
   assert.equal(chain.sent.length, 0, 'nothing sent');
 });
 
+// Step 3: refused, rejected on chain, or the node unreachable.
 test('requestForV1: an anchor the node refuses or the chain rejects is anchor-failed; an unreachable node is node', async () => {
   const refused = Object.assign(new Error('insufficient funds for the transaction fee'), { name: 'RpcError', code: 'INVALID_ARGUMENT' });
   await rejectsWith(requestForV1(AGE_CHECK, { node: pretendChain({ refuse: refused }), ...SHOP }), 'anchor-failed', /insufficient funds/);
@@ -155,6 +180,7 @@ test('requestForV1: an anchor the node refuses or the chain rejects is anchor-fa
 
 // ---- checkPresentationV1 ----------------------------------------------------------------------------------------
 
+// Steps 1-8: the whole story, accepted.
 test('checkPresentationV1: the wallet\'s answer from its identity is accepted, with what was shown and an audit record', async () => {
   const chain = pretendChain();
   const { question, answer } = await askAndAnswer(chain, { ...AGE_CHECK, reveal: ['nationality'] });
@@ -172,12 +198,14 @@ test('checkPresentationV1: the wallet\'s answer from its identity is accepted, w
   }
 });
 
+// Steps 1-8, with the sponsor.
 test('checkPresentationV1: a sponsored question is answered and checked the same way', async () => {
   const chain = pretendChain();
   const { question, answer } = await askAndAnswer(chain, AGE_CHECK, { ...SHOP, sponsor: SPONSOR });
   assert.equal((await check(chain, answer, question)).ok, true);
 });
 
+// Step 8a: the context (the case Concordium's createChecked misses).
 test('checkPresentationV1: an answer to another question with the same statements is refused (context-mismatch)', async () => {
   // Concordium's createChecked (SDK 12.0.2) accepts this one: it does not wait for its own context comparison.
   const chain = pretendChain();
@@ -188,6 +216,7 @@ test('checkPresentationV1: an answer to another question with the same statement
   assert.ok(reasonsOf(result).includes('context-mismatch'));
 });
 
+// Steps 8a-8b: each part of "is it for our question?".
 test('checkPresentationV1: an answer that proves something easier, or comes from elsewhere, is refused', async () => {
   const chain = pretendChain();
   const { question, answer } = await askAndAnswer(chain);
@@ -208,6 +237,7 @@ test('checkPresentationV1: an answer that proves something easier, or comes from
   }
 });
 
+// Step 8a: where the answer comes from.
 test('checkPresentationV1: an answer from the identity where the question accepts accounts only is refused', async () => {
   const chain = pretendChain();
   const { question, answer } = await askAndAnswer(chain, { ...AGE_CHECK, answerFrom: 'either' });
@@ -217,6 +247,7 @@ test('checkPresentationV1: an answer from the identity where the question accept
   assert.deepEqual(reasonsOf(await check(chain, answer, accountOnly)), ['source-not-accepted']);
 });
 
+// Step 8b: the anchor.
 test('checkPresentationV1: the anchor must be on chain, final and really this question', async () => {
   const chain = pretendChain();
   const { question, answer } = await askAndAnswer(chain);
@@ -229,6 +260,7 @@ test('checkPresentationV1: the anchor must be on chain, final and really this qu
   assert.deepEqual(reasonsOf(await check(other, answer, question)), ['anchor-mismatch']);
 });
 
+// Step 8c: still Active.
 test('checkPresentationV1: an identity that is no longer valid when checked is refused (not-active)', async () => {
   const chain = pretendChain();
   const { question, answer } = await askAndAnswer(chain);
@@ -237,6 +269,7 @@ test('checkPresentationV1: an identity that is no longer valid when checked is r
   assert.deepEqual(reasonsOf(await check(later, answer, question)), ['not-active']);
 });
 
+// Step 8b (the node down), and the question checked first.
 test('checkPresentationV1: a node that cannot be asked throws ProofError node; a broken question is refused', async () => {
   const chain = pretendChain();
   const { question, answer } = await askAndAnswer(chain);
@@ -263,6 +296,7 @@ async function accountAnswer(chain, question) {
   return JSON.parse(JSON.stringify(sdk.VerifiablePresentationV1.create({ context, subjectClaims: [subject] }, [input], globalFixture('testnet').value)));
 }
 
+// Steps 6-8 with an account answer: 8a where from, 8c its provider read from the chain.
 test('checkPresentationV1: an answer from an account is accepted where the question allows it, naming the account', async () => {
   const chain = pretendChain();
   const either = await requestForV1({ ...AGE_CHECK, answerFrom: 'either', reveal: ['countryOfResidence'] }, { node: chain, ...SHOP });

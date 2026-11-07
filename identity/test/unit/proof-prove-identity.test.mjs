@@ -1,6 +1,23 @@
 // Proofs, version 1: the wallet answers an anchored question from the identity itself (no account). No network: the
 // identity is the one recorded from testnet, the node is a pretend one that knows the question's anchor, and each
 // answer is checked here with Concordium's own verifier against the recorded provider's public keys.
+//
+// The scenario: the website (played by the test) builds questions with Concordium's SDK; the wallet answers; the
+// website checks the answer with Concordium's verifier against provider 0's recorded keys.
+//   WALLET        the recorded identity (provider 0, identity 334563111; John Doe: born 1970, lives in DK)
+//   PRETEND NODE  holds the question's anchor (made with the SDK; one test uses the real anchor recorded on testnet)
+//
+//   WEBSITE (the test)              WALLET: proveIdentity                                PRETEND NODE
+//   ──────────────────              ─────────────────────                                ────────────
+//   the question ─────────────────► 1. reads it (any form it arrives in)
+//                                   2. same network? what must the wallet fill in?
+//                                   3. identity held? not expired?
+//                                   4. answers from the identity accepted? provider accepted? can it truly answer?
+//                                      (any "no" in 2-4: refused before the node is asked)
+//                                   5. the secret ingredients, from the seed and the identity
+//                                   6. the anchor: on chain, final, this question? ────► getBlockItemStatus
+//                                   7. builds the answer, tied to the anchor's block
+//   8. Concordium's verifier ◄───── the answer
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -71,6 +88,7 @@ const rejectsWith = (promise, reason, pattern) => assert.rejects(promise, (e) =>
   return true;
 });
 
+// Steps 1-8: accepted; no account named; nationality shown.
 test('proveIdentity: "over 18" from the identity: Concordium\'s verifier accepts it, tied to the anchor\'s block', async () => {
   const asked = question({ build: (b) => b.addMinimumAge(18).revealAttribute('nationality') });
   const { wallet, node } = await walletWithIdentity({ anchor: anchoredOnChain(asked) });
@@ -90,6 +108,7 @@ test('proveIdentity: "over 18" from the identity: Concordium\'s verifier accepts
   wallet.dispose();
 });
 
+// Step 1: the forms a question arrives in.
 test('proveIdentity: the question as JSON text, as the SDK\'s object, or in WalletConnect\'s wrapper', async () => {
   const asked = question();
   const { wallet } = await walletWithIdentity({ anchor: anchoredOnChain(asked) });
@@ -99,6 +118,7 @@ test('proveIdentity: the question as JSON text, as the SDK\'s object, or in Wall
   wallet.dispose();
 });
 
+// Step 4: "either" is answered from the identity.
 test('proveIdentity: a question accepting identity or account is answered from the identity', async () => {
   const asked = question({ kind: 'addAccountOrIdentityClaims', build: (b) => b.addMembership('countryOfResidence', ['DK', 'SE']) });
   const { wallet } = await walletWithIdentity({ anchor: anchoredOnChain(asked) });
@@ -107,6 +127,7 @@ test('proveIdentity: a question accepting identity or account is answered from t
   wallet.dispose();
 });
 
+// Steps 2 and 4: each refusal, before step 6.
 test('proveIdentity: refused before anything is asked of the node when the answer would not be true or acceptable', async () => {
   const cases = [
     [question({ kind: 'addAccountClaims' }), 'account-only', /account only/],
@@ -124,6 +145,7 @@ test('proveIdentity: refused before anything is asked of the node when the answe
   }
 });
 
+// Step 3.
 test('proveIdentity: an identity not held, or expired, is refused', async () => {
   const asked = question();
   const { wallet } = await walletWithIdentity({ anchor: anchoredOnChain(asked) });
@@ -134,6 +156,7 @@ test('proveIdentity: an identity not held, or expired, is refused', async () => 
   expired.wallet.dispose();
 });
 
+// Step 6: anchor-not-found.
 test('proveIdentity: an anchor that is not on chain, or not final yet, is refused as anchor-not-found', async () => {
   const asked = question();
   for (const [anchor, detail, pattern] of [
@@ -147,6 +170,7 @@ test('proveIdentity: an anchor that is not on chain, or not final yet, is refuse
   }
 });
 
+// Step 6: anchor-mismatch.
 test('proveIdentity: an anchor that does not record this question is refused as anchor-mismatch', async () => {
   const asked = question();
   const another = question({ build: (b) => b.addMinimumAge(21) }); // the website recorded a different question
@@ -157,6 +181,7 @@ test('proveIdentity: an anchor that does not record this question is refused as 
   }
 });
 
+// Step 6: the node down.
 test('proveIdentity: a node that cannot be asked is reported as reason node', async () => {
   const unreachable = Object.assign(new Error('connection refused'), { name: 'RpcError', code: 'UNAVAILABLE' });
   const { wallet } = await walletWithIdentity({ anchor: unreachable });
@@ -164,6 +189,7 @@ test('proveIdentity: a node that cannot be asked is reported as reason node', as
   wallet.dispose();
 });
 
+// Steps 2 and 7: what the wallet fills in.
 test('proveIdentity: what the question asks the wallet to fill in (e.g. the site it is connected to) is put in the proof', async () => {
   const asked = question({ requested: ['BlockHash', 'ResourceID'] });
   const { wallet } = await walletWithIdentity({ anchor: anchoredOnChain(asked) });
@@ -177,6 +203,7 @@ test('proveIdentity: what the question asks the wallet to fill in (e.g. the site
   wallet.dispose();
 });
 
+// Step 8: a changed answer.
 test('proveIdentity: a changed answer is refused by the website\'s verifier', async () => {
   const asked = question();
   const { wallet } = await walletWithIdentity({ anchor: anchoredOnChain(asked) });
@@ -186,6 +213,7 @@ test('proveIdentity: a changed answer is refused by the website\'s verifier', as
   wallet.dispose();
 });
 
+// Steps 1-8 on the real recorded question and anchor.
 test('proveIdentity: the question recorded on testnet, with its real anchor as the node gave it, is answered and verified', async () => {
   // Recorded once by test/fixtures/capture-v1-question.mjs (a sponsored anchor on testnet).
   const { question: recordedQuestion, anchor } = fixture('v1-question.testnet.json');

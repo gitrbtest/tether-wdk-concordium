@@ -8,6 +8,23 @@
  *
  * The identity is identity 1 of the public "abandon" test phrase (provider 0), made on 2 Nov 2026; its account 0
  * is 46aPXi34….
+ *
+ * Who is who:
+ *   SHOP       Concordium's own reward shop (compliant-reward-distribution): its question, made as it makes it
+ *   WALLET     identity 1 of the public test phrase, answering with its account 0, 46aPXi34…
+ *   PROVIDER   provider 0, which gives the identity back (recovery)
+ *
+ *   SHOP (Concordium's)           WALLET                               PROVIDER 0 / TESTNET CHAIN
+ *   ───────────────────           ──────                               ──────────────────────────
+ *                                 1. gets identity 1 back ───────────► provider 0 (recoverIdentity)
+ *   2. its challenge, from the latest finalized block ◄──────────────── chain
+ *      its question: show national ID number and nationality,
+ *      born before 2 Aug 2006, not living in US or KP
+ *      sends it ────────────────► 3. finds the account that can answer: 46aPXi34…
+ *                                 4. answers (prove, as WalletConnect carries it)
+ *   5. checkPresentation ◄─────── the answer
+ *      against the chain ────────────────────────────────────────────► chain
+ *      accepted: account 46aPXi34…, national ID number and nationality shown
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -26,6 +43,7 @@ const ZK_STATEMENTS = [
   { type: 'AttributeNotInSet', attributeTag: 'countryOfResidence', set: ['US', 'KP'] },
 ];
 
+// Steps 1-5: the whole story, once. Read-only.
 test("Concordium's reward shop: its question, answered by identity 1's account, accepted against the testnet chain", async () => {
   const wallet = new ConcordiumIdentity(PHRASE, await liveTestnetConfig());
   try {

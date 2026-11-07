@@ -1,5 +1,24 @@
 // Recovery, piece 1: the recovery request, the provider's recovery address, and its answers (scope part D).
 // No network: the provider's answers are scripted; the identity is the one issued on testnet (test fixture).
+//
+// The scenario: a new phone with only the seed phrase gets its identities and accounts back.
+//   WALLET        only the seed phrase
+//   PROVIDER      scripted answers (the identity is the one issued on testnet)
+//   PRETEND NODE  says which accounts exist
+//
+//   WALLET (new phone)                                  PROVIDER                      PRETEND NODE
+//   ──────────────────                                  ────────                      ────────────
+//   1. the recovery request, from the seed (only
+//      these keys can make it)
+//   2. sent to the provider's recovery address ───────► 3. answers: the identity / none (404) /
+//                                                          an error (tried again 3 times)
+//   4. is it this seed's identity? held, ready to export
+//   5. findAccounts: account 0? 1? 2? … (stops after 3 missing in a row) ──────────────► exists? yes / no
+//   6. recoverAll: every provider, identity 0, 1, 2 … (stops after 3 missing), each with its accounts
+//   7. the next free numbers: nextIdentityIndex (asks the provider), nextCredNumber (asks the node)
+//
+// Pieces 1-4 below follow these steps: 1-3 (the request and the answers), 4 (recoverIdentity), 5 (findAccounts),
+// 6 (recoverAll), then 7.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -33,6 +52,7 @@ const rejectsWith = (promise, reason) => assert.rejects(promise, (e) => {
   return true;
 });
 
+// Step 1.
 test('the recovery request is for the identity issued to these keys (its idCredPub matches)', () => {
   const hdWallet = sdk.ConcordiumHdWallet.fromSeedPhrase(PHRASE, 'Testnet');
   const request = recoveryRequest({
@@ -46,6 +66,7 @@ test('the recovery request is for the identity issued to these keys (its idCredP
   assert.notEqual(other.value.idCredPub, request.value.idCredPub, 'another identity index gives another key');
 });
 
+// Step 2.
 test('the request goes to the provider\'s recovery address as its state', () => {
   const request = { v: 0, value: { idCredPub: 'ab', timestamp: 1, proof: 'cd' } };
   const url = new URL(recoveryLink(RECOVERY_START, request));
@@ -53,6 +74,7 @@ test('the request goes to the provider\'s recovery address as its state', () => 
   assert.deepEqual(JSON.parse(url.searchParams.get('state')), { idRecoveryRequest: request });
 });
 
+// Step 3: the identity.
 test('HTTP 200: the identity the provider returned', async () => {
   const provider = scriptedProvider({ status: 200, body: issued() });
   const identity = await askProviderForIdentity({ fetch: provider.fetch, url: 'https://ip/recover?state=x' });
@@ -60,11 +82,13 @@ test('HTTP 200: the identity the provider returned', async () => {
   assert.equal(provider.calls.length, 1);
 });
 
+// Step 3: none.
 test('HTTP 404: no identity for these keys, which is not an error (null)', async () => {
   const provider = scriptedProvider({ status: 404, body: { code: 404, message: 'Identity not found' } });
   assert.equal(await askProviderForIdentity({ fetch: provider.fetch, url: 'https://ip/recover' }), null);
 });
 
+// Step 3: an error.
 test('another error from the provider: provider-error, with its status and message', async () => {
   const provider = scriptedProvider({ status: 400, body: { message: 'The timestamp is too old' } });
   await assert.rejects(askProviderForIdentity({ fetch: provider.fetch, url: 'https://ip/recover' }), (e) => {
@@ -77,29 +101,34 @@ test('another error from the provider: provider-error, with its status and messa
   assert.equal(provider.calls.length, 1, 'a 4xx is not tried again');
 });
 
+// Step 3: not an identity.
 test('an answer that is not an identity: provider-error', async () => {
   const provider = scriptedProvider({ status: 200, body: { status: 'pending' } });
   await rejectsWith(askProviderForIdentity({ fetch: provider.fetch, url: 'https://ip/recover' }), 'provider-error');
 });
 
+// Step 3: tried again.
 test('a brief network failure or server error is tried again', async () => {
   const provider = scriptedProvider('network-failure', { status: 503, body: {} }, { status: 200, body: issued() });
   assert.deepEqual(await askProviderForIdentity({ fetch: provider.fetch, url: 'https://ip/recover' }), issued());
   assert.equal(provider.calls.length, 3);
 });
 
+// Step 3: given up.
 test('three network failures in a row: network', async () => {
   const provider = scriptedProvider('network-failure', 'network-failure', 'network-failure');
   await rejectsWith(askProviderForIdentity({ fetch: provider.fetch, url: 'https://ip/recover' }), 'network');
   assert.equal(provider.calls.length, 3);
 });
 
+// Step 3: given up.
 test('three server errors in a row: provider-error with the last status', async () => {
   const provider = scriptedProvider({ status: 500, body: {} }, { status: 502, body: {} }, { status: 503, body: { message: 'down' } });
   await assert.rejects(askProviderForIdentity({ fetch: provider.fetch, url: 'https://ip/recover' }),
     (e) => e.reason === 'provider-error' && e.status === 503 && e.detail === 'down');
 });
 
+// Steps 2-3: cancelled.
 test('cancelled before or between tries: cancelled', async () => {
   const before = new AbortController();
   before.abort();
@@ -132,6 +161,7 @@ function networkWithRecovery(...answers) {
 /** The recovery request a call sent, read back out of the address it asked. */
 const requestSent = (url) => JSON.parse(new URL(url).searchParams.get('state')).idRecoveryRequest;
 
+// Steps 1-4.
 test('recoverIdentity: the identity comes back from the provider, held and ready to export', async () => {
   const network = networkWithRecovery({ status: 200, body: issued() });
   const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: network.fetch });
@@ -151,6 +181,7 @@ test('recoverIdentity: the identity comes back from the provider, held and ready
   restarted.dispose();
 });
 
+// Step 3: none, so nothing held.
 test('recoverIdentity: none issued for this identity number: null, nothing held', async () => {
   const network = networkWithRecovery({ status: 404, body: { message: 'Identity not found' } });
   const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: network.fetch });
@@ -159,6 +190,7 @@ test('recoverIdentity: none issued for this identity number: null, nothing held'
   wallet.dispose();
 });
 
+// Step 4: not this seed's.
 test('recoverIdentity: an identity that is not this seed\'s is refused (not-yours) and never held', async () => {
   // The provider answers identity 1's request with the identity issued for 334563111: another key.
   const network = networkWithRecovery({ status: 200, body: issued() });
@@ -168,6 +200,7 @@ test('recoverIdentity: an identity that is not this seed\'s is refused (not-your
   wallet.dispose();
 });
 
+// Step 1: which identity (no default number).
 test('recoverIdentity: providerIndex and identityIndex are required (no default number)', async () => {
   const network = networkWithRecovery({ status: 404, body: {} });
   const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: network.fetch });
@@ -184,6 +217,7 @@ test('recoverIdentity: providerIndex and identityIndex are required (no default 
   wallet.dispose();
 });
 
+// Step 2: no address to send to.
 test('recoverIdentity: a provider that publishes no recovery address is reported (IdentityProviderError)', async () => {
   const ipInfo = ipInfoFixture('testnet');
   delete ipInfo.find((entry) => entry.ipInfo.ipIdentity === 0).metadata.recoveryStart;
@@ -195,6 +229,7 @@ test('recoverIdentity: a provider that publishes no recovery address is reported
   wallet.dispose();
 });
 
+// Steps 1-4: cancelled; disposed.
 test('recoverIdentity: cancelled before it starts; refused once disposed', async () => {
   const network = networkWithRecovery({ status: 200, body: issued() });
   const wallet = new ConcordiumIdentity(PHRASE, testnetConfig(), { fetch: network.fetch });
@@ -242,6 +277,7 @@ function networkWithAccounts(existing, { failures = 0, recovery = [] } = {}) {
 
 const newWallet = (network) => new ConcordiumIdentity(PHRASE, testnetConfig({ node: network.node }), { fetch: network.fetch });
 
+// Step 5.
 test('findAccounts: accounts 0 and 1 exist: both found, with their paths; it stops after 3 missing in a row', async () => {
   const network = networkWithAccounts([0, 1]);
   const wallet = newWallet(network);
@@ -255,6 +291,7 @@ test('findAccounts: accounts 0 and 1 exist: both found, with their paths; it sto
   wallet.dispose();
 });
 
+// Step 5: a hole.
 test('findAccounts: a hole shorter than the gap is skipped over (0 and 2 exist)', async () => {
   const network = networkWithAccounts([0, 2]);
   const wallet = newWallet(network);
@@ -264,6 +301,7 @@ test('findAccounts: a hole shorter than the gap is skipped over (0 and 2 exist)'
   wallet.dispose();
 });
 
+// Step 5: none.
 test('findAccounts: no accounts: an empty list after 3 checks; the gap can be changed', async () => {
   const network = networkWithAccounts([]);
   const wallet = newWallet(network);
@@ -278,6 +316,7 @@ test('findAccounts: no accounts: an empty list after 3 checks; the gap can be ch
   other.dispose();
 });
 
+// Step 5: never beyond maxAccounts.
 test('findAccounts: with the identity held, it never looks beyond the identity\'s maxAccounts', async () => {
   const allowsTwo = issued();
   allowsTwo.value.attributeList.maxAccounts = 2;
@@ -290,6 +329,7 @@ test('findAccounts: with the identity held, it never looks beyond the identity\'
   wallet.dispose();
 });
 
+// Step 5: the node down.
 test('findAccounts: a brief node failure is tried again; three in a row: reason node', async () => {
   const blip = networkWithAccounts([0], { failures: 2 });
   const wallet = newWallet(blip);
@@ -307,6 +347,7 @@ test('findAccounts: a brief node failure is tried again; three in a row: reason 
   other.dispose();
 });
 
+// Step 5: inputs; cancelled; disposed.
 test('findAccounts: inputs checked; cancelled; refused once disposed', async () => {
   const network = networkWithAccounts([0]);
   const wallet = newWallet(network);
@@ -386,6 +427,7 @@ function recoveryWorld(world, { down = [], accountsDown = false } = {}) {
 
 const describe = (identities) => identities.map((x) => `${x.providerIndex}/${x.identityIndex}: ${x.accounts.map((a) => a.credNumber)}`);
 
+// Step 6 (steps 1-5 for each identity).
 test('recoverAll: every identity with every provider comes back, with its accounts, held and ready to export', async () => {
   const world = recoveryWorld({ 0: { 0: [0], 1: [0, 1] } });
   const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
@@ -403,6 +445,7 @@ test('recoverAll: every identity with every provider comes back, with its accoun
   wallet.dispose();
 });
 
+// Step 6: holes.
 test('recoverAll: a hole shorter than the gap is skipped over; identityGap and accountGap can be changed', async () => {
   // Provider 0: identities 0, 2, 4 and 6, each one missing number apart: the count of missing numbers starts
   // again after each one found, so all four are found (without that, it would stop before 6).
@@ -416,6 +459,7 @@ test('recoverAll: a hole shorter than the gap is skipped over; identityGap and a
   wallet.dispose();
 });
 
+// Step 6: a provider down.
 test('recoverAll: a provider that is down is noted in problems; the others are still asked', async () => {
   const world = recoveryWorld({ 0: { 0: [0] }, 5: { 0: [] } }, { down: [3] });
   const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
@@ -428,6 +472,7 @@ test('recoverAll: a provider that is down is noted in problems; the others are s
   wallet.dispose();
 });
 
+// Step 6: the node down.
 test('recoverAll: accounts that cannot be looked up: the identity still comes back (accounts null), the problem is noted', async () => {
   const world = recoveryWorld({ 0: { 0: [0] } }, { accountsDown: true });
   const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
@@ -438,6 +483,7 @@ test('recoverAll: accounts that cannot be looked up: the identity still comes ba
   wallet.dispose();
 });
 
+// Step 6: chosen providers.
 test('recoverAll: only the providers asked for; an unknown provider is a problem, not a failure', async () => {
   const world = recoveryWorld({ 0: { 0: [0] }, 5: { 0: [0] } });
   const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
@@ -451,6 +497,7 @@ test('recoverAll: only the providers asked for; an unknown provider is a problem
   wallet.dispose();
 });
 
+// Step 6: cancelled; disposed.
 test('recoverAll: cancelled stops everything; refused once disposed', async () => {
   const world = recoveryWorld({ 0: { 0: [0] } });
   const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
@@ -464,6 +511,7 @@ test('recoverAll: cancelled stops everything; refused once disposed', async () =
 
 // ---- No default numbers: the next free identity and account numbers --------------------------------------------
 
+// Step 7: the next identity number.
 test('nextIdentityIndex: one after the highest identity this seed has with the provider; 0 if none; nothing kept', async () => {
   const world = recoveryWorld({ 0: { 0: [0], 1: [], 3: [0] } }); // identities 0, 1 and 3 (2 is a hole)
   const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
@@ -479,6 +527,7 @@ test('nextIdentityIndex: one after the highest identity this seed has with the p
   await assert.rejects(wallet.nextIdentityIndex({ providerIndex: 0 }), /disposed/);
 });
 
+// Step 7: the next account number.
 test('nextCredNumber: one after the highest account the identity has on chain; 0 if none', async () => {
   const world = recoveryWorld({ 0: { 1: [0, 1], 2: [] } });
   const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });

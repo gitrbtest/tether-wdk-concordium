@@ -1,7 +1,8 @@
 /**
  * Live (testnet), WRITE=1 only: creates a real account on testnet from the recorded test identity, through
- * the testnet wallet-proxy, and checks independently that it exists on chain. Creating an account is free
- * (no CCD is spent), but the account is permanent, so this runs only when asked:
+ * the wallet's node connection (Concordium's public testnet node), and checks independently, with the testnet
+ * wallet-proxy, that it exists on chain. Creating an account is free (no CCD is spent), but the account is
+ * permanent, so this runs only when asked:
  *
  *   WRITE=1 npm run test:integration            (PowerShell: $env:WRITE="1"; npm run test:integration)
  *
@@ -12,6 +13,24 @@
  * creates the first unused one (100, then 101, …), so the test's accounts are easy to recognise; 0–99 are
  * left for samples and demos. When all 100 are used, the test fails and says so: then record a new identity.
  * (The very first run, on 28 Oct 2026, created account 51, before this range was set.)
+ *
+ * Who is who:
+ *   WALLET        holds the recorded identity (provider 0, identity 334563111) and the seed
+ *   NODE          Concordium's public testnet node: the package's only way to the chain
+ *   WALLET-PROXY  Concordium's testnet wallet-proxy, asked directly by the test as a second opinion (the package
+ *                 never uses it)
+ *
+ *   WALLET                                  NODE / TESTNET CHAIN                  WALLET-PROXY (second opinion)
+ *   ──────                                  ────────────────────                  ─────────────────────────────
+ *   1. holds the identity (waitForIdentity, from the recorded reply)
+ *   2. createAccount, account 100, 101, …:
+ *      does it exist? ────────────────────► yes: returned as it is, nothing sent
+ *                                           no:  the first unused number is created ↓
+ *   3. builds and signs the credential (keys from the seed; nothing about the person shown)
+ *   4. sends it ───────────────────────────► received
+ *   5. follows it until final ─────────────► committed → finalized: the account is created (0 CCD, free)
+ *   6. the test asks the wallet-proxy directly ───────────────────────────────► the account exists, 0 CCD ✔
+ *   7. createAccount again, same number ───► it exists: returned, nothing sent
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -36,6 +55,7 @@ async function balancesOf(address) {
   return response.json();
 }
 
+// Steps 1-7: one new account each run (WRITE=1 only; free, but permanent).
 test('a real account is created on testnet from the identity, and exists on chain', { skip: !WRITE && 'set WRITE=1 to create a testnet account' }, async () => {
   // The recorded identity is collected through the real waitForIdentity path; everything else goes to testnet.
   const fetchVia = async (url, options) => (url === CODE_URI
