@@ -27,6 +27,7 @@
     "test:onboard:create": "node test/onboard.mjs create",
     "example:token": "node examples/example-token.mjs",
     "example:sponsored": "node examples/example-sponsored.mjs",
+    "example:regulated-token": "node examples/example-regulated-token.mjs",
     "test": "node --test test/unit/*.test.mjs",
     "test:integration": "node --test test/integration/*.test.mjs",
     "test:all": "node --test test/unit/*.test.mjs test/integration/*.test.mjs"
