@@ -46,6 +46,13 @@ chain and lets them in. It never sees the date of birth, and the same answer can
 Try it: `npm run example:age-check` (both sides, the website and the wallet, in one run; see
 [Proving facts](#proving-facts-proofs)).
 
+**A shop with no crypto, and a partner who pays.** A shop wants to ask "over 18?" without its customers
+needing an account, and without learning which account they hold. It asks a version 1 question: the question
+is recorded on chain, and its payment partner pays the fee (about 1.3 euro cents), so the shop holds no CCD at
+all. The customer's wallet answers from the identity itself; the shop learns "over 18", and nothing else.
+Try it: `npm run example:age-check-v1` (spends one small testnet fee per run; see
+[Version 1](#version-1-from-the-identity-with-an-anchor)).
+
 More stories will follow as the package grows (tokens that only verified people may hold).
 
 ## Requirements
@@ -481,6 +488,11 @@ The question and the answer are in Concordium's own format (account-based, somet
 exactly as WalletConnect's `request_verifiable_presentation` carries them, so the wallet side also answers
 questions from other apps built for Concordium.
 
+Concordium's newer **version 1** questions are supported too: the website records its question on chain first,
+and the wallet answers from the identity itself, with no account. See
+[Version 1: from the identity, with an anchor](#version-1-from-the-identity-with-an-anchor) below, and
+[Which version?](#which-version) to choose.
+
 ### The wallet's side
 
 ```js
@@ -571,7 +583,11 @@ cannot be done:
 | `identity-expired` | wallet: the identity has expired; websites refuse its answers | the user verifies again for a new identity |
 | `provider-not-accepted` | wallet: the website does not accept identities from this provider | answer with another identity, or decline |
 | `cannot-prove` | wallet: the identity's details do not satisfy the question (e.g. under the age asked); nothing was made | tell the user; decline |
-| `node` | website: the Concordium node could not be asked (`detail`) | try again |
+| `node` | the Concordium node could not be asked (`detail`): checking an answer, or (version 1) answering or asking | try again |
+| `account-only` | wallet, version 1: the question accepts answers from an account only, not from the identity | ask the website for a question that accepts the identity, or a version 0 one |
+| `anchor-not-found` | wallet, version 1: the question's anchor is not on chain, or not final yet (`detail`: `absent`, `received`, `committed`) | just after the website sent it: try again in a few seconds; `absent`: decline |
+| `anchor-mismatch` | wallet, version 1: the anchor does not record this question (it was changed after it was recorded) | do not answer |
+| `anchor-failed` | website, version 1: recording the question failed: the node refused the anchor, or it was rejected on chain (e.g. not enough CCD for the fee; `detail`) | fund the account that pays, or fix the keys; ask again |
 
 Reasons `checkPresentation` returns for a refused answer (in `result.reasons`, each with a plain `message`):
 `unreadable`, `challenge-mismatch`, `statements-mismatch`, `not-an-identity`, `wrong-network`,
@@ -584,11 +600,134 @@ shop asks "over 18?"; a "new phone" with only the public test phrase recovers it
 expired one, and answers with an account that can; the shop checks the answer against the chain, then
 refuses the same answer sent a second time.
 
+### Version 1: from the identity, with an anchor
+
+In Concordium's newer proofs, the website first **records its question on chain**: a small `registerData`
+transaction holding a fingerprint (hash) of the question, called the **anchor**. It says, publicly and for
+good: "this website asked this question, at this time". The wallet then answers **from the identity itself**:
+no account is needed, and none is named, so the website learns "someone with an identity from provider 0 is over
+18", not which account. The answer is tied to the anchor's block, so it answers that one question only.
+
+```
+WEBSITE (its server)                               CHAIN                  WALLET (the user's device)
+requestForV1 ── records the question ────────────► the anchor (a fee)
+  keeps the question; sends it ────────────────────────────────────────► describeProofRequest, describeProofContext
+                                                   anchor on chain, ◄──── proveIdentity (from the identity)
+                                                   final, this one?
+checkPresentationV1 ◄── the answer ──────────────────────────────────────
+  ├─ for this question? (context, statements, providers, where from, network)
+  ├─ the anchor on chain and final; the answer tied to its block
+  ├─ the identity still valid? does the maths hold?
+  ▼
+{ ok, reasons, revealed, credentials, auditRecord }
+```
+
+**The cost, and who pays.** Each question costs one transaction fee, about **EUR 0.013** (fees are set in euros;
+on 7 Nov 2026 about 5 CCD on testnet). The website needs an account to send the anchor (a company gets one with
+a Concordium Business ID). With a **sponsor**, another account pays the fee and signs too, so the website's own
+account can hold **no CCD at all**: for example a payment partner paying for its shops' questions.
+
+#### Which version?
+
+| | Version 0 (account-based) | Version 1 (identity-based, anchored) |
+|---|---|---|
+| The website pays | nothing | one fee per question, about EUR 0.013 (or its sponsor does) |
+| The website needs an account | no | yes (to send the anchor) |
+| The user needs an account | yes, on chain | no |
+| The website learns which account answered | yes | no (only the provider) |
+| A public record that the question was asked | no | yes, the anchor |
+| The wallet checks the question on chain | no | yes (its anchor, through the wallet's node) |
+| Who uses it today | Concordium's apps and wallets, WalletConnect's `request_verifiable_presentation` | Concordium's newer tools (its verifier service) |
+
+Both are in Concordium's own formats; a wallet can support both, and this package does.
+
+#### The wallet's side
+
+```js
+// The question, as it arrives: Concordium's VerificationRequestV1 as JSON (an object or text), or { paramsJson }.
+const asks = describeProofRequest(question);
+// → [{ providers: [0, 1, 2], network: 'testnet', answerFrom: 'identity', asks: [{ kind: 'range', attribute: 'dob',
+//      text: 'prove you were born before 8 Nov 2008 (at least 18 years old), without showing your date of birth' }] }]
+const asking = describeProofContext(question);
+// → { network: 'testnet', website: 'age-check.example', purpose: 'age check', connection: '…', anchor: 'c921…' }
+
+const answer = await identity.proveIdentity({ providerIndex: 0, identityIndex: 1, request: question });
+// → the answer to send back: JSON.stringify(answer)
+```
+
+- **Show both descriptions before answering.** `describeProofContext` gives who is asking, as the website wrote it
+  into its question. The anchor makes it unchangeable, but the website chose it: **compare `website` with the site
+  the wallet is actually connected to** before showing it as fact.
+- **The wallet never makes a false answer**, as in version 0: `proveIdentity` refuses before building anything, or
+  asking the node, if the identity has expired, if its provider is not accepted, if its details do not satisfy the
+  question, or if the question accepts answers from an account only (`account-only`).
+- **It checks the anchor** through the wallet's node (`config.node`): not on chain or not final yet
+  (`anchor-not-found`; just after the website sent it, try again in a few seconds), or not this question
+  (`anchor-mismatch`: do not answer).
+- If the question asks the wallet to fill something in besides the anchor's block (rare), pass it as `context`,
+  e.g. `{ ResourceID: 'shop.example' }`, the site the wallet is connected to.
+
+#### The website's side
+
+```js
+import { requestForV1, checkPresentationV1, connectToNode } from '@concordium/wdk-identity-concordium/verify';
+import { buildBasicAccountSigner } from '@concordium/web-sdk';
+
+const node = connectToNode('testnet');
+
+// 1. Ask: build the question and record it on chain (waits until the anchor is final). Keep the question.
+const question = await requestForV1(
+  { network: 'testnet', website: 'age-check.example', purpose: 'age check', providers: [0, 1, 2], adult: true },
+  {
+    node,
+    sender: shopAddress, signer: buildBasicAccountSigner(shopKey),                       // the website's account
+    sponsor: { address: partnerAddress, signer: buildBasicAccountSigner(partnerKey) },   // optional: pays the fee
+  },
+);
+// the same options as requestFor, plus website, purpose, connection, and answerFrom: 'identity' (default),
+// 'account' or 'either'
+
+// 2. Check the answer.
+const result = await checkPresentationV1(answer, question, { node, network: 'testnet' });
+// → { ok: true, revealed: {}, credentials: [{ from: 'identity', issuer: 0, revealed: {} }], auditRecord: {…}, reasons: [] }
+```
+
+`checkPresentationV1` accepts an answer only if it answers **this** question (the same nonce, website and purpose,
+exactly the statements asked, from where the question allows), comes from an accepted provider on the website's
+network, is tied to the block of the question's anchor (which must be on chain, final, and record this
+question), comes from an identity that is still valid, and holds mathematically (Concordium's own verifier).
+Answers from an account, which other wallets may send where the question allows it, are checked too, with the
+account's provider read from the chain. Refused answers return `ok: false` with the `reasons`: `unreadable`,
+`context-mismatch`, `statements-mismatch`, `not-an-identity`, `wrong-network`, `source-not-accepted`,
+`provider-not-accepted`, `anchor-not-found`, `anchor-mismatch`, `block-mismatch`, `not-on-chain`,
+`credential-mismatch`, `not-active`, `proof-invalid`.
+
+It does these checks itself, with Concordium's lower-level functions, rather than calling the SDK's all-in-one
+`VerificationAuditRecordV1.createChecked`: in SDK 12.0.2 that function does not wait for its own context
+comparison, so an answer to another question with the same statements is accepted.
+
+#### The website's own job (version 1)
+
+- **Accept one answer per question**, as in version 0, keyed by the question's anchor (`transactionRef`).
+- **Keep the audit record** of an accepted answer (`result.auditRecord`: the question and the answer), if you need
+  to show later that the check was done; it holds any details shown, so keep only what you need.
+- **Keep the paying account funded.** A question cannot be asked without its fee (`anchor-failed`).
+- The anchor is public: it shows that your account asked a question, and when, but not what or of whom (only a
+  fingerprint of the question is on chain).
+
+#### Try it (version 1)
+
+`npm run example:age-check-v1` (`examples/age-check-v1.mjs`) on testnet: both sides in one run. A shop whose
+account has never held CCD asks "over 18?", and its sponsor pays the fee (**each run spends one anchor fee**, about
+5 testnet CCD, from the sample's sponsor account); a "new phone" with only the public test phrase recovers its
+identities, skips the expired one, and answers from the other identity, with no account; the shop checks the
+answer and keeps the audit record, then refuses the same answer sent a second time.
+
 ### Limits, for now
 
-- Account-based proofs only: the answer comes from one of the identity's accounts on chain. Proving from
-  the identity alone, with no account (Concordium's newer "version 1" proofs), is planned next.
 - Proofs about Concordium identities only, not about Web3 ID credentials issued by smart contracts.
+- Version 1: the wallet answers from the identity; a question that accepts answers from an account only is
+  declined (`account-only`), since such a question can be asked as version 0 at no cost.
 - Tested on testnet. Compatibility with other Concordium apps was tested by answering the exact questions
   of Concordium's published example apps and checking the answers with Concordium's verifier, not by
   running those apps.
