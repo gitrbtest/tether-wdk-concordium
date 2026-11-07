@@ -185,3 +185,17 @@ test('proveIdentity: a changed answer is refused by the website\'s verifier', as
   assert.throws(() => websiteChecks(changed), /not valid/);
   wallet.dispose();
 });
+
+test('proveIdentity: the question recorded on testnet, with its real anchor as the node gave it, is answered and verified', async () => {
+  // Recorded once by test/fixtures/capture-v1-question.mjs (a sponsored anchor on testnet).
+  const { question: recordedQuestion, anchor } = fixture('v1-question.testnet.json');
+  const onChain = {
+    status: 'finalized',
+    outcome: { blockHash: sdk.BlockHash.fromHexString(anchor.blockHash), summary: { type: 'accountTransaction', transactionType: anchor.transactionType, dataRegistered: { data: anchor.data } } },
+  };
+  const { wallet } = await walletWithIdentity({ anchor: onChain });
+  const checked = websiteChecks(await wallet.proveIdentity({ ...RECORDED, request: recordedQuestion }));
+  assert.equal(sdk.BlockHash.toHexString(checked.context.requested[0].context), anchor.blockHash);
+  assert.equal(checked.subjectClaims[0].statement.find((s) => s.type === 'AttributeValue').attributeValue, 'DK');
+  wallet.dispose();
+});

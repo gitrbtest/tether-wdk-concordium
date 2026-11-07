@@ -1,0 +1,65 @@
+{
+  "recorded": "2026-11-07T15:58:08.615Z",
+  "question": {
+    "type": "ConcordiumVerificationRequestV1",
+    "context": {
+      "type": "ConcordiumUnfilledContextInformationV1",
+      "given": [
+        {
+          "label": "Nonce",
+          "context": "cf14f1d418e99f76690ff2996f426fd820c95378f4223daf330766bf4409fc98"
+        },
+        {
+          "label": "ConnectionID",
+          "context": "39ae5084-3a42-4eaa-99e5-aca4317d05a1"
+        },
+        {
+          "label": "ResourceID",
+          "context": "age-check.example"
+        },
+        {
+          "label": "ContextString",
+          "context": "age check (recorded test question)"
+        }
+      ],
+      "requested": [
+        "BlockHash"
+      ]
+    },
+    "subjectClaims": [
+      {
+        "type": "identity",
+        "source": [
+          "identityCredential"
+        ],
+        "statements": [
+          {
+            "type": "AttributeInRange",
+            "attributeTag": "dob",
+            "lower": "18000101",
+            "upper": "20081108"
+          },
+          {
+            "type": "RevealAttribute",
+            "attributeTag": "nationality"
+          }
+        ],
+        "issuers": [
+          "did:ccd:testnet:idp:0",
+          "did:ccd:testnet:idp:1",
+          "did:ccd:testnet:idp:2"
+        ]
+      }
+    ],
+    "transactionRef": "e567f76ce49a0a214009e56f7378d5bf2341a939529c8bef45bdd75c84f5bfb9"
+  },
+  "anchor": {
+    "transactionHash": "e567f76ce49a0a214009e56f7378d5bf2341a939529c8bef45bdd75c84f5bfb9",
+    "blockHash": "3dfeec266b6c92a69906faadff8e7117765c210771d9fe7c2cd454fff3741cff",
+    "transactionType": "registerData",
+    "data": "a3646861736858200a51c77c501c2fc22163302e9842b74d0843d61dc54f0a6208a6575ad59c2cc16474797065664343445652416776657273696f6e01",
+    "sender": "4rEgzrWemrBjxUvkcEkDt9AfB2F7JdS8jkW3M9UWWK1TYaWSX1",
+    "sponsor": "4kJZHvmLwMJjPp58ie7ZZirRkSZL1WLfcKbcrCdBAzweSj9fTU",
+    "feeMicroCcd": "4980981"
+  }
+}
