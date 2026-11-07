@@ -136,6 +136,51 @@ export class AccountNotCreatedError extends Error {
  * Thrown when a transaction finalizes but its on-chain outcome is a rejection.
  * The transaction still has a hash and cost the fee; it just didn't take effect.
  */
+/**
+ * Why a token transfer cannot happen (checkTransfer's reasons): WDK's own TransferErrorReason values plus
+ * Concordium's token rules.
+ */
+export const ConcordiumTransferErrorReason: {
+  /** The account that pays the fee (this one, or the sponsor) holds too little CCD for it. */
+  readonly INSUFFICIENT_BALANCE: 'INSUFFICIENT_BALANCE';
+  /** This account holds too little of the token. */
+  readonly INSUFFICIENT_TOKEN_BALANCE: 'INSUFFICIENT_TOKEN_BALANCE';
+  /** The amount is not a whole number of base units above 0. */
+  readonly INVALID_AMOUNT: 'INVALID_AMOUNT';
+  /** The token is paused: no transfers until its issuer resumes it. */
+  readonly TOKEN_PAUSED: 'TOKEN_PAUSED';
+  readonly SENDER_NOT_FOUND: 'SENDER_NOT_FOUND';
+  readonly RECIPIENT_NOT_FOUND: 'RECIPIENT_NOT_FOUND';
+  readonly SPONSOR_NOT_FOUND: 'SPONSOR_NOT_FOUND';
+  readonly SENDER_NOT_ON_ALLOW_LIST: 'SENDER_NOT_ON_ALLOW_LIST';
+  readonly RECIPIENT_NOT_ON_ALLOW_LIST: 'RECIPIENT_NOT_ON_ALLOW_LIST';
+  readonly SENDER_ON_DENY_LIST: 'SENDER_ON_DENY_LIST';
+  readonly RECIPIENT_ON_DENY_LIST: 'RECIPIENT_ON_DENY_LIST';
+  /** A CIS-2 token's contract would refuse the transfer (its own rules). */
+  readonly CONTRACT_REFUSED: 'CONTRACT_REFUSED';
+};
+export type ConcordiumTransferErrorReason = typeof ConcordiumTransferErrorReason[keyof typeof ConcordiumTransferErrorReason];
+
+/** Options for checkTransfer: the transfer, and for a sponsored one, who pays the fee. */
+export interface CheckTransferOptions {
+  token: string;
+  recipient: string;
+  /** In the token's base units. */
+  amount: number | bigint | string;
+  /** For a sponsored transfer: the sponsor pays the fee. */
+  sponsorAddress?: string;
+}
+
+/** What checkTransfer found. */
+export interface TransferCheck {
+  /** true: nothing found that would refuse the transfer. */
+  ok: boolean;
+  /** Every problem found, each with a plain message and the account it concerns. */
+  reasons: Array<{ reason: ConcordiumTransferErrorReason; message: string; account?: string }>;
+  /** The fee in microCCD, when it could be worked out. */
+  fee: bigint | null;
+}
+
 export class TransactionRejectedError extends Error {
   /** The finalized transaction hash. */
   hash: string;
@@ -189,6 +234,13 @@ export class WalletAccountConcordium extends WalletAccountReadOnly implements IW
    * @throws {InvalidTokenError} If there is no such PLT on this network.
    */
   getTokenAccountStatus(tokenAddress: string, address?: string): Promise<TokenAccountStatus>;
+  /**
+   * Check a token transfer before sending: every reason it would be refused (the token, this account, the recipient,
+   * the fee and who pays it), with nothing sent. CIS-2: a dry run shows whether the contract would refuse.
+   * @throws {InvalidTokenError} If there is no such PLT on this network.
+   * @throws {ValueError} If the recipient (or the sponsor) is not an account address.
+   */
+  checkTransfer(options: CheckTransferOptions): Promise<TransferCheck>;
 
   // ---- sponsored transactions (Concordium extension) ----
   /** SENDER builds the unsigned sponsorable PLT transfer (sets sender metadata + sponsor). */

@@ -13,6 +13,7 @@
  *   2. getTokenAccountStatus('UPEU') ──────────► the test account: on neither list (it may not send or receive UPEU)
  *      getTokenAccountStatus('UPEU', governance) the governance account: on the allow list
  *   3. getTokenRules('TN'), its status ────────► no lists: null; the test account's TN balance
+ *   4. checkTransfer (nothing sent) ───────────► UPEU: refused (holds none; not on the allow list); TN: ok, with the fee
  *
  * The tokens' rules belong to their owners and may change; the test says which token to look at if one does.
  */
@@ -51,6 +52,23 @@ test(`token rules on testnet: ${PLT_TOKEN} keeps no lists; this account holds so
     const mine = await a.getTokenAccountStatus(PLT_TOKEN);
     assert.ok(mine.balance > 0n, `expected to hold some ${PLT_TOKEN}`);
     assert.deepEqual([mine.onAllowList, mine.onDenyList], [null, null]);
+  } finally {
+    m.dispose();
+  }
+});
+
+// Step 4. Read-only: checkTransfer sends nothing.
+test(`checkTransfer on testnet: ${ALLOW_LISTED} is refused with its reasons; ${PLT_TOKEN} can go, with its fee`, async () => {
+  const m = makeManager();
+  try {
+    const a = await m.getAccountByPath(ACCOUNT_PATH);
+    const governance = (await a.getTokenRules(ALLOW_LISTED)).governanceAccount;
+    const refused = await a.checkTransfer({ token: ALLOW_LISTED, recipient: governance, amount: 1n });
+    assert.equal(refused.ok, false);
+    assert.ok(refused.reasons.some((r) => r.reason === 'SENDER_NOT_ON_ALLOW_LIST'), JSON.stringify(refused.reasons));
+    const fine = await a.checkTransfer({ token: PLT_TOKEN, recipient: governance, amount: 1n });
+    assert.deepEqual([fine.ok, fine.reasons], [true, []]);
+    assert.ok(fine.fee > 0n);
   } finally {
     m.dispose();
   }

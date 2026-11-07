@@ -1,5 +1,5 @@
 {
-  "recorded": "2026-11-07T17:17:48.855Z",
+  "recorded": "2026-11-07T17:25:38.131Z",
   "tokens": {
     "UPEU": {
       "decimals": 6,
@@ -21,20 +21,36 @@
     }
   },
   "accounts": {
-    "3GEmZc57STNxVqWykUceXAeCVsDzaogq6wNZhDLAV8bRNYzUYd": [
-      {
-        "id": "TN",
-        "balance": "919000000",
-        "moduleState": "a0"
-      }
-    ],
-    "4fWTMJSAymJoFeTbohJzwejT6Wzh1dAa2BtnbDicgjQrc94TgW": [
-      {
-        "id": "UPEU",
-        "balance": "941200000000",
-        "moduleState": "a26864656e794c697374f469616c6c6f774c697374f5"
-      }
-    ]
+    "3GEmZc57STNxVqWykUceXAeCVsDzaogq6wNZhDLAV8bRNYzUYd": {
+      "ccd": "18812906470",
+      "tokens": [
+        {
+          "id": "TN",
+          "balance": "919000000",
+          "moduleState": "a0"
+        }
+      ]
+    },
+    "4fWTMJSAymJoFeTbohJzwejT6Wzh1dAa2BtnbDicgjQrc94TgW": {
+      "ccd": "2689547413",
+      "tokens": [
+        {
+          "id": "UPEU",
+          "balance": "941200000000",
+          "moduleState": "a26864656e794c697374f469616c6c6f774c697374f5"
+        }
+      ]
+    }
+  },
+  "feeRates": {
+    "euroPerEnergy": {
+      "numerator": "1",
+      "denominator": "50000"
+    },
+    "microGTUPerEuro": {
+      "numerator": "1327112485581407744",
+      "denominator": "3729534499"
+    }
   },
   "testAccount": "3GEmZc57STNxVqWykUceXAeCVsDzaogq6wNZhDLAV8bRNYzUYd",
   "upeuGovernance": "4fWTMJSAymJoFeTbohJzwejT6Wzh1dAa2BtnbDicgjQrc94TgW"

@@ -17,68 +17,12 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import * as sdk from '@concordium/web-sdk';
-import * as plt from '@concordium/web-sdk/plt';
 import { InvalidTokenError } from '@tetherto/wdk-wallet';
-import { makeManager, CONFIG, KNOWN_ADDRESS } from '../helpers.mjs';
+import { KNOWN_ADDRESS } from '../helpers.mjs';
+import { tokenChain, testAccount, UPEU_GOVERNANCE as GOVERNANCE, NOT_ON_CHAIN } from '../token-chain.mjs';
 
-const RECORDED = JSON.parse(readFileSync(new URL('../fixtures/plt.testnet.json', import.meta.url), 'utf8'));
-const GOVERNANCE = RECORDED.upeuGovernance;
-const NOT_ON_CHAIN = sdk.getAccountAddress('00'.repeat(48)).toString(); // a valid address no account has
-const notFound = (what) => Object.assign(new Error(`${what} not found.`), { name: 'RpcError', code: 'NOT_FOUND' });
-
-/** A recorded token's state, changed by `change` (e.g. { paused: true }), as CBOR. */
-function tokenState(id, change = {}) {
-  const state = plt.Cbor.decode(plt.Cbor.fromHexString(RECORDED.tokens[id].moduleState), 'TokenModuleState');
-  return plt.Cbor.encode({ ...state, ...change });
-}
-
-/**
- * A pretend node answering from the recordings. `tokens` changes a token's state ({ UPEU: { paused: true } });
- * `accounts` adds or replaces an account's token entries ({ address: [{ id, balance, moduleState: { denyList: true } }] }).
- */
-function recordedNode({ tokens = {}, accounts = {} } = {}) {
-  return {
-    async getTokenInfo(tokenId) {
-      const id = Object.keys(RECORDED.tokens).find((t) => t.toLowerCase() === tokenId.value.toLowerCase());
-      if (!id) throw notFound('tokenId or block');
-      const r = RECORDED.tokens[id];
-      return {
-        id: plt.TokenId.fromString(id),
-        state: {
-          decimals: r.decimals,
-          moduleRef: plt.TokenModuleReference.fromHexString(r.moduleRef),
-          totalSupply: plt.TokenAmount.create(BigInt(r.totalSupply), r.decimals),
-          moduleState: tokenState(id, tokens[id]),
-        },
-      };
-    },
-    async getAccountInfo(address) {
-      const text = address.address ?? String(address);
-      const entries = accounts[text] ?? RECORDED.accounts[text];
-      if (!entries) throw notFound('account or block');
-      return {
-        accountAddress: sdk.AccountAddress.fromBase58(text),
-        accountTokens: entries.map((e) => ({
-          id: plt.TokenId.fromString(e.id),
-          state: {
-            balance: plt.TokenAmount.create(BigInt(e.balance), RECORDED.tokens[e.id].decimals),
-            moduleState: typeof e.moduleState === 'string' ? plt.Cbor.fromHexString(e.moduleState) : plt.Cbor.encode(e.moduleState ?? {}),
-          },
-        })),
-      };
-    },
-  };
-}
-
-/** The test account, with its node replaced by `node`. */
-async function testAccount(node) {
-  const manager = makeManager(CONFIG);
-  const account = await manager.getAccountByPath('0/899424164/0');
-  account._getClient = async () => node;
-  return { account, dispose: () => manager.dispose() };
-}
+// The pretend node (tokenChain) answers from the recorded testnet data; see test/token-chain.mjs.
+const recordedNode = (options) => tokenChain(options);
 
 // Step 1.
 test('getTokenRules: a token with an allow list and a deny list (UPEU), as the chain holds it', async () => {
@@ -141,7 +85,7 @@ test('getTokenAccountStatus: the governance account is on UPEU\'s allow list; th
 
 // Step 2.
 test('getTokenAccountStatus: a token without lists reads null for them; a deny-listed account says so', async () => {
-  const denied = { [KNOWN_ADDRESS]: [{ id: 'EURQ', balance: '5000000', moduleState: { denyList: true } }] };
+  const denied = { [KNOWN_ADDRESS]: { ccd: '1000000', tokens: [{ id: 'EURQ', balance: '5000000', moduleState: { denyList: true } }] } };
   const { account, dispose } = await testAccount(recordedNode({ accounts: denied }));
   const tn = await account.getTokenAccountStatus('TN', GOVERNANCE);
   assert.deepEqual([tn.balance, tn.onAllowList, tn.onDenyList], [0n, null, null]);

@@ -10,7 +10,8 @@
  *   TN    no lists
  * and, for UPEU and TN, two accounts: the test account (public test phrase, identity 899424164, account 0: it
  * holds TN and is on no UPEU list) and UPEU's governance account (on UPEU's allow list).
- * The token state and each account's token state are kept as the node gives them (CBOR, as hex).
+ * The token state and each account's token state are kept as the node gives them (CBOR, as hex), with each
+ * account's CCD balance and the chain's fee rates (for fee checks).
  */
 import { writeFile } from 'node:fs/promises';
 import * as sdk from '@concordium/web-sdk';
@@ -36,11 +37,19 @@ const upeuGovernance = plt.Cbor.decode(plt.Cbor.fromHexString(tokens.UPEU.module
 const accounts = {};
 for (const address of [TEST_ACCOUNT, upeuGovernance]) {
   const info = await node.getAccountInfo(sdk.AccountAddress.fromBase58(address));
-  accounts[address] = info.accountTokens
-    .filter((t) => TOKENS.includes(t.id.value))
-    .map((t) => ({ id: t.id.value, balance: String(t.state.balance.value), moduleState: t.state.moduleState ? plt.Cbor.toHexString(t.state.moduleState) : null }));
+  accounts[address] = {
+    ccd: String(info.accountAmount.microCcdAmount),
+    tokens: info.accountTokens
+      .filter((t) => TOKENS.includes(t.id.value))
+      .map((t) => ({ id: t.id.value, balance: String(t.state.balance.value), moduleState: t.state.moduleState ? plt.Cbor.toHexString(t.state.moduleState) : null })),
+  };
 }
 
+// The fee rates (CCD per unit of energy) a fee is worked out from.
+const cp = await node.getBlockChainParameters();
+const ratio = ({ numerator, denominator }) => ({ numerator: String(numerator), denominator: String(denominator) });
+const feeRates = { euroPerEnergy: ratio(cp.euroPerEnergy), microGTUPerEuro: ratio(cp.microGTUPerEuro) };
+
 await writeFile(new URL('./plt.testnet.json', import.meta.url),
-  JSON.stringify({ recorded: new Date().toISOString(), tokens, accounts, testAccount: TEST_ACCOUNT, upeuGovernance }, null, 2) + '\n');
+  JSON.stringify({ recorded: new Date().toISOString(), tokens, accounts, feeRates, testAccount: TEST_ACCOUNT, upeuGovernance }, null, 2) + '\n');
 console.log(`Recorded ${TOKENS.join(', ')} and ${Object.keys(accounts).length} accounts.`);
