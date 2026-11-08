@@ -50,6 +50,7 @@ the chain by a pretend node (`helpers.mjs`).
 | Folder | File | What it tests |
 | --- | --- | --- |
 | `2-providers` | `provider-accepts-request` | Concordium's testnet provider and Global FinReg (Business ID) accept our requests |
+| | `company-identity-samples` | the company (Business ID) samples: the providers, the company page opening, company questions |
 | `5-accounts` | `create-real-account` | **WRITE=1**: a real account created through the node |
 | `6-recovery` | `recover-identity` | the recorded identity comes back from the testnet provider |
 | `7-proofs` | `website-checks-account-proof` | a version 0 answer checked against the chain |

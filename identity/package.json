@@ -43,6 +43,9 @@
     "example:recover-identity": "node examples/recover-identity.mjs",
     "example:age-check": "node examples/age-check.mjs",
     "example:age-check-v1": "node examples/age-check-v1.mjs",
+    "example:company-providers": "node examples/company-identity/list-business-id-providers.mjs",
+    "example:company-verify": "node examples/company-identity/verify-company-identity.mjs",
+    "example:company-questions": "node examples/company-identity/company-questions.mjs",
     "demo-wallet": "node examples/demo-wallet/server.mjs"
   },
   "keywords": [
