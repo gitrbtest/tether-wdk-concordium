@@ -71,7 +71,7 @@ function providerAnswer(identity, callbackUrl) {
 }
 
 /**
- * Check every provider in a network's provider list (fetched from `listUrl`, e.g. the wallet-proxy's /v1/ip_info), with
+ * Check every provider in a network's provider list (fetched from `listUrl`, e.g. the wallet-proxy's /v2/ip_info), with
  * a fresh random seed that is never stored. The package does not fetch the list, so this check (an operator's tool)
  * fetches it, as a wallet would, and passes it in.
  */

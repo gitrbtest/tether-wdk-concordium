@@ -68,7 +68,7 @@ async function shopReceives(answer, question) {
 
 // The identity provider list: the package does not fetch it. The wallet does (here from the wallet-proxy, once)
 // and passes it in; only its shape matters.
-const identityProviders = await (await fetch('https://wallet-proxy.testnet.concordium.com/v1/ip_info')).json();
+const identityProviders = await (await fetch('https://wallet-proxy.testnet.concordium.com/v2/ip_info')).json();
 // The wallet's own connection to a Concordium node (separate from the shop's above, as on two different machines):
 // the package never opens one itself. Answering a version 1 question reads its anchor through it.
 const walletNode = new ConcordiumGRPCNodeClient('grpc.testnet.concordium.com', 20000, credentials.createSsl());

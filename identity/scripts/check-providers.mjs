@@ -21,10 +21,11 @@ const NETWORKS = {
   testnet: { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, node: nodeAt('grpc.testnet.concordium.com') },
   mainnet: { ...CONCORDIUM_MAINNET_IDENTITY_CONFIG, node: nodeAt('grpc.mainnet.concordium.software') },
 };
-// Where each network's identity provider list is published today: the wallet-proxy's /v1/ip_info.
+// Where each network's identity provider list is published today: the wallet-proxy's /v2/ip_info (every provider,
+// including the company (Business ID) ones, which /v1/ip_info leaves out).
 const LIST_URLS = {
-  testnet: 'https://wallet-proxy.testnet.concordium.com/v1/ip_info',
-  mainnet: 'https://wallet-proxy.mainnet.concordium.software/v1/ip_info',
+  testnet: 'https://wallet-proxy.testnet.concordium.com/v2/ip_info',
+  mainnet: 'https://wallet-proxy.mainnet.concordium.software/v2/ip_info',
 };
 const MARK = { accepted: '✔', 'provider-error': '✖', 'http-error': '✖', unreachable: '✖', 'no-issuance-address': '–' };
 const SAYS = {

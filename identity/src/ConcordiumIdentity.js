@@ -37,7 +37,7 @@ export default class ConcordiumIdentity {
    * @param {string | Uint8Array} seed  the wallet's BIP-39 seed phrase, or its 64-byte seed
    * @param {{ useMainnetKeyDerivation: boolean, identityProviders: object[], node: object }} config
    *   e.g. { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders, node }: use the same key derivation as the
-   *   wallet package; identityProviders is the identity provider list (the wallet-proxy's /v1/ip_info shape), which
+   *   wallet package; identityProviders is the identity provider list (the wallet-proxy's /v2/ip_info shape), which
    *   the package does not fetch; node is the wallet's connection to a Concordium node (the package never opens one)
    * @param {{ fetch?: typeof fetch }} [options]  fetch: HTTP implementation (defaults to the global fetch)
    */

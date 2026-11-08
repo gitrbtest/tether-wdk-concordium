@@ -46,7 +46,7 @@ const identityIndex = Number(process.env.IDENTITY_INDEX);
 
 // The identity provider list: the package does not fetch it. The wallet does (here from the wallet-proxy, once)
 // and passes it in; only its shape matters.
-const identityProviders = await (await fetch('https://wallet-proxy.testnet.concordium.com/v1/ip_info')).json();
+const identityProviders = await (await fetch('https://wallet-proxy.testnet.concordium.com/v2/ip_info')).json();
 // A brand-new ConcordiumIdentity, as when a wallet app starts again: it holds nothing yet, only the seed phrase.
 // The wallet's own connection to a Concordium node (here Concordium's public testnet node): the package never
 // opens one itself.

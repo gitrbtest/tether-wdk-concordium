@@ -61,8 +61,9 @@ export async function startDemoServer({ settings = readSettings(), port = settin
     verifyStages: VERIFY_STAGES,
   };
   // The identity provider list: the package does not fetch it, so the wallet (this demo) does, once at start, and
-  // passes it in. Today it comes from the wallet-proxy's /v1/ip_info; only its shape matters.
-  const listResponse = await (fetchFn ?? fetch)('https://wallet-proxy.testnet.concordium.com/v1/ip_info');
+  // passes it in. Today it comes from the wallet-proxy's /v2/ip_info (every provider, including the company (Business ID)
+  // ones); only its shape matters.
+  const listResponse = await (fetchFn ?? fetch)('https://wallet-proxy.testnet.concordium.com/v2/ip_info');
   if (!listResponse.ok) throw new Error(`The wallet-proxy answered HTTP ${listResponse.status} for the identity provider list.`);
   const identityProviders = await listResponse.json();
   const flow = new DemoFlow({

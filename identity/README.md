@@ -75,7 +75,7 @@ import { ConcordiumGRPCNodeClient, credentials } from '@concordium/web-sdk/nodej
 
 // The identity provider list: the package does not fetch it. Get it once, from wherever you like (today, the
 // wallet-proxy), and pass it in:
-const identityProviders = await (await fetch('https://wallet-proxy.testnet.concordium.com/v1/ip_info')).json();
+const identityProviders = await (await fetch('https://wallet-proxy.testnet.concordium.com/v2/ip_info')).json();
 // Your connection to a Concordium node: the package never opens one itself.
 const node = new ConcordiumGRPCNodeClient('grpc.testnet.concordium.com', 20000, credentials.createSsl());
 
@@ -85,7 +85,7 @@ const config = { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders, node 
 | Field | Required | Meaning |
 |---|---|---|
 | `useMainnetKeyDerivation` | yes | Derive keys as on mainnet (`true`) or testnet (`false`). Same meaning as in `@concordium/wdk-wallet-concordium`: **use the same value for both packages**, so identities and accounts come from the same keys. It does not check which network the list or the node belongs to. |
-| `identityProviders` | yes | The identity provider list, in the shape of the wallet-proxy's `/v1/ip_info` (below). The package never fetches it, so if the wallet-proxy is replaced, any source giving the same shape works. It is checked when the `ConcordiumIdentity` is created: a list in the wrong shape is refused, naming the field. To use a newer list, create a new object. |
+| `identityProviders` | yes | The identity provider list, in the shape of the wallet-proxy's `/v2/ip_info` (below; `/v2` lists every provider, including the company (Business ID) ones, and `/v1/ip_info` leaves those out). The package never fetches it, so if the wallet-proxy is replaced, any source giving the same shape works. It is checked when the `ConcordiumIdentity` is created: a list in the wrong shape is refused, naming the field. To use a newer list, create a new object. |
 | `node` | yes | Your connection to a Concordium node: any Concordium node client from `@concordium/web-sdk`, such as `ConcordiumGRPCNodeClient` (Node.js) or `ConcordiumGRPCWebClient` (browsers and phones), or the one your wallet already has. The package never opens a connection itself, so it runs wherever your client does. **Everything the package needs from the chain goes through it**: the network's cryptographic parameters (read once), whether an account exists, and sending a new account. |
 
 The presets hold only the key derivation choice; the wallet adds its provider list and its node. The package talks to

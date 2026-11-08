@@ -161,7 +161,7 @@ if (!FUNDING_SEED || !FUNDING_PATH) {
 //   standing in for an exchange or a friend; later it is also the sponsor that pays a fee.
 // The identity provider list: the package does not fetch it. The wallet does (here from the wallet-proxy, once)
 // and passes it in; only its shape matters.
-const identityProviders = await (await fetch('https://wallet-proxy.testnet.concordium.com/v1/ip_info')).json();
+const identityProviders = await (await fetch('https://wallet-proxy.testnet.concordium.com/v2/ip_info')).json();
 // The wallet's own connection to a Concordium node (here Concordium's public testnet node): the package never
 // opens one itself.
 const node = new ConcordiumGRPCNodeClient('grpc.testnet.concordium.com', 20000, credentials.createSsl());

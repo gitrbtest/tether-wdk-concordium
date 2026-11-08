@@ -109,7 +109,7 @@ export function codeFor(s) {
       return code('Step 1', [
         "import { IdentityProviders, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';",
         '',
-        "const identityProviders = await (await fetch('https://wallet-proxy.testnet.concordium.com/v1/ip_info')).json();   // the wallet fetches the list",
+        "const identityProviders = await (await fetch('https://wallet-proxy.testnet.concordium.com/v2/ip_info')).json();   // the wallet fetches the list",
         'const providers = await new IdentityProviders(identityProviders).list();',
         `// → ${s.providers ? `${s.providers.length} providers: ${s.providers.map((x) => x.name).join(', ')}` : '[{ index, name, issuanceStart, … }]'}`,
       ], '@concordium/wdk-identity-concordium · IdentityProviders.list');

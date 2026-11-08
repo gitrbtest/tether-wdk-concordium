@@ -19,13 +19,13 @@ export interface IdentityConfig {
   node: ConcordiumNodeConnection;
   /**
    * The identity provider list, which the wallet passes in (the package does not fetch it): the wallet-proxy's
-   * /v1/ip_info shape, e.g. `await (await fetch('https://wallet-proxy.testnet.concordium.com/v1/ip_info')).json()`. Checked when the
+   * /v2/ip_info shape, e.g. `await (await fetch('https://wallet-proxy.testnet.concordium.com/v2/ip_info')).json()`. Checked when the
    * ConcordiumIdentity is created; a list in the wrong shape is refused, naming the field.
    */
   identityProviders: IdentityProviderEntry[];
 }
 
-/** One provider in the identity provider list, in the wallet-proxy's /v1/ip_info shape (the fields the package reads). */
+/** One provider in the identity provider list, in the wallet-proxy's /v2/ip_info (or /v1/ip_info) shape (the fields the package reads). */
 export interface IdentityProviderEntry {
   ipInfo: {
     /** The provider's number on the network. */
@@ -148,7 +148,7 @@ export class AccountCreationError extends Error {
 export class IdentityProviders {
   /**
    * The providers in the list the wallet passes in (the package does not fetch it).
-   * @throws {Error} If the list is missing, empty, or not in the /v1/ip_info shape (the message names the field).
+   * @throws {Error} If the list is missing, empty, or not in the /v2/ip_info (or /v1/ip_info) shape (the message names the field).
    */
   constructor(identityProviders: IdentityProviderEntry[]);
   /** Every identity provider in the list. */

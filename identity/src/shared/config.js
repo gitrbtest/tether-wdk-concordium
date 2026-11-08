@@ -4,7 +4,7 @@ import { requireNode } from '../chain/ChainNode.js';
 /**
  * Public presets. `useMainnetKeyDerivation` has the same name and meaning as in
  * @concordium/wdk-wallet-concordium, so both packages derive keys from the same tree. The wallet adds the two things
- * that are its own: the identity provider list (identityProviders, e.g. fetched from the wallet-proxy's /v1/ip_info)
+ * that are its own: the identity provider list (identityProviders, e.g. fetched from the wallet-proxy's /v2/ip_info)
  * and its connection to a Concordium node (node). The derivation flag does not verify the connected network.
  */
 export const CONCORDIUM_MAINNET_IDENTITY_CONFIG = {

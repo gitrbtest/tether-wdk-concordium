@@ -18,6 +18,15 @@ export function ipInfoFixture(network) {
 }
 
 /**
+ * A recorded wallet-proxy /v2/ip_info response: every provider, including the company (Business ID) ones that
+ * /v1/ip_info leaves out (recorded 8 Nov 2026). Parsed fresh on every call.
+ * @param {'testnet' | 'mainnet'} network
+ */
+export function ipInfoV2Fixture(network) {
+  return readFixture(`ip_info.${network}.v2.json`);
+}
+
+/**
  * A recorded wallet-proxy /v0/global response: the network's cryptographic
  * parameters, as `{ v, value }`. Parsed fresh on every call.
  * @param {'testnet' | 'mainnet'} network
@@ -28,16 +37,17 @@ export function globalFixture(network) {
 
 /**
  * A fake `fetch` standing in for one network's wallet-proxy. It answers
- * /v1/ip_info and /v0/global from the recorded fixtures, or from `overrides`
+ * /v1/ip_info, /v2/ip_info and /v0/global from the recorded fixtures, or from `overrides`
  * (e.g. a deliberately edited provider list), and records every requested URL
  * in `requests`. Any other URL throws, so an unexpected request is caught.
  * @param {'testnet' | 'mainnet'} network
- * @param {{ ipInfo?: unknown, global?: unknown }} [overrides]
+ * @param {{ ipInfo?: unknown, ipInfoV2?: unknown, global?: unknown }} [overrides]
  */
 export function walletProxyFetch(network, overrides = {}) {
   const requests = [];
   const answers = {
     '/v1/ip_info': () => overrides.ipInfo ?? ipInfoFixture(network),
+    '/v2/ip_info': () => overrides.ipInfoV2 ?? ipInfoV2Fixture(network),
     '/v0/global': () => overrides.global ?? globalFixture(network),
   };
   const fetch = async (url) => {
@@ -200,7 +210,7 @@ export function mainnetConfig(overrides = {}) {
  */
 export async function liveTestnetConfig(overrides = {}) {
   const config = testnetConfig();
-  const response = await fetch('https://wallet-proxy.testnet.concordium.com/v1/ip_info');
+  const response = await fetch('https://wallet-proxy.testnet.concordium.com/v2/ip_info');
   if (!response.ok) throw new Error(`The wallet-proxy answered HTTP ${response.status} for the identity provider list.`);
   const { ConcordiumGRPCNodeClient, credentials } = await import('@concordium/web-sdk/nodejs');
   const node = new ConcordiumGRPCNodeClient('grpc.testnet.concordium.com', 20000, credentials.createSsl());

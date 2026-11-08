@@ -420,8 +420,8 @@ function recoveryWorld(world, { down = [], accountsDown = false } = {}) {
       ? Object.assign(new Error('the node is unreachable'), { name: 'RpcError', code: 'UNAVAILABLE' })
       : addresses.has(address)),
   });
-  /** How many times the provider list (/v1/ip_info) was downloaded: never, it is passed in. */
-  const listDownloads = () => recorded.requests.filter((u) => String(u).endsWith('/v1/ip_info')).length;
+  /** How many times a provider list (/v1/ip_info or /v2/ip_info) was downloaded: never, it is passed in. */
+  const listDownloads = () => recorded.requests.filter((u) => /\/v[12]\/ip_info$/.test(String(u))).length;
   return { fetch, asked, listDownloads, node };
 }
 
