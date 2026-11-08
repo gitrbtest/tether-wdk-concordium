@@ -1,6 +1,6 @@
 /**
  * Record what the testnet node says about a few protocol-level tokens (PLTs) and accounts, for the offline token
- * rules tests (test/unit/token-rules.test.mjs). Read-only: nothing is sent, nothing is spent.
+ * rules tests (test/unit/3-tokens/token-rules.test.mjs). Read-only: nothing is sent, nothing is spent.
  *
  *   node test/fixtures/capture-plt.mjs
  *

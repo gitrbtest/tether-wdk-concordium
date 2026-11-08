@@ -24,7 +24,7 @@ jobs:
       - run: npm ci
       - run: npm test
       - name: Verify unit tests without external networking
-        run: sudo unshare --net -- "$(command -v node)" --test test/unit/*.test.mjs
+        run: sudo unshare --net -- "$(command -v node)" --test 'test/unit/**/*.test.mjs'
       - run: npx --no-install tsc --noEmit types/index.d.ts
 
   validate-identity:
@@ -45,5 +45,5 @@ jobs:
       - run: npm ci
       - run: npm test
       - name: Verify unit tests without external networking
-        run: sudo unshare --net -- "$(command -v node)" --test test/unit/*.test.mjs
+        run: sudo unshare --net -- "$(command -v node)" --test 'test/unit/**/*.test.mjs'
       - run: npx --no-install tsc --noEmit types/index.d.ts types/node.d.ts types/verify.d.ts
