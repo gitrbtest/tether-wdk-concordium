@@ -53,6 +53,13 @@ all. The customer's wallet answers from the identity itself; the shop learns "ov
 Try it: `npm run example:age-check-v1` (spends one small testnet fee per run; see
 [Version 1](#version-1-from-the-identity-with-an-anchor)).
 
+**A company opens an account with a bank, from its own wallet.** A fund wants to open an account with a bank
+that only deals with EU-registered companies. Its wallet gets the company a Business ID once (the company verifies
+with its LEI and documents at Global FinReg), and from then on answers the bank's question in seconds: "here is our
+LEI and legal name, and we are registered in the EU", without sending a single document again.
+Try it: `npm run example:company-questions` (the bank's question and the consent screen; see
+[Company identities](#company-identities-business-id)).
+
 More stories will follow as the package grows (tokens that only verified people may hold).
 
 ## Requirements
@@ -104,7 +111,7 @@ One entry per provider; these are the fields the package reads (others are ignor
     ipVerifyKey: '…', ipCdiVerifyKey: '…',                // its public keys
   },
   arsInfos: { '1': { arIdentity: 1, arPublicKey: '…', … }, … },   // its anonymity revokers
-  metadata: { issuanceStart: 'https://…', recoveryStart: 'https://…' },   // optional: its own addresses
+  metadata: { issuanceStart: 'https://…', recoveryStart: 'https://…', display: '…' },   // optional: its addresses, display name
 }
 ```
 
@@ -119,7 +126,8 @@ import { IdentityProviders } from '@concordium/wdk-identity-concordium';
 const providers = new IdentityProviders(identityProviders);   // the list, as above
 
 await providers.list();
-// [ { index: 0, name: 'Concordium testnet IP', issuanceStart: 'https://…', recoveryStart: 'https://…' }, … ]
+// [ { index: 0, name: 'Concordium testnet IP', display: null, kind: 'person', issuanceStart: 'https://…', recoveryStart: 'https://…' },
+//   { index: 4, name: 'Global FinReg Testnet', display: 'Global FinReg (Business ID)', kind: 'company', … }, … ]
 
 await providers.get(0); // one provider, with the keys and anonymity revokers a request is built from
 ```
@@ -129,6 +137,9 @@ the list, and the same provider can have different indices on testnet and
 mainnet. Use the index of the provider the user chooses. `get` throws
 `IdentityProviderError` for an index that is not in the list.
 Addresses are returned exactly as each provider publishes them, or `null`.
+`kind` says whether a provider issues identities of people (`'person'`) or of companies (`'company'`: a
+Business ID provider; see [Company identities](#company-identities-business-id)), so a wallet can offer
+"verify yourself" and "verify your company" apart.
 
 ## Starting identity verification
 
@@ -733,6 +744,70 @@ answer and keeps the audit record, then refuses the same answer sent a second ti
 - Tested on testnet. Compatibility with other Concordium apps was tested by answering the exact questions
   of Concordium's published example apps and checking the answers with Concordium's verifier, not by
   running those apps.
+
+## Company identities (Business ID)
+
+A company can have a Concordium identity of its own, a **Business ID**: it holds the company's Legal Entity
+Identifier (LEI), legal name, country of registration, business number and registration authority, checked by an
+identity provider from the company's documents and the ID of the person signing for it. With it, the company's
+wallet creates accounts for the company and proves facts about it, as a person's wallet does for a person: for
+example to a bank, "here is our LEI, and we are registered in the EU".
+
+Business IDs are issued by **Global FinReg** (testnet provider 4, mainnet provider 3). A company identity is made,
+kept, recovered and used with **exactly the same calls** as a person's; only the provider differs.
+
+**1. Pass the full provider list.** The wallet-proxy's `/v2/ip_info` lists every provider, including the company
+ones; `/v1/ip_info` leaves the company ones out.
+
+```js
+const identityProviders = await (await fetch('https://wallet-proxy.testnet.concordium.com/v2/ip_info')).json();
+const companies = (await new IdentityProviders(identityProviders).list()).filter((p) => p.kind === 'company');
+// → [{ index: 4, name: 'Global FinReg Testnet', display: 'Global FinReg (Business ID)', kind: 'company', … }]
+```
+
+Concordium documents no field that marks a Business ID provider, so the package infers `kind` from what the provider
+publishes: its display name mentions "Business ID", or its issuance address ends with `/company`
+(`src/providers/provider-kind.js`, one function, with its sources).
+
+**2. Verify the company**, as for a person ([Starting identity verification](#starting-identity-verification)):
+
+```js
+const { issuanceUrl } = await identity.createIdentityRequest({ providerIndex: 4, identityIndex, redirectUri });
+// → Global FinReg's company verification page: the company signs in or registers, and gives its LEI, its company
+//   documents and the ID of the person signing for it. Then, as for a person: waitForIdentity / retrieveIdentity,
+//   exportIdentity, createAccount.
+```
+
+**3. Ask a company to prove facts about itself**, with the same functions as for a person
+([Proving facts](#proving-facts-proofs)), naming the Business ID providers:
+
+```js
+const question = requestFor({ providers: [4], reveal: ['lei', 'legalName'], registeredIn: ['DK', 'SE', 'DE'] });
+describeProofRequest(question)[0].asks.map((a) => a.text);
+// → [ 'prove the company is registered in one of: DK, SE, DE (without showing which)',
+//     "show the company's legal entity identifier (LEI)", "show the company's legal name" ]
+```
+
+| Option (`requestFor`, `requestForV1`) | Asks |
+| --- | --- |
+| `reveal: ['lei', 'legalName', 'legalCountry', 'businessNumber', 'registrationAuth']` | to show these company details |
+| `registeredIn: [countries]` | to prove the country of registration is one of these, without showing it |
+| `notRegisteredIn: [countries]` | to prove it is none of these |
+
+The consent wording says "the company's …" for company details, and "your …" for a person's. A person's identity
+asked a company question refuses it before building anything: `provider-not-accepted` if the question accepts only
+Business ID providers, or `cannot-prove` ("The identity has no legal entity identifier (LEI) …").
+
+**What can be tested, and what needs a real company.** Global FinReg has no test mode: its page asks the company to
+sign in or register, and completing a Business ID needs a real company with an LEI and its documents. So the package
+is tested live up to Global FinReg's company verification page (which accepts its requests on testnet and mainnet),
+and for the questions a company is asked and how they read. Collecting, keeping, creating accounts and answering use
+the same code as for a person's identity, which is tested live on testnet. Please do not register a made-up company
+with Global FinReg: it is its real onboarding service, also on testnet.
+
+**Try it:** [`examples/company-identity/`](examples/company-identity/): `npm run example:company-providers`,
+`npm run example:company-verify` (`CHECK_ONLY=1` stops once the company page has opened) and
+`npm run example:company-questions`. All read-only on testnet.
 
 ## Optional: built-in callback listener (Node.js desktop and server wallets)
 
