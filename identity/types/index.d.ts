@@ -37,8 +37,8 @@ export interface IdentityProviderEntry {
   };
   /** Its anonymity revokers, by number. */
   arsInfos: Record<string, { arIdentity: number; arPublicKey: string; arDescription?: object }>;
-  /** The provider's own addresses; an address it does not publish may be missing or empty. */
-  metadata?: { issuanceStart?: string; recoveryStart?: string; icon?: string; support?: string };
+  /** The provider's own addresses and display name; anything it does not publish may be missing or empty. */
+  metadata?: { issuanceStart?: string; recoveryStart?: string; display?: string; icon?: string; support?: string };
 }
 
 /** The node methods the package calls (any Concordium node client from the SDK has them). */
@@ -62,6 +62,14 @@ export interface IdentityProviderSummary {
   /** The provider's index (ipIdentity): an identifier assigned per network, not a list position. */
   index: number;
   name: string;
+  /** Its display name, e.g. 'Global FinReg (Business ID)'; null if not published. */
+  display: string | null;
+  /**
+   * 'company' for a provider that issues company identities (Business ID), otherwise 'person'. Inferred from what it
+   * publishes (its display name mentions Business ID, or its issuance address ends with /company): Concordium
+   * documents no field for it. Company providers are in the wallet-proxy's /v2/ip_info, not in /v1/ip_info.
+   */
+  kind: 'person' | 'company';
   /** Where identity verification starts, exactly as published; null if not published. */
   issuanceStart: string | null;
   /** Where an issued identity is recovered from the seed, exactly as published; null if not published. */

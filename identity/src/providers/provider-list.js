@@ -1,7 +1,8 @@
 /**
  * The identity provider list, as the wallet hands it to the package: the package does
- * not fetch it. The wallet gets it from wherever it likes (today the wallet-proxy's /v1/ip_info) and passes it in
- * that shape; only the shape matters, so if the wallet-proxy is ever replaced, any source giving the same shape works.
+ * not fetch it. The wallet gets it from wherever it likes (today the wallet-proxy's /v2/ip_info, which includes the
+ * company (Business ID) providers, or /v1/ip_info, which leaves them out) and passes it in that shape; only the shape
+ * matters, so if the wallet-proxy is ever replaced, any source giving the same shape works.
  *
  * The shape, per provider (the fields the package reads):
  *
@@ -13,7 +14,8 @@
  *     },
  *     arsInfos: { '1': { arIdentity: 1, arPublicKey: '…', arDescription: {…} }, … },   its anonymity revokers
  *     metadata: {                                        optional: the provider's own addresses
- *       issuanceStart: 'https://…',                      where a person goes to verify
+ *       display: 'Global FinReg (Business ID)',          optional: its display name
+ *       issuanceStart: 'https://…',                      where a person (or a company) goes to verify
  *       recoveryStart: 'https://…',                      where a wallet asks for an identity back
  *       icon, support,
  *     },
@@ -23,7 +25,7 @@
  */
 
 const bad = (message) => new Error(`config.identityProviders ${message} (expected the identity provider list, in the shape `
-  + 'of the wallet-proxy\'s /v1/ip_info).');
+  + 'of the wallet-proxy\'s /v2/ip_info or /v1/ip_info).');
 
 const isText = (value) => typeof value === 'string' && value.length > 0;
 

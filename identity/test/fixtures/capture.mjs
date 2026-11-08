@@ -3,6 +3,7 @@
  *
  * Downloads, from the testnet and mainnet wallet-proxies:
  *   /v1/ip_info  the identity providers, with their published issuance and recovery addresses
+ *   /v2/ip_info  the same, plus the company (Business ID) providers
  *   /v0/global   the network's cryptographic parameters an identity request is built against
  * and saves each one here, pretty-printed so a change shows up as a readable git diff.
  * The data is public: provider names, public keys, URLs, support addresses, chain parameters.
@@ -33,6 +34,9 @@ async function capture(url, file) {
 for (const [network, proxy] of Object.entries(NETWORKS)) {
   const list = await capture(`${proxy}/v1/ip_info`, `ip_info.${network}.v1.json`);
   console.log(`ip_info.${network}.v1.json: ${list.length} providers (${list.map((e) => e.ipInfo?.ipIdentity).join(', ')})`);
+  // /v2/ip_info: the full list, including the company (Business ID) providers that /v1 leaves out.
+  const all = await capture(`${proxy}/v2/ip_info`, `ip_info.${network}.v2.json`);
+  console.log(`ip_info.${network}.v2.json: ${all.length} providers (${all.map((e) => e.ipInfo?.ipIdentity).join(', ')})`);
   const global = await capture(`${proxy}/v0/global`, `global.${network}.json`);
   console.log(`global.${network}.json: ${global.value?.genesisString}`);
 }

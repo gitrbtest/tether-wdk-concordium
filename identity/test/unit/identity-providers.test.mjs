@@ -1,11 +1,13 @@
 /**
- * Identity providers, from the list the wallet passes in (the wallet-proxy's /v1/ip_info shape; recorded in
+ * Identity providers, from the list the wallet passes in (the wallet-proxy's /v2/ip_info or /v1/ip_info shape; recorded in
  * test/fixtures). The package never fetches the list.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { IdentityProviders, IdentityProviderError, ConcordiumIdentity } from '@concordium/wdk-identity-concordium';
 import { ipInfoFixture, testnetConfig } from '../helpers.mjs';
+import { readFileSync } from 'node:fs';
+import { providerKind } from '../../src/providers/provider-kind.js';
 
 test('list reports every provider in the list with its published addresses', async () => {
   for (const network of ['testnet', 'mainnet']) {
@@ -13,6 +15,8 @@ test('list reports every provider in the list with its published addresses', asy
     const expected = ipInfoFixture(network).map((e) => ({
       index: e.ipInfo.ipIdentity,
       name: e.ipInfo.ipDescription.name,
+      display: e.metadata.display || null,
+      kind: 'person',
       issuanceStart: e.metadata.issuanceStart,
       recoveryStart: e.metadata.recoveryStart,
     }));
@@ -101,7 +105,7 @@ test('a list in the wrong shape is refused when it is passed in, naming what is 
   for (const [list, expected] of cases) {
     assert.throws(() => new IdentityProviders(list), (e) => {
       assert.match(e.message, expected);
-      assert.match(e.message, /wallet-proxy's \/v1\/ip_info/, 'the message says which shape is expected');
+      assert.match(e.message, /wallet-proxy's \/v2\/ip_info or \/v1\/ip_info/, 'the message says which shape is expected');
       return true;
     });
   }
@@ -112,4 +116,41 @@ test('ConcordiumIdentity checks the list in its configuration when it is created
     /config\.identityProviders is required/);
   assert.throws(() => new ConcordiumIdentity('abandon '.repeat(11) + 'about', testnetConfig({ identityProviders: [{}] })),
     /config\.identityProviders \[0\] has no ipInfo/);
+});
+
+// ---- Company identities (Business ID) ---------------------------------------------------------------------------
+//
+// The wallet-proxy's /v2/ip_info lists every provider, including the company (Business ID) providers that /v1/ip_info
+// leaves out: Global FinReg, testnet provider 4 and mainnet provider 3 (recorded 8 Nov 2026).
+
+const v2List = (network) => JSON.parse(readFileSync(new URL(`../fixtures/ip_info.${network}.v2.json`, import.meta.url), 'utf8'));
+
+test('the v2 list: every provider, with Global FinReg as a company (Business ID) provider; the others are for people', async () => {
+  const testnet = await new IdentityProviders(v2List('testnet')).list();
+  assert.deepEqual(testnet.map((p) => [p.index, p.kind]), [[0, 'person'], [3, 'person'], [4, 'company'], [5, 'person']]);
+  const finreg = testnet.find((p) => p.index === 4);
+  assert.deepEqual([finreg.name, finreg.display], ['Global FinReg Testnet', 'Global FinReg (Business ID)']);
+  assert.match(finreg.issuanceStart, /\/company$/);
+  const mainnet = await new IdentityProviders(v2List('mainnet')).list();
+  assert.deepEqual(mainnet.map((p) => [p.index, p.kind]), [[2, 'person'], [1, 'person'], [3, 'company']]);
+});
+
+test('the v2 list is the v1 list plus the company providers: the people\'s providers read the same in both', async () => {
+  for (const network of ['testnet', 'mainnet']) {
+    const v1 = await new IdentityProviders(ipInfoFixture(network)).list();
+    const v2 = await new IdentityProviders(v2List(network)).list();
+    assert.deepEqual(v2.filter((p) => p.kind === 'person'), v1, `${network}: the people's providers`);
+  }
+});
+
+test('providerKind: "Business ID" in the display name, or an issuance address ending in /company, means company', () => {
+  const entry = (metadata) => ({ ipInfo: { ipIdentity: 9 }, metadata });
+  assert.equal(providerKind(entry({ display: 'Global FinReg (Business ID)' })), 'company');
+  assert.equal(providerKind(entry({ display: 'Acme businessid' })), 'company', 'any spacing or letter case');
+  assert.equal(providerKind(entry({ issuanceStart: 'https://ip.example/ccd-id-provider/v1/company' })), 'company');
+  assert.equal(providerKind(entry({ issuanceStart: 'https://ip.example/v1/company/' })), 'company');
+  assert.equal(providerKind(entry({ issuanceStart: 'https://ip.example/v1/identity', display: 'Notabene' })), 'person');
+  assert.equal(providerKind(entry({ issuanceStart: 'https://companyhouse.example/v1/identity' })), 'person', 'only the path counts');
+  assert.equal(providerKind(entry({})), 'person');
+  assert.equal(providerKind({ ipInfo: { metadata: { display: 'X (Business ID)' } } }), 'company', 'ipInfo-level metadata too');
 });

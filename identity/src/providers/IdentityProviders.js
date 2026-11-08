@@ -1,5 +1,6 @@
 import { IdentityProviderError } from '../shared/errors.js';
 import { readProviderList } from './provider-list.js';
+import { providerKind } from './provider-kind.js';
 
 /**
  * An address a provider publishes for itself, read exactly as published and
@@ -14,21 +15,24 @@ function summary(entry) {
   return {
     index: entry.ipInfo?.ipIdentity,
     name: entry.ipInfo?.ipDescription?.name,
+    display: published(entry, 'display'),          // the provider's display name, e.g. 'Global FinReg (Business ID)'
+    kind: providerKind(entry),                      // 'person', or 'company' for a Business ID provider
     issuanceStart: published(entry, 'issuanceStart'),
     recoveryStart: published(entry, 'recoveryStart'),
   };
 }
 
 /**
- * The identity providers in the list the wallet passes in (the wallet-proxy's /v1/ip_info shape; see
- * provider-list.js). The package does not fetch the list. Providers are identified by their index (`ipIdentity`),
+ * The identity providers in the list the wallet passes in (the wallet-proxy's /v2/ip_info, or /v1/ip_info, shape; see
+ * provider-list.js). The package does not fetch the list. /v2/ip_info includes the company (Business ID) providers;
+ * /v1/ip_info leaves them out. Providers are identified by their index (`ipIdentity`),
  * an identifier assigned per network, never by their position in the list.
  */
 export default class IdentityProviders {
   #entries;
 
   /**
-   * @param {object[]} identityProviders  the identity provider list, e.g. the wallet-proxy's /v1/ip_info
+   * @param {object[]} identityProviders  the identity provider list, e.g. the wallet-proxy's /v2/ip_info
    * @throws {Error} If the list is missing, empty, or not in that shape (the message names the field).
    */
   constructor(identityProviders) {
@@ -41,8 +45,10 @@ export default class IdentityProviders {
 
   /**
    * Every identity provider in the list, with the addresses each one publishes for issuing and recovering
-   * identities.
-   * @returns {Promise<Array<{index: number, name: string, issuanceStart: string | null, recoveryStart: string | null}>>}
+   * identities, its display name, and whether it issues identities of people or of companies (Business ID; see
+   * provider-kind.js).
+   * @returns {Promise<Array<{index: number, name: string, display: string | null, kind: 'person' | 'company',
+   *   issuanceStart: string | null, recoveryStart: string | null}>>}
    */
   async list() {
     return (await this._entries()).map(summary);
