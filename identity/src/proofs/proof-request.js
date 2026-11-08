@@ -56,6 +56,11 @@ const LABELS = {
 };
 export const attributeLabel = (name) => LABELS[name] ?? name;
 
+/** The details only a company's identity (Business ID) holds: the consent screen says "the company's …" for them. */
+export const COMPANY_ATTRIBUTES = new Set(['lei', 'legalName', 'legalCountry', 'businessNumber', 'registrationAuth']);
+/** Whose detail it is, as the consent screen says it: "your date of birth", "the company's legal name". */
+const whose = (name) => (COMPANY_ATTRIBUTES.has(name) ? 'the company\'s' : 'your');
+
 const STATEMENT_TYPES = ['RevealAttribute', 'AttributeInRange', 'AttributeInSet', 'AttributeNotInSet'];
 const DATE_ATTRIBUTES = new Set(['dob', 'idDocIssuedAt', 'idDocExpiresAt']);
 const invalid = (message) => new ProofError(message, { reason: 'invalid-request' });
@@ -244,14 +249,21 @@ function minimumAgeToday(upper, now) {
 /** One statement in plain English. Range proofs prove lower ≤ value < upper. */
 function describeStatement(s, now) {
   const label = attributeLabel(s.attributeTag);
+  const of = whose(s.attributeTag);
   if (s.type === 'RevealAttribute') {
-    return { kind: 'reveal', attribute: s.attributeTag, text: `show your ${label}` };
+    return { kind: 'reveal', attribute: s.attributeTag, text: `show ${of} ${label}` };
+  }
+  if (s.type === 'AttributeInSet' && s.attributeTag === 'legalCountry') {
+    return { kind: 'in-set', attribute: s.attributeTag, text: `prove the company is registered in one of: ${s.set.join(', ')} (without showing which)` };
+  }
+  if (s.type === 'AttributeNotInSet' && s.attributeTag === 'legalCountry') {
+    return { kind: 'not-in-set', attribute: s.attributeTag, text: `prove the company is registered in none of: ${s.set.join(', ')} (without showing where)` };
   }
   if (s.type === 'AttributeInSet') {
-    return { kind: 'in-set', attribute: s.attributeTag, text: `prove your ${label} is one of: ${s.set.join(', ')} (without showing which)` };
+    return { kind: 'in-set', attribute: s.attributeTag, text: `prove ${of} ${label} is one of: ${s.set.join(', ')} (without showing which)` };
   }
   if (s.type === 'AttributeNotInSet') {
-    return { kind: 'not-in-set', attribute: s.attributeTag, text: `prove your ${label} is none of: ${s.set.join(', ')} (without showing it)` };
+    return { kind: 'not-in-set', attribute: s.attributeTag, text: `prove ${of} ${label} is none of: ${s.set.join(', ')} (without showing it)` };
   }
   // AttributeInRange
   if (s.attributeTag === 'dob' && s.lower === sdk.MIN_DATE) {
@@ -264,7 +276,7 @@ function describeStatement(s, now) {
   if (DATE_ATTRIBUTES.has(s.attributeTag)) {
     return { kind: 'range', attribute: s.attributeTag, text: `prove your ${label} is from ${readableDate(s.lower)} up to (not including) ${readableDate(s.upper)}, without showing it` };
   }
-  return { kind: 'range', attribute: s.attributeTag, text: `prove your ${label} is from ${s.lower} up to (not including) ${s.upper}, without showing it` };
+  return { kind: 'range', attribute: s.attributeTag, text: `prove ${of} ${label} is from ${s.lower} up to (not including) ${s.upper}, without showing it` };
 }
 
 /**

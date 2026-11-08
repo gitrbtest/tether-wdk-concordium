@@ -41,7 +41,11 @@ function countries(list, option) {
  * @param {string[]} [options.nationalityIn]  prove the nationality is one of these
  * @param {string[]} [options.nationalityNotIn]  prove the nationality is none of these
  * @param {boolean | Date} [options.documentValid]  prove the ID document is still valid today (true) or on a date
- * @param {string[]} [options.reveal]  attributes to be shown, e.g. ['firstName', 'lastName', 'nationality']
+ * @param {string[]} [options.registeredIn]  for a company (Business ID): prove its country of registration is one of
+ *   these (two-letter codes), without showing it
+ * @param {string[]} [options.notRegisteredIn]  for a company: prove its country of registration is none of these
+ * @param {string[]} [options.reveal]  attributes to be shown, e.g. ['firstName', 'lastName', 'nationality'], or for a
+ *   company ['lei', 'legalName', 'legalCountry', 'businessNumber', 'registrationAuth']
  * @returns {{ challenge: string, credentialStatements: object[] }}
  * @throws {ProofError} reason 'invalid-request' (e.g. no providers, or an attribute used twice) or 'unknown-attribute'
  */
@@ -54,7 +58,7 @@ export function requestFor(options = {}) {
 
 /** The options a question can ask (see requestFor), shared by both versions. */
 export const ASK_OPTIONS = ['providers', 'adult', 'minAge', 'residentIn', 'notResidentIn', 'nationalityIn', 'nationalityNotIn',
-  'documentValid', 'reveal'];
+  'documentValid', 'registeredIn', 'notRegisteredIn', 'reveal'];
 
 /**
  * Check what a website wants to ask (requestFor's options) and turn it into Concordium's statements. Used by both
@@ -63,7 +67,8 @@ export const ASK_OPTIONS = ['providers', 'adult', 'minAge', 'residentIn', 'notRe
  * @throws {ProofError} reason 'invalid-request' or 'unknown-attribute'
  */
 export function readAsks({
-  providers, adult, minAge, residentIn, notResidentIn, nationalityIn, nationalityNotIn, documentValid, reveal = [],
+  providers, adult, minAge, residentIn, notResidentIn, nationalityIn, nationalityNotIn, documentValid,
+  registeredIn, notRegisteredIn, reveal = [],
 } = {}) {
   if (!Array.isArray(providers) || providers.length === 0 || !providers.every((p) => Number.isSafeInteger(p) && p >= 0)) {
     throw invalid('providers is required: the numbers of the identity providers whose identities you accept.');
@@ -87,6 +92,8 @@ export function readAsks({
   if (nationalityIn) use('nationality', 'nationalityIn');
   if (nationalityNotIn) use('nationality', 'nationalityNotIn');
   if (documentValid) use('idDocExpiresAt', 'documentValid');
+  if (registeredIn) use('legalCountry', 'registeredIn');
+  if (notRegisteredIn) use('legalCountry', 'notRegisteredIn');
   for (const name of reveal) {
     if (!ATTRIBUTE_NAMES.includes(name)) {
       throw new ProofError(`reveal names an attribute an identity does not have: ${JSON.stringify(name)}.`,
@@ -99,6 +106,8 @@ export function readAsks({
   if (notResidentIn) countries(notResidentIn, 'notResidentIn');
   if (nationalityIn) countries(nationalityIn, 'nationalityIn');
   if (nationalityNotIn) countries(nationalityNotIn, 'nationalityNotIn');
+  if (registeredIn) countries(registeredIn, 'registeredIn');
+  if (notRegisteredIn) countries(notRegisteredIn, 'notRegisteredIn');
 
   const ask = (b) => {
     if (age !== undefined) b.addMinimumAge(age);
@@ -107,6 +116,8 @@ export function readAsks({
     if (nationalityIn) b.addMembership('nationality', countries(nationalityIn, 'nationalityIn'));
     if (nationalityNotIn) b.addNonMembership('nationality', countries(nationalityNotIn, 'nationalityNotIn'));
     if (documentValid) b.documentExpiryNoEarlierThan(yyyymmdd(documentValid instanceof Date ? documentValid : new Date()));
+    if (registeredIn) b.addMembership('legalCountry', countries(registeredIn, 'registeredIn'));
+    if (notRegisteredIn) b.addNonMembership('legalCountry', countries(notRegisteredIn, 'notRegisteredIn'));
     for (const name of reveal) b.revealAttribute(name);
     return b;
   };

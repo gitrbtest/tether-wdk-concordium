@@ -21,7 +21,11 @@ export interface RequestForOptions {
   nationalityNotIn?: string[];
   /** Prove the ID document is still valid today (true) or on the given date. */
   documentValid?: boolean | Date;
-  /** Attributes to be shown, e.g. ['firstName', 'lastName', 'nationality']. */
+  /** For a company (Business ID): prove its country of registration is one of these (two-letter codes), without showing it. */
+  registeredIn?: string[];
+  /** For a company: prove its country of registration is none of these. */
+  notRegisteredIn?: string[];
+  /** Attributes to be shown, e.g. ['firstName', 'lastName', 'nationality'], or for a company ['lei', 'legalName']. */
   reveal?: string[];
 }
 

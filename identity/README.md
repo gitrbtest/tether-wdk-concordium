@@ -531,7 +531,9 @@ const node = connectToNode('testnet');   // Concordium's public node; or 'mainne
 
 // 1. Ask. Keep the question on your server: the answer is checked against it.
 const question = requestFor({ providers: [0, 1, 2], adult: true });
-// other options: minAge, residentIn, notResidentIn, nationalityIn, nationalityNotIn, documentValid, reveal
+// other options: minAge, residentIn, notResidentIn, nationalityIn, nationalityNotIn, documentValid, reveal;
+// for a company (Business ID): registeredIn, notRegisteredIn, and reveal of lei, legalName, legalCountry, businessNumber,
+// registrationAuth
 
 // 2. Check the answer.
 const result = await checkPresentation(answer, question, { node, network: 'testnet' });
