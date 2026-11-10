@@ -44,9 +44,9 @@ export interface IdentityProviderEntry {
 /** The node methods the package calls (any Concordium node client from the SDK has them). */
 export interface ConcordiumNodeConnection {
   getCryptographicParameters(): Promise<object>;
-  getAccountInfo(address: object): Promise<object>;
-  sendCredentialDeploymentTransaction(payload: Uint8Array, expiry: object): Promise<object>;
-  getBlockItemStatus(transactionHash: object): Promise<object>;
+  getAccountInfo(address: unknown): Promise<object>;
+  sendCredentialDeploymentTransaction(payload: Uint8Array, expiry: unknown): Promise<object>;
+  getBlockItemStatus(transactionHash: unknown): Promise<object>;
 }
 
 /** A preset without the provider list and the node: add them, e.g. { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders, node }. */
