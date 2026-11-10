@@ -201,7 +201,7 @@ with no personal data, is returned.
 After `createIdentityRequest` on the same object, the callback address is all
 that is needed. Browsers never send the part after `#` to a server, so read the
 address where the browser arrives: an app's own scheme, a script on the
-return page (`location.href`), or, on a desktop or server, the optional
+return page (`location.href`), or, in a desktop app, the optional
 built-in listener below.
 
 **Resuming after a restart.** Verification can take a while, and the app may be
@@ -809,11 +809,13 @@ with Global FinReg: it is its real onboarding service, also on testnet.
 `npm run example:company-verify` (`CHECK_ONLY=1` stops once the company page has opened) and
 `npm run example:company-questions`. All read-only on testnet.
 
-## Optional: built-in callback listener (Node.js desktop and server wallets)
+## Optional: built-in callback listener (Node.js desktop apps)
 
 Wallets that catch the provider's return themselves (a mobile app's own scheme,
-or a page of a web wallet) do not need this. For Node.js wallets on a desktop or
-server, the package can catch the return itself. It comes from a separate entry
+or a page of a web wallet) do not need this. For a Node.js wallet app on the
+user's own computer (a desktop app), the package can catch the return itself, on
+`127.0.0.1`. A wallet run on a server cannot use it: the user's browser is on
+another computer, so it uses its own return page, as a web wallet does. It comes from a separate entry
 point, `@concordium/wdk-identity-concordium/node`, for optional Node.js extras,
 so the main entry stays usable where there is no web server.
 

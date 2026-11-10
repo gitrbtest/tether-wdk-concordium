@@ -1,6 +1,8 @@
 /**
- * Identity callback listener: an optional helper for Node.js wallets on a
- * desktop or server. Mobile and web wallets do not need it (see below).
+ * Identity callback listener: an optional helper for Node.js wallet apps on the
+ * user's own computer (desktop apps). Mobile and web wallets do not need it (see
+ * below), and a wallet run on a server cannot use it: the user's browser is on
+ * another computer, so it uses its own return page, as a web wallet does.
  *
  * The problem it solves
  * ---------------------

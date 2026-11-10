@@ -29,7 +29,7 @@ the chain by a pretend node (`helpers.mjs`).
 | `3-verify-identity` | `identity-request` | building the identity request a provider verifies |
 | | `polling-and-link` | waiting for the provider, and the link a person opens |
 | | `callback` | reading the provider's reply from the return address |
-| | `callback-listener` | the built-in listener (Node.js desktop and server wallets) |
+| | `callback-listener` | the built-in listener (Node.js desktop apps) |
 | | `collecting-the-identity` | collecting the issued identity, and checking it is this seed's |
 | `4-keep-identity` | `export-and-import` | the identity as text the wallet keeps (encrypted, or plain), and taking it back |
 | | `storage-format-spec` | `docs/storage-format.md` is exact: a reader written from the document alone |

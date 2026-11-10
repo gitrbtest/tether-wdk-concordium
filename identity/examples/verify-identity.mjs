@@ -1,5 +1,5 @@
 /**
- * Identity verification end to end, as a desktop or server wallet would do it:
+ * Identity verification end to end, as a desktop wallet would do it:
  * start the built-in listener, build the request, let the user verify in a
  * browser, collect the issued identity, and export it encrypted for the sample to keep in a file.
  *
