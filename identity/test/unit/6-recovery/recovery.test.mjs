@@ -537,3 +537,15 @@ test('nextCredNumber: one after the highest account the identity has on chain; 0
   wallet.dispose();
   await assert.rejects(wallet.nextCredNumber({ providerIndex: 0, identityIndex: 1 }), /disposed/);
 });
+
+// Step 5: never beyond account number 255.
+test('findAccounts never looks beyond account number 255, even for an identity not held here', async () => {
+  const everyNumber = [...Array(300).keys()];
+  const network = networkWithAccounts(everyNumber);
+  const wallet = newWallet(network);
+  const accounts = await wallet.findAccounts({ providerIndex: 0, identityIndex: RECORDED_IDENTITY });
+  assert.equal(accounts.length, 256, 'accounts 0 to 255');
+  assert.equal(accounts.at(-1).credNumber, 255);
+  assert.equal(network.checked.length, 256, 'nothing asked beyond 255');
+  wallet.dispose();
+});

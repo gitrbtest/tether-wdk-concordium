@@ -19,7 +19,7 @@
 import * as sdk from '@concordium/web-sdk';
 import { bytesToHex } from '@noble/hashes/utils';
 import { ProofError } from '../shared/errors.js';
-import { requireIndex, IDENTITY_INDEX_HINT } from '../shared/inputs.js';
+import { requireIndex, IDENTITY_INDEX_HINT, MAX_CRED_NUMBER } from '../shared/inputs.js';
 import { identityContent, hasExpired } from '../issuance/identity-object.js';
 import { readProofRequest, readProofRequestV1, attributeLabel } from './proof-request.js';
 
@@ -54,7 +54,7 @@ export default class IdentityProofs {
   async prove({ providerIndex, identityIndex, credNumber, ...request } = {}) {
     requireIndex(providerIndex, 'providerIndex');
     requireIndex(identityIndex, 'identityIndex', IDENTITY_INDEX_HINT);
-    requireIndex(credNumber, 'credNumber', 'say which account answers (accountsThatCanAnswer lists the ones that can).');
+    requireIndex(credNumber, 'credNumber', 'say which account answers (accountsThatCanAnswer lists the ones that can).', MAX_CRED_NUMBER);
     const { challenge, credentialStatements } = readProofRequest(request);
     const attributeList = this.#attributesOf(providerIndex, identityIndex);
     // An expired identity's proof still adds up mathematically, but Concordium reports its account's credential as

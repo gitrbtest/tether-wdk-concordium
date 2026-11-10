@@ -10,7 +10,7 @@
  *                   `identityGap` missing numbers in a row; a provider that fails is noted, not fatal
  */
 import { IdentityProviderError, IdentityRecoveryError } from '../shared/errors.js';
-import { requireIndex, IDENTITY_INDEX_HINT } from '../shared/inputs.js';
+import { requireIndex, IDENTITY_INDEX_HINT, MAX_CRED_NUMBER } from '../shared/inputs.js';
 import { identityContent, summaryOf } from '../issuance/identity-object.js';
 import { recoveryRequest, recoveryLink, askProviderForIdentity, cancelledRecovery } from './identity-recovery.js';
 import { accountAddressOf } from '../account/credential.js';
@@ -202,11 +202,12 @@ export default class IdentityRecovery {
     const providerIndex = provider.index;
     const globalContext = await this.#node.globalContext();
     const hdWallet = this.#hdWallet();
-    // An identity held here says how many accounts it allows; there is no point looking beyond that.
-    const limit = this.#held.has(providerIndex, identityIndex)
+    // An identity held here says how many accounts it allows; there is no point looking beyond that. Never beyond
+    // account number 255 either: the largest Concordium supports (past it, the SDK reduces the number to another's).
+    const limit = Math.min(MAX_CRED_NUMBER + 1, this.#held.has(providerIndex, identityIndex)
       ? identityContent(this.#held.require(providerIndex, identityIndex), 'The identity held is in an unexpected format.')
         .attributeList.maxAccounts
-      : Infinity;
+      : Infinity);
 
     const found = [];
     let missingInARow = 0;

@@ -7,7 +7,7 @@
  *                           └─no──► build credential ─► send + wait ─► { created: true }
  */
 import { AccountCreationError } from '../shared/errors.js';
-import { requireIndex, requirePositive, IDENTITY_INDEX_HINT, CRED_NUMBER_HINT } from '../shared/inputs.js';
+import { requireIndex, requirePositive, IDENTITY_INDEX_HINT, CRED_NUMBER_HINT, MAX_CRED_NUMBER } from '../shared/inputs.js';
 import { identityContent, hasExpired } from '../issuance/identity-object.js';
 import { buildAccountCredential, accountAddressOf, ATTRIBUTE_NAMES } from './credential.js';
 import { submitAndWait, DEFAULT_ACCOUNT_TIMEOUT_MS, DEFAULT_ACCOUNT_INTERVAL_MS } from './submission.js';
@@ -29,7 +29,7 @@ export function readAccountOptions({
 } = {}) {
   requireIndex(providerIndex, 'providerIndex');
   requireIndex(identityIndex, 'identityIndex', IDENTITY_INDEX_HINT);
-  requireIndex(credNumber, 'credNumber', CRED_NUMBER_HINT);
+  requireIndex(credNumber, 'credNumber', CRED_NUMBER_HINT, MAX_CRED_NUMBER);
   requirePositive(timeoutMs, 'timeoutMs');
   requirePositive(intervalMs, 'intervalMs');
   if (!Array.isArray(revealAttributes) || !revealAttributes.every((name) => typeof name === 'string')) {

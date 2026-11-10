@@ -9,14 +9,29 @@ import { hexToBytes } from '@noble/hashes/utils';
 const SEED_BYTES = 64;
 
 /**
+ * The ranges Concordium's key derivation supports, as in the wallet package. Outside them, Concordium's SDK does not
+ * refuse every number: it silently reduces some (identity 4294967297 gives identity 1's keys), so they are checked here.
+ */
+/** Provider and identity numbers: hardened steps of the key path. */
+export const MAX_KEY_INDEX = 2 ** 31 - 1;
+/** Account numbers under an identity (the credential counter): one byte. */
+export const MAX_CRED_NUMBER = 255;
+
+/**
  * A provider, identity or account number. Same rule and wording as the wallet package's identity coordinates.
  * There is never a default: a missing number is an error, so the package never quietly picks the wrong identity or
- * account. `hint`, if given, is added when the number is missing, to say how to find it.
+ * account. `hint`, if given, is added when the number is missing, to say how to find it. `max`: the largest allowed
+ * (MAX_KEY_INDEX for provider and identity numbers, MAX_CRED_NUMBER for account numbers).
  */
-export function requireIndex(value, name, hint) {
+export function requireIndex(value, name, hint, max = MAX_KEY_INDEX) {
   if (value === undefined && hint) throw new Error(`${name} is required: ${hint}`);
   if (!Number.isSafeInteger(value) || value < 0) {
     throw new Error(`${name} is required and must be a non-negative safe integer.`);
+  }
+  if (value > max) {
+    throw new Error(max === MAX_CRED_NUMBER
+      ? `${name} must be at most ${MAX_CRED_NUMBER} (Concordium's account numbers under an identity).`
+      : `${name} must be at most ${max} (the largest Concordium's key derivation supports).`);
   }
 }
 

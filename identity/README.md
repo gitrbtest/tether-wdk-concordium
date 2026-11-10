@@ -448,6 +448,10 @@ on its shared test phrase) is not found by counting; `recoverIdentity` with its 
 If your app leaves bigger gaps (an identity started but never finished, accounts skipped), raise
 `identityGap` or `accountGap`. Keep your own list of the numbers you use.
 
+Numbers must be within Concordium's ranges: provider and identity numbers up to 2147483647, account numbers up to
+255 (an identity allows fewer: its `maxAccounts`). Bigger numbers are refused with a clear error; Concordium's SDK
+would otherwise silently reduce some of them to another identity's or account's keys.
+
 ### When it fails
 
 `IdentityRecoveryError` with a `reason`. "Not found" is not an error: `recoverIdentity` returns `null`.
