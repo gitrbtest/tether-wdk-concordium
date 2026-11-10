@@ -54,9 +54,12 @@ the chain by a pretend node (`helpers.mjs`).
 | `2-providers` | `provider-accepts-request` | Concordium's testnet provider and Global FinReg (Business ID) accept our requests |
 | | `company-identity-samples` | the company (Business ID) samples: the providers, the company page opening, company questions |
 | `5-accounts` | `create-real-account` | **WRITE=1**: a real account created through the node |
+| `3-verify-identity` | `resume-after-restart-sample` | the resume sample, part 2: a fresh start collects the identity from the saved reply |
+| `4-keep-identity` | `server-keeps-identities-sample` | the server sample: one record per user, readable only with that user's seed phrase |
 | `6-recovery` | `recover-identity` | the recorded identity comes back from the testnet provider |
 | `7-proofs` | `website-checks-account-proof` | a version 0 answer checked against the chain |
 | | `compatibility-with-concordium-apps` | Concordium's reward shop's question, answered and accepted on chain |
 | | `v1-round-trip` | a version 1 question recorded on chain once, answered and checked (**WRITE=1**: a fresh one) |
 | | `age-check-sample` | the age-check sample, run as a person would |
 | | `age-check-v1-sample` | **WRITE=1**: the version 1 age-check sample |
+| `9-errors` | `handle-errors-sample` | the errors sample: every error with its name and reason, refused before anything is sent |

@@ -225,6 +225,11 @@ const summary = await resumed.waitForIdentity(pending.codeUri,
 
 (`appStorage` stands for wherever the app keeps its own small settings.) Without this,
 an app closed during the wait loses the reply, and the user has to verify again.
+Keep the saved reply private, like the identity: whoever has the `code_uri` can read
+the person's details from the provider. Delete it once the identity is collected.
+
+Try it: `npm run example:resume-after-restart` (verify, save the reply, stop), then
+`npm run example:resume-after-restart -- resume` (a fresh start collects the identity).
 
 Options for both `retrieveIdentity` and `waitForIdentity`:
 
@@ -281,6 +286,9 @@ const summary = await identity.importIdentity(await myWalletStorage.get('concord
 - **Exported and held are separate.** `exportIdentity` exports the identity this object holds (collected, recovered or
   imported); `importIdentity` holds an exported one again, ready for the next steps. Deleting the wallet's copy is
   the wallet's own business; `dispose()` zeroes everything this object holds.
+- **A server with many users** keeps each user's text in that user's own record: only that user's seed can read it,
+  and deleting the record (and the seed) erases the identity from the server. Try it:
+  `npm run example:server-keeps-identities` (read-only on testnet).
 
 `importIdentity` refuses text it cannot use with `IdentityStorageError`:
 
@@ -812,6 +820,13 @@ with Global FinReg: it is its real onboarding service, also on testnet.
 **Try it:** [`examples/company-identity/`](examples/company-identity/): `npm run example:company-providers`,
 `npm run example:company-verify` (`CHECK_ONLY=1` stops once the company page has opened) and
 `npm run example:company-questions`. All read-only on testnet.
+
+## Handling errors
+
+Every error the package throws has a name, and most have a `reason`: a short code the wallet acts on; its `message`
+is plain English, safe to log and to show (it never contains a seed phrase or a key). Each section above lists its
+errors. `npm run example:handle-errors` (read-only on testnet) makes each error of both packages happen and turns it
+into a message for the user, with one function a wallet can copy.
 
 ## Optional: built-in callback listener (Node.js desktop apps)
 
