@@ -10,15 +10,13 @@ import IdentityRecovery from './recovery/IdentityRecovery.js';
 import IdentityProofs from './proofs/IdentityProofs.js';
 import { identityContent, summaryOf } from './issuance/identity-object.js';
 import { IdentityStorageError } from './shared/errors.js';
-import {
-  deriveStorageKey, identityLabel, networkLabel, encryptExport, decryptExport, decryptVersion1, plainExport, readExport,
-} from './storage/identity-export.js';
+import { networkLabel, exportText, readExport } from './storage/identity-export.js';
 import AccountCreator, { readAccountOptions } from './account/AccountCreator.js';
 
 /**
  * A wallet's Concordium identity, derived from the wallet's own seed, without the Concordium ID App:
- * request an identity from a provider, collect it, export it for the wallet to keep (encrypted), and create
- * accounts from it.
+ * request an identity from a provider, collect it, export it for the wallet to keep (NOT encrypted: the wallet keeps
+ * it in its own secure storage, like the seed phrase), and create accounts from it.
  *
  * This class is the public face. It owns the seed and hands each call to a helper:
  *
@@ -27,7 +25,7 @@ import AccountCreator, { readAccountOptions } from './account/AccountCreator.js'
  *     ├─ IdentityRecovery   get an identity back with the seed alone        (recovery/)
  *     ├─ IdentityProofs     answer a website's question with a proof        (proofs/)
  *     ├─ HeldIdentities     the identities held in memory, as bytes        (shared/)
- *     ├─ identity-export    the exported form (encrypted or plain)          (storage/)
+ *     ├─ identity-export    the exported form (plain JSON, NOT encrypted)   (storage/)
  *     └─ AccountCreator     checks, "exists?", build, send + wait           (account/)
  */
 export default class ConcordiumIdentity {
@@ -85,20 +83,6 @@ export default class ConcordiumIdentity {
   get _hdWallet() {
     this._requireNotDisposed();
     return sdk.ConcordiumHdWallet.fromHex(bytesToHex(this._seed), this._config.derivationNetwork);
-  }
-
-  /**
-   * Lend the encryption key for exported identities to a piece of work, then wipe it. The key is made from the
-   * seed each time and never kept: `use` gets it, and the `finally` overwrites it with zeros even if `use` fails.
-   */
-  _withStorageKey(use) {
-    this._requireNotDisposed();
-    const key = deriveStorageKey(this._seed, this._config.derivationNetwork);
-    try {
-      return use(key);
-    } finally {
-      key.fill(0);
-    }
   }
 
   // ---- Starting verification ----
@@ -379,91 +363,57 @@ export default class ConcordiumIdentity {
   // ---- Keeping identities: export and import ----
 
   /**
-   * The identity held for a provider and identity number, as text for the wallet to keep, its own way (e.g. next to
-   * the seed). The package stores nothing itself. Hold it again later with importIdentity.
+   * The identity held for a provider and identity number, as text for the wallet to keep, its own way. The package
+   * stores nothing itself. Hold it again later with importIdentity.
    *
-   * Encrypted by default: the key is made from the seed (and never stored), so the text reveals nothing personal
-   * and is safe to keep anywhere; only this seed can read it. Which identity it is (network, provider, identity
-   * number) stays readable, and any change to the text is detected.
-   *
-   * With `encrypted: false`, the identity as plain JSON text, for a wallet that already keeps everything in an
-   * encrypted vault of its own. It holds the person's details (name, date of birth, ID number) in the clear: keep it
-   * as carefully as the seed.
+   * NOT ENCRYPTED. The text is plain JSON holding the person's verified details (name, date of birth, nationality,
+   * ID document number, …), readable by anyone who has it. Keep it like any other secret: in the same secure storage
+   * as the seed phrase (a phone's Keychain / Keystore, an encrypted database, a key vault). Never log it, put it in
+   * analytics or crash reports, or keep it in plain files or unencrypted backups. It holds no keys.
    *
    * No network call. The identity must be held: verified, recovered, or imported.
    *
    * @param {object} options
    * @param {number} options.providerIndex
    * @param {number} options.identityIndex
-   * @param {boolean} [options.encrypted=true]
-   * @returns {Promise<string>}
+   * @returns {Promise<string>}  plain JSON text (see docs/storage-format.md)
    * @throws {Error} If no identity is held for these numbers, or the identity has been disposed.
    */
-  async exportIdentity({ providerIndex, identityIndex, encrypted = true } = {}) {
+  async exportIdentity({ providerIndex, identityIndex } = {}) {
     this._requireNotDisposed();
     requireIndex(providerIndex, 'providerIndex');
     requireIndex(identityIndex, 'identityIndex');
-    if (typeof encrypted !== 'boolean') throw new Error('encrypted must be true or false.');
     const identityObject = this._held.require(providerIndex, identityIndex);
-    const record = { providerIndex, identityIndex, identityObject };
-    if (!encrypted) return plainExport(this._config.derivationNetwork, record);
-    const label = identityLabel(this._config.derivationNetwork, providerIndex, identityIndex);
-    return this._withStorageKey((key) => encryptExport(key, label, record));
+    return exportText(this._config.derivationNetwork, { providerIndex, identityIndex, identityObject });
   }
 
   /**
-   * Hold an identity again from the text exportIdentity gave (either form; it tells them apart), e.g. after an app
-   * restart. The identity is checked to be this wallet's before it is held:
-   * - encrypted: it can only be decrypted with this seed's key; no network call;
-   * - plain: its public key must be the one this seed gives for that provider and identity number (as when it was
-   *   collected from the provider); this needs the network's cryptographic parameters (one call, then kept).
+   * Hold an identity again from the text exportIdentity gave, e.g. after an app restart. The identity is checked to
+   * be this wallet's before it is held: its public key must be the one this seed phrase gives for that provider and
+   * identity number (as when it was collected from the provider). This needs the network's cryptographic parameters
+   * (one call to the node, then kept).
    *
-   * Also reads identities saved by the earlier, store-based package (format version 1). Those bytes do not say which
-   * identity they hold, so give its numbers: importIdentity(saved, { providerIndex, identityIndex }).
+   * The text is the person's details in plain JSON: read it from the wallet's secure storage, as the seed phrase.
    *
-   * @param {string | Uint8Array} exported  the text exportIdentity gave (or saved version-1 bytes)
-   * @param {{ providerIndex?: number, identityIndex?: number }} [version1]  only for version-1 bytes: which identity
+   * @param {string} exported  the text exportIdentity gave
    * @returns {Promise<{ providerIndex: number, identityIndex: number, createdAt: string, validTo: string,
    *   maxAccounts: number }>}  the identity's summary
-   * @throws {IdentityStorageError} reason 'unreadable' (not an exported identity, another network, another seed,
-   *   changed or damaged text, an unknown format version) or 'not-yours' (a plain identity that is not this seed's)
+   * @throws {IdentityStorageError} reason 'unreadable' (not an exported identity, another network, an unknown format
+   *   version, changed or damaged text) or 'not-yours' (an identity that does not belong to this seed phrase)
    */
-  async importIdentity(exported, { providerIndex, identityIndex } = {}) {
+  async importIdentity(exported) {
     this._requireNotDisposed();
     const network = networkLabel(this._config.derivationNetwork);
-    const found = readExport(exported);
-    let record;
-    if (found.kind === 'version-1') {
-      requireIndex(providerIndex, 'providerIndex', 'version-1 data (saved by the earlier, store-based package) does not '
-        + 'say which identity it holds: pass { providerIndex, identityIndex }.');
-      requireIndex(identityIndex, 'identityIndex', 'pass { providerIndex, identityIndex } for version-1 data.');
-      const slotName = identityLabel(this._config.derivationNetwork, providerIndex, identityIndex); // the same text as the old slot name
-      record = this._withStorageKey((key) => decryptVersion1(key, slotName, found.bytes));
-      if (record.providerIndex !== providerIndex || record.identityIndex !== identityIndex) {
-        throw new IdentityStorageError(`This saved identity is for another provider or identity number than ${slotName}.`, { reason: 'unreadable' });
-      }
-    } else if (found.kind === 'encrypted') {
-      const [, labelNetwork] = found.label.split('/');
-      if (labelNetwork !== network) {
-        throw new IdentityStorageError(`This exported identity is for ${labelNetwork}, not ${network}.`, { reason: 'unreadable' });
-      }
-      record = this._withStorageKey((key) => decryptExport(key, found.bytes));
-      if (found.label !== identityLabel(this._config.derivationNetwork, record.providerIndex, record.identityIndex)) {
-        throw new IdentityStorageError('This exported identity is damaged (its label does not match its content).', { reason: 'unreadable' });
-      }
-    } else {
-      if (found.network !== network) {
-        throw new IdentityStorageError(`This exported identity is for ${found.network}, not ${network}.`, { reason: 'unreadable' });
-      }
-      record = found;
-      const content = identityContent(record.identityObject, 'This exported identity is in an unexpected format.');
-      const expected = await this._issuance.expectedIdCredPub(record.providerIndex, record.identityIndex);
-      if (content.preIdentityObject.idCredPub !== expected) {
-        throw new IdentityStorageError(`This identity does not belong to this wallet for provider ${record.providerIndex}, `
-          + `identity ${record.identityIndex}.`, { reason: 'not-yours' });
-      }
+    const record = readExport(exported);
+    if (record.network !== network) {
+      throw new IdentityStorageError(`This exported identity is for ${record.network}, not ${network}.`, { reason: 'unreadable' });
     }
     const content = identityContent(record.identityObject, 'This exported identity is in an unexpected format.');
+    const expected = await this._issuance.expectedIdCredPub(record.providerIndex, record.identityIndex);
+    if (content.preIdentityObject.idCredPub !== expected) {
+      throw new IdentityStorageError(`This identity does not belong to this wallet for provider ${record.providerIndex}, `
+        + `identity ${record.identityIndex}.`, { reason: 'not-yours' });
+    }
     this._held.hold(record.providerIndex, record.identityIndex, record.identityObject);
     return summaryOf(content, record.providerIndex, record.identityIndex);
   }

@@ -33,14 +33,14 @@ export function openingCard(s) {
 const CAPTIONS = {
   'choose-provider': ['Phase 2 · Step 1 of 6', 'Identity providers are the companies that verify a person. The wallet lists the ones Concordium publishes and checks that each one is accepting requests right now.'],
   verifying: ['Phase 2 · Step 2 of 6', "The wallet builds the identity request from its own seed and opens the provider's page. The person fills in the provider's form there; on testnet, the test provider accepts made-up details."],
-  identity: ['Phase 2 · Step 3 of 6', 'The provider issued the identity. The wallet checked it belongs to this seed, and the package handed it over encrypted, with a key that comes from the seed, for the wallet to keep. Nothing has gone on the blockchain yet.'],
+  identity: ['Phase 2 · Step 3 of 6', 'The provider issued the identity. The wallet checked it belongs to this seed, and the package handed it over as text for the wallet to keep in its secure storage. The text is not encrypted: it holds your details. Nothing has gone on the blockchain yet.'],
   account: ['Phase 2 · Step 4 of 6', "An account is created from the identity. The wallet sends proofs, not the identity, and the chain opens the account in seconds: no ID App, no fee. Concordium's own explorer already shows it."],
   receive: ['Phase 1 · Step 5 of 6', 'Now the Phase 1 module takes over: the new account is handed to it by its path, like any WDK account, and receives CCD, a protocol-level token and a CIS-2 token.'],
   funded: ['Phase 1 · Step 6 of 6', 'The account is in use: it sends with the fee quoted first, and a second account with no CCD at all sends a token while a sponsor pays the fee.'],
 };
 
 // Step 3b (optional): shown on the identity page while the "what the wallet keeps" panel is open.
-const STORAGE_CAPTION = ['Phase 2 · Step 3b', "The package stores nothing. It hands the identity to the wallet as encrypted text, and the wallet keeps it its own way, as it keeps the seed. The key comes from the seed and is never stored."];
+const STORAGE_CAPTION = ['Phase 2 · Step 3b', "The package stores nothing. It hands the identity to the wallet as plain text, and the wallet keeps it in its secure storage, as it keeps the seed phrase. Anyone with the text can read your details, so it is kept like a secret."];
 
 /** The caption for where the story is: the account page shows step 4, and step 5 once receiving starts. */
 export function captionFor(s) {
@@ -62,7 +62,7 @@ export function closingCard() {
       <p class="lead">From one seed phrase, inside a WDK wallet:</p>
       <ol class="points">
         <li>a verified identity from an identity provider, without the ID App <span class="phase">Phase 2</span></li>
-        <li>handed to the wallet to keep its own way, encrypted <span class="phase">Phase 2</span></li>
+        <li>handed to the wallet to keep in its secure storage (not encrypted: it holds your details) <span class="phase">Phase 2</span></li>
         <li>a new account created from it on chain <span class="phase">Phase 2</span></li>
         <li>that account receiving and sending CCD, a PLT and a CIS-2 token, and a token sent with the fee paid by a
           sponsor <span class="phase">Phase 1, through the WDK module</span></li>
@@ -125,29 +125,28 @@ export function codeFor(s) {
       if (s.storage) {
         const r = s.storage.result;
         return code('Step 3b', [
-          `const kept = await identity.exportIdentity({ providerIndex: ${p}, identityIndex: ${i} });   // encrypted text`,
-          `await myWalletStorage.set('identity-${p}-${i}', kept);   // the wallet keeps it its own way${s.storage.kept ? ` (${s.storage.kept.characters} characters)` : ''}`,
+          `const kept = await identity.exportIdentity({ providerIndex: ${p}, identityIndex: ${i} });   // plain text: NOT encrypted`,
+          `await mySecureStorage.set('concordium-identity', kept);   // where the wallet keeps its seed phrase${s.storage.kept ? ` (${s.storage.kept.characters} characters)` : ''}`,
           '',
-          '// Restart wallet:',
-          'const restarted = new ConcordiumIdentity(seedPhrase, config);',
-          `await restarted.importIdentity(await myWalletStorage.get('identity-${p}-${i}'));   // no network; checked to be this seed's`,
+          r?.anotherWallet ? '// Another wallet:' : '// Restart wallet:',
+          `const restarted = new ConcordiumIdentity(${r?.anotherWallet ? 'anotherSeedPhrase' : 'seedPhrase'}, config);`,
+          "await restarted.importIdentity(await mySecureStorage.get('concordium-identity'));   // checked to be this seed's",
           ...(r?.outcome === 'imported' ? [`// → { validTo: '${r.validTo}', … }`] : []),
-          ...(r?.outcome === 'refused' ? [`// → throws IdentityStorageError, reason '${r.reason}': changed text is never used`] : []),
-          ...(s.storage.plain ? ['', `await identity.exportIdentity({ providerIndex: ${p}, identityIndex: ${i}, encrypted: false });   // plain JSON: details readable`] : []),
+          ...(r?.outcome === 'refused' ? [`// → throws IdentityStorageError, reason '${r.reason}': not this seed phrase's identity`] : []),
         ], '@concordium/wdk-identity-concordium · exportIdentity, importIdentity');
       }
       if (s.identity?.loaded) {
         return code('Step 3', [
-          `const kept = await myWalletStorage.get('identity-${p}-${i}');   // what the wallet kept earlier`,
+          "const kept = await mySecureStorage.get('concordium-identity');   // what the wallet kept earlier",
           '',
-          'const summary = await identity.importIdentity(kept);   // no network call',
-          `// → { validTo: '${s.identity.validTo}', maxAccounts: ${s.identity.maxAccounts} }: decrypted with a key from the seed`,
+          'const summary = await identity.importIdentity(kept);   // checked to be this seed\'s',
+          `// → { validTo: '${s.identity.validTo}', maxAccounts: ${s.identity.maxAccounts} }`,
         ], '@concordium/wdk-identity-concordium · importIdentity');
       }
       return code('Step 3', [
         `const kept = await identity.exportIdentity({ providerIndex: ${p}, identityIndex: ${i} });`,
-        `await myWalletStorage.set('identity-${p}-${i}', kept);   // the wallet keeps it: a phone's secure storage, a database, a file`,
-        `// kept: encrypted text; the key comes from the seed and is never stored (summary: valid to ${s.identity?.validTo ?? '…'})`,
+        "await mySecureStorage.set('concordium-identity', kept);   // NOT encrypted: keep it where the seed phrase is kept",
+        `// kept: plain text with the person's details (summary: valid to ${s.identity?.validTo ?? '…'})`,
       ], '@concordium/wdk-identity-concordium · exportIdentity');
     case 'account': {
       const path = s.account?.path ?? `${p}/${i}/0`;

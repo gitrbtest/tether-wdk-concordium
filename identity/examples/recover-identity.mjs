@@ -1,7 +1,7 @@
 /**
  * Recovery on a new device, on testnet: everything back from the seed phrase alone, with no new verification,
  * no ID App, and nothing to remember but the seed phrase. The "new phone" has the seed and a folder of its own;
- * it asks every identity provider for the wallet's identities, saves them encrypted, finds their accounts on
+ * it asks every identity provider for the wallet's identities, keeps them (in secure storage, as the seed phrase), finds their accounts on
  * chain, and hands those to Tether's WDK through the wallet package, which reads their balances.
  *
  *   npm run example:recover-identity
@@ -80,10 +80,11 @@ try {
   }
   console.log('   each one checked to belong to this seed before it was kept\n');
 
-  // Step 2. Keep them on the new phone. exportIdentity gives each identity as text, encrypted with a key made from
-  // the seed (the key itself is never stored), which the wallet keeps its own way (here, a file each). From now on
-  // the wallet imports them on every start (importIdentity), with no need to ask the providers again.
-  console.log('2. Export them, encrypted (the key comes from the seed and is never stored), and keep them');
+  // Step 2. Keep them on the new phone. exportIdentity gives each identity as text, which the wallet keeps its own way.
+  // NOT ENCRYPTED: the text holds the person's details, so a real wallet keeps it in its secure storage, like the seed
+  // phrase (this sample uses a plain file each, for its test identities only). From now on the wallet imports them on
+  // every start (importIdentity), with no need to ask the providers again.
+  console.log('2. Export them and keep them (plain text with the details: a real wallet keeps it in secure storage)');
   for (const x of identities) {
     const exported = await identity.exportIdentity({ providerIndex: x.providerIndex, identityIndex: x.identityIndex });
     console.log(`   ${keepIdentity(folder, x, exported)}`);

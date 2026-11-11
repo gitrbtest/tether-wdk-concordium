@@ -15,7 +15,7 @@ import {
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
 import { IdentityStorageError } from '@concordium/wdk-identity-concordium';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { keepIdentity, keptIdentity } from '../kept-identities.mjs';
 import { randomBytes, randomInt } from 'node:crypto';
 import { checkProvider } from '../../scripts/lib/provider-check.mjs';
@@ -27,8 +27,11 @@ import {
 import { AccountAddress } from '@concordium/web-sdk';
 
 
+// Step 3b's "another wallet": a second PUBLIC demonstration phrase, which has no identity of its own.
+const OTHER_WALLET_PHRASE = 'zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo zoo wrong';
+
 /** The verification's stages, in order, as the page shows them (progress dots). */
-export const VERIFY_STAGES = ['request sent', 'verifying at the provider', 'reply received', 'identity checked', 'kept, encrypted'];
+export const VERIFY_STAGES = ['request sent', 'verifying at the provider', 'reply received', 'identity checked', 'kept'];
 
 export default class DemoFlow {
   #settings;
@@ -84,7 +87,6 @@ export default class DemoFlow {
   async reset() {
     if (this.state.busy) throw new Error('Please wait: the previous step is still running.');
     clearInterval(this.#watchFunds);
-    await this.#repairIfDamaged();
     if (!this.#settings.reuseIdentity) this.#settings.identityIndex = randomInt(1, 2 ** 31 - 1);
     Object.assign(this.state, {
       step: 'start', identityIndex: this.#settings.identityIndex, providers: null, verification: null, identity: null,
@@ -177,7 +179,8 @@ export default class DemoFlow {
     try {
       const summary = await this.#identity.retrieveIdentity(url, { ...slot, intervalMs: 2000 });
       this.state.verification.stage = 4;
-      // The package hands the identity over as encrypted text; the wallet keeps it its own way (here, a file).
+      // The package hands the identity over as text, NOT encrypted (it holds the person's details): a real wallet keeps
+      // it in its secure storage, like the seed phrase. This demo keeps it in a file, for test identities only.
       this.#keptFile = keepIdentity(this.#settings.identityFolder, slot, await this.#identity.exportIdentity(slot));
       this.state.verification.stage = 5;
       this.state.identity = { ...summary, providerName: await this.#providerName(providerIndex), keptIn: this.#keptFile };
@@ -193,37 +196,23 @@ export default class DemoFlow {
   // ---- Step 3b: what the wallet keeps (optional) ------------------------------------------------------------
 
   /**
-   * The panel's buttons, each quick (no network, except "plain", which needs none either):
-   *   open      show the panel: the encrypted text the wallet keeps, and that nothing personal can be read in it
-   *   restart   a new wallet object with the same seed imports the kept text: the identity is back, with no network
-   *   damage    one character of the kept text is changed, then importing is tried again (it is refused)
-   *   repair    the wallet exports the identity it holds again, over the damaged copy
-   *   plain     the plain form (exportIdentity with encrypted: false), shown only, never kept: the details ARE readable
+   * The panel's buttons:
+   *   open      show the panel: the text the wallet keeps, and the person's details readable in it (it is NOT
+   *             encrypted: a real wallet keeps it in its secure storage, like the seed phrase)
+   *   restart   a new wallet object with the same seed phrase imports the kept text: the identity is back
+   *   another   a wallet with another seed phrase tries to import it: refused, it is not that seed phrase's identity
    */
   async storage({ action } = {}) {
     if (this.state.step !== 'identity') throw new Error('This panel needs an identity: verify or import one first.');
     if (this.state.busy) throw new Error('Please wait: the previous step is still running.');
     this.state.error = null;
-    const panel = this.state.storage ??= { result: null, damaged: false, plain: null };
+    const panel = this.state.storage ??= { result: null };
     if (action === 'open') {
-      await this.#repairIfDamaged();
-      Object.assign(panel, { result: null, plain: null });
+      panel.result = null;
     } else if (action === 'restart') {
-      panel.result = await this.#importWithNewWallet();
-    } else if (action === 'damage') {
-      const kept = readFileSync(this.#keptFile, 'utf8');
-      const at = kept.length - 30; // inside the encrypted part: any change there is detected
-      writeFileSync(this.#keptFile, kept.slice(0, at) + (kept[at] === 'A' ? 'B' : 'A') + kept.slice(at + 1));
-      panel.damaged = true;
-      panel.result = await this.#importWithNewWallet();
-    } else if (action === 'repair') {
-      if (!panel.damaged) throw new Error('Nothing to repair: the kept copy is not damaged.');
-      await this.#repairIfDamaged();
-      panel.result = { outcome: 'repaired' };
-    } else if (action === 'plain') {
-      const plain = await this.#identity.exportIdentity({ ...this.#which(), encrypted: false });
-      const details = this.#identityDetails();
-      panel.plain = { characters: plain.length, preview: `${plain.slice(0, 90)}…`, found: details.filter((d) => plain.includes(d)) };
+      panel.result = await this.#importWithNewWallet(this.#settings.seedPhrase);
+    } else if (action === 'another') {
+      panel.result = { ...await this.#importWithNewWallet(OTHER_WALLET_PHRASE), anotherWallet: true };
     } else {
       throw new Error('Unknown action.');
     }
@@ -234,9 +223,9 @@ export default class DemoFlow {
     return { providerIndex: this.state.identity.providerIndex, identityIndex: this.state.identity.identityIndex };
   }
 
-  /** As after an app restart: a new wallet object, the same seed, the kept text; no network. */
-  async #importWithNewWallet() {
-    const restarted = new ConcordiumIdentity(this.#settings.seedPhrase, this.#config, { fetch: this.#fetch });
+  /** As after an app restart: a new wallet object from a seed phrase imports the kept text. */
+  async #importWithNewWallet(seedPhrase) {
+    const restarted = new ConcordiumIdentity(seedPhrase, this.#config, { fetch: this.#fetch });
     try {
       const summary = await restarted.importIdentity(readFileSync(this.#keptFile, 'utf8'));
       return { outcome: 'imported', validTo: summary.validTo };
@@ -248,38 +237,26 @@ export default class DemoFlow {
     }
   }
 
-  /** Put back a damaged copy: the wallet still holds the identity, so it exports it again and keeps that. */
-  async #repairIfDamaged() {
-    if (!this.state.storage?.damaged) return;
-    writeFileSync(this.#keptFile, await this.#identity.exportIdentity(this.#which()));
-    this.state.storage.damaged = false;
-  }
-
   /**
-   * What the wallet keeps for this identity: the encrypted text, its readable label, and whether any of the identity's
-   * own details can be found in it (they cannot: it is encrypted).
+   * What the wallet keeps for this identity: the text, and which of the person's details can be read in it (all of
+   * them: it is NOT encrypted).
    */
   #whatIsKept() {
     const text = readFileSync(this.#keptFile, 'utf8');
-    const bytes = Buffer.from(text, 'base64');
-    const asText = bytes.toString('latin1');
     const details = this.#identityDetails();
     return {
       where: this.#keptFile.replace(/\\/g, '/'),
       characters: text.length,
       preview: `${text.slice(0, 60)}…`,
-      magic: asText.slice(0, 4),
-      version: bytes[4],
-      label: asText.slice(6, 6 + bytes[5]),
       searched: details.length,
-      found: details.filter((detail) => asText.includes(detail) || text.includes(detail)),
+      found: details.filter((detail) => text.includes(detail)),
     };
   }
 
   /**
    * The identity's own details to search the kept text for: its attribute values (four characters or more, so a
-   * match cannot happen by chance) and the identity's field names. The demo reads them from the identity the
-   * wallet holds in memory (an internal of the package, used here for this check only).
+   * match cannot happen by chance). The demo reads them from the identity the wallet holds in memory (an internal of
+   * the package, used here for this check only).
    */
   #identityDetails() {
     let attributes = {};
@@ -288,7 +265,7 @@ export default class DemoFlow {
       attributes = (held.value ?? held).attributeList?.chosenAttributes ?? {};
     } catch { /* not held: search the field names only */ }
     const values = Object.values(attributes).map(String).filter((v) => v.length >= 4);
-    return [...new Set([...values, 'chosenAttributes', 'firstName', 'lastName', 'preIdentityObject'])];
+    return [...new Set(values)];
   }
 
   // ---- Step 4: create an account ------------------------------------------------------------------------------
@@ -298,9 +275,8 @@ export default class DemoFlow {
     if (this.state.step !== 'identity') throw new Error('Verify or load an identity first.');
     this.#begin('creating-account');
     this.#run(async () => {
-      await this.#repairIfDamaged(); // a copy damaged in the Storage panel is put back first
       const { providerIndex, identityIndex } = this.state.identity;
-      const line = this.#log("Sending the account's credential through the wallet-proxy, waiting until it is final");
+      const line = this.#log("Sending the account's credential through the node, waiting until it is final");
       const started = Date.now();
       const account = await this.#identity.createAccount({ providerIndex, identityIndex, credNumber: 0, intervalMs: this.pauseMs });
       const seconds = ((Date.now() - started) / 1000).toFixed(1);

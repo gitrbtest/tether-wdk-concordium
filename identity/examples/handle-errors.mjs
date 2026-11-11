@@ -121,7 +121,7 @@ try {
     console.log(`   identity ${which.identityIndex}: valid until ${summary.validTo.slice(0, 4)}-${summary.validTo.slice(4)}`);
   }
   // Guards: the account scenes below must be refused before anything is sent.
-  const expired = await identity.exportIdentity({ ...EXPIRED, encrypted: false });
+  const expired = await identity.exportIdentity(EXPIRED);
   if (!/"validTo":"2026/.test(expired)) throw new Error('Identity 0 is expected to have expired; stopping before any account call.');
 
   console.log('\n2. Each error, made to happen, and 3. what the wallet tells the user');
@@ -139,11 +139,9 @@ try {
   ));
 
   // Keeping an identity (chapter 4)
-  const kept = await identity.exportIdentity(VALID);
-  const damaged = kept.slice(0, 100) + (kept[100] === 'A' ? 'B' : 'A') + kept.slice(101);
-  await scene('The kept identity was damaged (one character changed)', () => identity.importIdentity(damaged));
-  const plain = await identity.exportIdentity({ ...VALID, encrypted: false });
-  await scene("Another wallet's plain export, imported here", () => otherWallet.importIdentity(plain));
+  const kept = await identity.exportIdentity(VALID); // plain text with the person's details: keep it in secure storage
+  await scene('The kept identity was damaged (cut short)', () => identity.importIdentity(kept.slice(0, kept.length / 2)));
+  await scene("Another wallet's identity, imported here", () => otherWallet.importIdentity(kept));
 
   // Creating accounts (chapter 5): each refused before anything is sent
   await scene('An account number beyond what the identity allows', () => identity.createAccount({ ...VALID, credNumber: 200 }));

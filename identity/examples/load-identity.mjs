@@ -1,7 +1,10 @@
 /**
  * Import an identity that verify-identity exported, in a fresh program: the text is read from the folder where the
- * sample kept it, and importIdentity decrypts it with a key calculated again from the seed. No call to the identity
- * provider, the wallet-proxy or the chain.
+ * sample kept it, and importIdentity checks it belongs to this seed phrase before holding it (one call to the node
+ * for the network's parameters; none to the identity provider).
+ *
+ * The kept text is NOT encrypted: it holds the person's details. A real wallet reads it from its secure storage, where
+ * it keeps the seed phrase; this sample uses a plain file only because it is a command-line demo with test identities.
  *
  *   npm run example:load-identity
  *
@@ -61,15 +64,14 @@ try {
     hint();
     process.exitCode = 1;
   } else {
-    // Import it. importIdentity rebuilds the encryption key from the seed and decrypts. Decrypting only works with
-    // the right seed, and any change to the text is detected, so a successful import also proves the identity is
-    // this wallet's and was not swapped or damaged. The identity is then held, ready for createAccount.
+    // Import it. importIdentity checks the identity's public key is the one this seed phrase gives for its provider
+    // and identity number, so another wallet's identity is refused. The identity is then held, ready for createAccount.
     const summary = await identity.importIdentity(exported);
     console.log(`Imported from ${folder}:`, summary);
   }
 } catch (e) {
-  // IdentityStorageError: the text cannot be used (another seed, another network, or damaged): the package refuses
-  // it rather than use it.
+  // IdentityStorageError: the text cannot be used (another seed phrase's identity, another network, or not an
+  // exported identity at all): the package refuses it rather than use it.
   if (e instanceof IdentityStorageError) {
     console.error(`IdentityStorageError (${e.reason}): ${e.message}`);
   } else {

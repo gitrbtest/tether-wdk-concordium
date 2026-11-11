@@ -82,8 +82,9 @@ const views = {
         <dt>Issued by</dt><dd>${esc(s.identity.providerName)}</dd>
         <dt>Valid until</dt><dd>${yearMonth(s.identity.validTo)} (issued ${yearMonth(s.identity.createdAt)})</dd>
         <dt>Accounts allowed</dt><dd>up to ${s.identity.maxAccounts}</dd>
-        <dt>Kept</dt><dd>${s.identity.loaded ? 'imported from the copy the wallet kept' : 'exported by the package as encrypted text, kept by the wallet'}
-          (<code>${esc(s.identity.keptIn)}</code>): the key comes from the seed and is never stored; nothing personal is readable</dd>
+        <dt>Kept</dt><dd>${s.identity.loaded ? 'imported from the copy the wallet kept' : 'exported by the package as text, kept by the wallet'}
+          (<code>${esc(s.identity.keptIn)}</code>): <strong>not encrypted</strong>, it holds your details, so a real wallet keeps it
+          in its secure storage, like the seed phrase</dd>
       </dl>
       <p class="note"><strong>Held by your wallet: not on the blockchain.</strong> The chain only sees proofs of it
         when an account is created, never the identity itself.</p>
@@ -144,56 +145,43 @@ function storageCard(s) {
   const busy = Boolean(s.busy);
   const kept = k ? `
       <dl class="facts">
-        <dt>Kept text</dt><dd>${k.characters.toLocaleString('en-GB')} characters, starting <code>${esc(k.preview)}</code>
-          (base64 of "${esc(k.magic)}", format version ${esc(k.version)}, then encrypted)</dd>
-        <dt>Which identity</dt><dd><code>${esc(k.label)}</code> (readable, not secret, and protected from change)</dd>
-        <dt>Personal data visible</dt><dd>${k.found.length ? `<strong class="bad">✖ found: ${esc(k.found.join(', '))}</strong>`
-          : '<strong class="good">none ✔</strong> (the page searches the kept text for the identity\'s own details and finds none)'}</dd>
-        <dt>Kept in</dt><dd><code>${esc(k.where)}</code> (this demo's choice: a file; a phone would use its secure storage)</dd>
+        <dt>Kept text</dt><dd>${k.characters.toLocaleString('en-GB')} characters, starting <code>${esc(k.preview)}</code></dd>
+        <dt>Your details readable in it</dt><dd>${k.found.length ? `<strong class="bad">⚠ yes: ${esc(k.found.join(', '))}</strong>`
+          : 'none found'} (the page searches the kept text for the identity's own details)</dd>
+        <dt>Kept in</dt><dd><code>${esc(k.where)}</code>: ⚠ not encrypted. A real wallet keeps this in its secure storage, like
+          the seed phrase; this demo uses a file, for test identities only.</dd>
       </dl>` : '';
-  const plain = st.plain ? `
-      <div class="result failed">The plain form (<code>encrypted: false</code>), shown here only, never kept:
-        ${st.plain.characters.toLocaleString('en-GB')} characters, and the person's details <strong>are</strong> readable in it:
-        ${esc(st.plain.found.join(', '))}. Only for a wallet that already keeps everything in an encrypted vault of its own;
-        keep it as carefully as the seed.<br><code>${esc(st.plain.preview)}</code></div>` : '';
   return `
     <section class="card storage-card">
       <p class="eyebrow">Step 3b · What the wallet keeps · Phase 2</p>
       <h2>Your identity, kept by the wallet</h2>
-      <p class="note">The package stores nothing. It hands the identity to the wallet as one piece of text, encrypted with a
-        key that comes from the seed, and the wallet keeps it its own way, as it keeps the seed. On the next start, the
-        package takes the text back (<code>importIdentity</code>) and checks it is this wallet's.</p>
+      <p class="note">The package stores nothing. It hands the identity to the wallet as plain text, and the wallet keeps it
+        in its secure storage, as it keeps the seed phrase. Anyone with the text can read your details, so it is kept like
+        a secret. On the next start, the package takes the text back (<code>importIdentity</code>) and checks it is this
+        wallet's.</p>
       <h3>What the wallet keeps</h3>
       ${kept}
       <div class="send-actions">
         <button data-action="storage-restart" ${busy ? 'disabled' : ''}>Restart wallet: import it back</button>
-        <button data-action="storage-damage" ${busy || st.damaged ? 'disabled' : ''}>Change one character</button>
-        ${st.damaged ? `<button data-action="storage-repair" ${busy ? 'disabled' : ''}>Repair</button>` : ''}
-        <button data-action="storage-plain" ${busy ? 'disabled' : ''}>Show the plain form</button>
+        <button data-action="storage-another" ${busy ? 'disabled' : ''}>Import it into another wallet</button>
       </div>
-      ${storageResult(st, s.identity)}
-      ${plain}
-      <p class="note">The format is documented, so other wallets (e.g. a native mobile app) can read the same text with
-        the same seed.</p>
+      ${storageResult(st)}
+      <p class="note">The format is documented, so other wallets (e.g. a native mobile app) can read the same text.</p>
     </section>`;
 }
 
-/** The last Restart / Change / Repair, in place. */
-function storageResult(st, identity) {
+/** The last Restart / Another wallet, in place. */
+function storageResult(st) {
   const r = st.result;
   if (!r) return '';
   if (r.outcome === 'imported') {
-    return `<div class="result sent">✔ A new wallet object with the same seed imported the kept text: the identity is back,
-      without the network: valid until ${yearMonth(r.validTo)}.</div>`;
+    return `<div class="result sent">✔ A new wallet object with the same seed phrase imported the kept text, after checking it
+      is this wallet's: the identity is back, valid until ${yearMonth(r.validTo)}.</div>`;
   }
   if (r.outcome === 'refused') {
-    return `<div class="result failed">✖ One character of the kept text was changed. Importing it again was refused: it
-      cannot be decrypted (another seed, or changed or damaged text). A changed or swapped identity is never used.
+    return `<div class="result failed">✖ ${r.anotherWallet ? 'A wallet with another seed phrase tried to import the kept text: refused,'
+      : 'Importing the kept text was refused:'} it is not that seed phrase's identity, so it can never be used as someone else's.
       <br><code>IdentityStorageError · reason ${esc(r.reason)}</code></div>`;
-  }
-  if (r.outcome === 'repaired') {
-    return `<div class="result sent">✔ The kept copy was replaced by a fresh export of the identity the wallet holds${identity
-      ? ` (valid until ${yearMonth(identity.validTo)})` : ''}.</div>`;
   }
   return '';
 }

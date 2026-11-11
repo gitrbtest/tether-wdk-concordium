@@ -14,9 +14,9 @@
  *   SERVER                                                          PROVIDER
  *   ──────                                                          ────────
  *   1. Alice's identity arrives ◄────────────────────────────────── her issued identity
- *   2. kept as text in Alice's record (none of her details readable in it)
- *   3. later: Alice's seed phrase reads it back
- *   4. Alice's text in Bob's record: Bob's seed phrase cannot read it
+ *   2. kept as text in Alice's record (NOT encrypted: her details are readable, so the table must be protected)
+ *   3. later: taken back with Alice's seed phrase
+ *   4. Alice's text in Bob's record: refused, it is not Bob's seed phrase's identity
  *   5. Alice's record and seed phrase deleted: only Bob is left
  *
  * The steps are the sample's own numbers (it prints them); the test reads what it prints.
@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url';
 const packageRoot = fileURLToPath(new URL('../../../', import.meta.url));
 
 // Steps 1-5: the sample run as an operator would. Read-only.
-test('the server-keeps-identities sample: one record per user, readable only with that user\'s seed phrase', async () => {
+test("the server-keeps-identities sample: one record per user, usable only with that user's seed phrase", async () => {
   let output;
   try {
     const { stdout, stderr } = await promisify(execFile)(process.execPath, ['examples/server-keeps-identities.mjs'], {
@@ -42,8 +42,8 @@ test('the server-keeps-identities sample: one record per user, readable only wit
   }
   assert.match(output, /provider 0, identity 334563111, valid until 202709/, 'step 1: the identity arrives');
   assert.match(output, /alice\s+\d+ characters/, "step 2: kept in Alice's record");
-  assert.match(output, /name or birth date in it\? no: it is encrypted/, 'step 2: none of her details are readable');
-  assert.match(output, /3\. [^\n]*\n\s+✔ provider 0, identity 334563111: ready to use/, 'step 3: read back with her seed phrase');
-  assert.match(output, /✔ refused \(unreadable\): Bob's seed phrase cannot read Alice's identity/, "step 4: Bob cannot read it");
+  assert.match(output, /name or birth date in it\? yes: it is NOT encrypted/, 'step 2: her details are readable: it is not encrypted');
+  assert.match(output, /3\. [^\n]*\n\s+✔ provider 0, identity 334563111: ready to use/, 'step 3: taken back with her seed phrase');
+  assert.match(output, /✔ refused \(not-yours\): it is not Bob's seed phrase's identity/, "step 4: Bob's wallet cannot use it");
   assert.match(output, /users: bob; Alice's identity is gone from the server/, 'step 5: her record is deleted');
 });

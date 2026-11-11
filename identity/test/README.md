@@ -33,7 +33,7 @@ the chain by a pretend node (`helpers.mjs`).
 | | `callback` | reading the provider's reply from the return address |
 | | `callback-listener` | the built-in listener (Node.js desktop apps) |
 | | `collecting-the-identity` | collecting the issued identity, and checking it is this seed's |
-| `4-keep-identity` | `export-and-import` | the identity as text the wallet keeps (encrypted, or plain), and taking it back |
+| `4-keep-identity` | `export-and-import` | the identity as plain text the wallet keeps (NOT encrypted), and taking it back after checking it is this wallet's |
 | | `storage-format-spec` | `docs/storage-format.md` is exact: a reader written from the document alone |
 | `5-accounts` | `credential` | building and signing the credential that creates an account |
 | | `sending-to-the-chain` | sending it to the node, and every way that can end |

@@ -114,8 +114,8 @@ export class IdentityRecoveryError extends Error {
  * Thrown when importIdentity cannot take an exported identity back.
  */
 export class IdentityStorageError extends Error {
-  /** unreadable: not an exported identity, for another network, another seed, changed or damaged, or an unknown format
-   *  version. not-yours: a plain (unencrypted) export whose identity does not belong to this wallet's seed. */
+  /** unreadable: not an exported identity, for another network, changed or damaged, or an unknown format version.
+   *  not-yours: an exported identity that does not belong to this wallet's seed phrase. */
   reason: 'unreadable' | 'not-yours';
 }
 
@@ -209,12 +209,8 @@ export interface IdentityRef {
   identityIndex: number;
 }
 
-/** Options for exportIdentity. */
-export interface ExportIdentityOptions extends IdentityRef {
-  /** true (the default): encrypted with a key made from the seed, safe to keep anywhere. false: plain JSON text with the
-   *  person's details in the clear, for a wallet that keeps everything in an encrypted vault of its own. */
-  encrypted?: boolean;
-}
+/** Options for exportIdentity: which identity. */
+export type ExportIdentityOptions = IdentityRef;
 
 /** Options for ConcordiumIdentity.recoverIdentity. */
 export interface RecoverIdentityOptions {
@@ -372,19 +368,20 @@ export class ConcordiumIdentity {
    */
   recoverAll(options?: RecoverAllOptions): Promise<RecoverAllResult>;
   /**
-   * The identity held for a provider and identity number, as text for the wallet to keep its own way. Encrypted by
-   * default (key made from the seed, never stored; reveals nothing personal); plain JSON with encrypted: false.
-   * No network call.
+   * The identity held for a provider and identity number, as text for the wallet to keep its own way. No network call.
+   *
+   * NOT ENCRYPTED: plain JSON text holding the person's verified details (name, date of birth, nationality, ID
+   * document number, …), readable by anyone who has it. Keep it like any other secret, in the same secure storage as
+   * the seed phrase; never log it or keep it in plain files or unencrypted backups. It holds no keys.
    * @throws {Error} If no identity is held for these numbers, or the identity has been disposed.
    */
   exportIdentity(options: ExportIdentityOptions): Promise<string>;
   /**
-   * Hold an identity again from exportIdentity's text (either form), checked to be this wallet's: an encrypted export by
-   * decrypting it (no network call), a plain one by its public key (one call for the network's parameters). Also reads
-   * version-1 data saved by the earlier, store-based package: give its numbers as the second argument.
+   * Hold an identity again from exportIdentity's text, checked to be this wallet's by its public key (one call to the
+   * node for the network's parameters, then kept). Read the text from your secure storage: it is not encrypted.
    * @throws {IdentityStorageError} reason 'unreadable' or 'not-yours'.
    */
-  importIdentity(exported: string | Uint8Array, version1?: Partial<IdentityRef>): Promise<IdentitySummary>;
+  importIdentity(exported: string): Promise<IdentitySummary>;
   /**
    * Create an account on chain from the identity held for a provider and identity index (collected, or
    * imported with importIdentity), with no ID App. Returns once the account is final, so the address exists.

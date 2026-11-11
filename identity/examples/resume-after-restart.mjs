@@ -20,7 +20,7 @@
  *                                4. reads what was saved
  *                                5. collects the identity ──────────────► the code_uri: the issued identity
  *                                   and checks it is this seed's
- *                                6. keeps it (exported, encrypted), and forgets the saved reply
+ *                                6. keeps it (exported), and forgets the saved reply
  *
  * Testnet, with Concordium's test provider (index 0): its page shows a form with made-up details instead of asking
  * for documents. Settings:
@@ -108,11 +108,12 @@ try {
     const summary = await identity.waitForIdentity(codeUri, { providerIndex, identityIndex, signal: cancel.signal });
     console.log('   Identity issued:', summary);
 
-    // 6. Keep the identity (exported, encrypted), then forget the saved reply: it is no longer needed.
+    // 6. Keep the identity, then forget the saved reply: it is no longer needed. The exported text is NOT encrypted (it
+    //    holds the person's details): a real wallet keeps it in its secure storage, like the seed phrase.
     const exported = await identity.exportIdentity({ providerIndex, identityIndex });
     const file = keepIdentity(folder, { providerIndex, identityIndex }, exported);
     rmSync(pendingFile);
-    console.log(`6. Kept (encrypted) in ${file}; the saved reply is deleted.`);
+    console.log(`6. Kept in ${file} (plain text: a real wallet uses secure storage); the saved reply is deleted.`);
   }
 } catch (e) {
   if (e instanceof IdentityIssuanceError && (e.reason === 'timeout' || e.reason === 'cancelled')) {

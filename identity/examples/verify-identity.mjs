@@ -1,7 +1,8 @@
 /**
  * Identity verification end to end, as a desktop wallet would do it:
  * start the built-in listener, build the request, let the user verify in a
- * browser, collect the issued identity, and export it encrypted for the sample to keep in a file.
+ * browser, collect the issued identity, and export it for the sample to keep in a file (NOT encrypted: a real wallet
+ * keeps it in its secure storage, like the seed phrase).
  *
  *   npm run example:verify-identity
  *
@@ -34,8 +35,8 @@ const providerIndex = Number(process.env.PROVIDER_INDEX ?? 0);
 const folder = process.env.IDENTITY_FOLDER || './demo-identities';
 
 // The identity package, given the wallet's seed phrase. Every key it needs (for the identity request, and later
-// to encrypt the exported identity) is worked out from the seed; nothing secret is stored, and the package itself
-// stores nothing: it hands the identity to the wallet (here, this sample) to keep.
+// for accounts and proofs) is worked out from the seed; the package itself stores nothing: it hands the identity to
+// the wallet (here, this sample) to keep.
 // The identity provider list: the package does not fetch it. The wallet does (here from the wallet-proxy, once)
 // and passes it in; only its shape matters.
 const identityProviders = await (await fetch('https://wallet-proxy.testnet.concordium.com/v2/ip_info')).json();
@@ -106,12 +107,12 @@ try {
   const summary = await identity.retrieveIdentity(callbackUrl, { signal: cancel.signal });
   console.log('\nIdentity issued:', summary);
 
-  // 5. Keep it, so it survives a restart. exportIdentity gives it as text, encrypted with a key made from the seed
-  //    (never stored): it reveals nothing personal. The wallet keeps that text its own way (here, a file); next
-  //    time importIdentity takes it back (see load-identity).
+  // 5. Keep it, so it survives a restart. exportIdentity gives it as text; next time importIdentity takes it back
+  //    (see load-identity). NOT ENCRYPTED: the text holds the person's details, so a real wallet keeps it in its
+  //    secure storage, like the seed phrase. This sample keeps it in a plain file, for test identities only.
   const exported = await identity.exportIdentity({ providerIndex, identityIndex });
   const file = keepIdentity(folder, { providerIndex, identityIndex }, exported);
-  console.log(`\nExported (encrypted) and kept in ${file}. Next: set IDENTITY_INDEX=${identityIndex} for load-identity and create-account.`);
+  console.log(`\nExported and kept in ${file} (plain text with the details: a real wallet uses secure storage). Next: set IDENTITY_INDEX=${identityIndex} for load-identity and create-account.`);
 } catch (e) {
   if (e instanceof IdentityIssuanceError) {
     console.error(`\nNo identity (${e.reason}): ${e.message}`);

@@ -7,7 +7,8 @@ behind it. This package lets a wallet obtain that identity from the wallet's
 own seed, without the Concordium ID App:
 
 - start identity verification with an identity provider and collect the issued identity,
-- hand the identity to the wallet to keep its own way (exported as text, encrypted by default),
+- hand the identity to the wallet to keep its own way (exported as plain text: **not encrypted**, so the wallet keeps
+  it in its secure storage, like the seed phrase),
 - create Concordium accounts from the identity,
 - get the identity and its accounts back from the seed phrase alone, e.g. on a new phone,
 - prove facts such as "over 18" to a website without revealing the detail itself (and, for websites,
@@ -19,7 +20,7 @@ like any other account.
 > **Status: in development.** The package is not published yet, and its API
 > may change until the first release. Available today: listing identity
 > providers, starting identity verification, collecting the issued identity,
-> exporting it encrypted for the wallet to keep, creating accounts from it, recovering it from the
+> exporting it for the wallet to keep, creating accounts from it, recovering it from the
 > seed, and proving facts to websites, with the websites' check (tested on testnet).
 
 ## What you can build
@@ -257,9 +258,14 @@ repeated ones are reported.
 
 ## Keeping identities: export and import
 
-The package stores nothing. The wallet keeps the identity **its own way**, the way it already keeps the seed (a
-phone's secure storage, a database, a backend, a file): `exportIdentity` gives the identity as text, and
-`importIdentity` takes it back.
+The package stores nothing. The wallet keeps the identity **its own way**: `exportIdentity` gives the identity as
+text, and `importIdentity` takes it back.
+
+> **The exported identity is NOT encrypted.** It is plain JSON text holding the person's verified details: name, date
+> of birth, nationality, ID document number and the other details the provider checked. Anyone who has the text can
+> read them. **Keep it like any other secret: in the same secure storage as the seed phrase** (a phone's Keychain or
+> Keystore, an encrypted database, a key vault). Never log it, send it to analytics or crash reports, or keep it in
+> plain files or unencrypted backups.
 
 ```js
 import { ConcordiumIdentity, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
@@ -267,42 +273,36 @@ import { ConcordiumIdentity, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concord
 const identity = new ConcordiumIdentity(seedPhrase, config);
 await identity.retrieveIdentity(callbackUrl);                                  // collect, as above
 
-const exported = await identity.exportIdentity({ providerIndex: 0, identityIndex: 2 }); // encrypted text
-await myWalletStorage.set('concordium-identity-0-2', exported);                // the wallet's own storage
+const exported = await identity.exportIdentity({ providerIndex: 0, identityIndex: 2 }); // plain text: NOT encrypted
+await mySecureStorage.set('concordium-identity', exported);       // where the wallet keeps its seed phrase
 
 // Later, e.g. after an app restart, in a new object with the same seed:
-const summary = await identity.importIdentity(await myWalletStorage.get('concordium-identity-0-2'));
+const summary = await identity.importIdentity(await mySecureStorage.get('concordium-identity'));
 ```
 
-- **Encrypted by default.** The key comes from the seed each time it is needed and is wiped after use; it is never
-  stored. The text reveals nothing personal and is safe to keep anywhere; only this seed can read it. Which identity
-  it is (network, provider, identity number) stays readable, and any change to the text is detected.
-- **Plain, if you ask:** `exportIdentity({ …, encrypted: false })` gives the identity as JSON text, for a wallet that
-  already keeps everything in an encrypted vault of its own. It holds the person's details (name, date of birth, ID
-  number) in the clear: keep it as carefully as the seed.
-- **`importIdentity` takes either form** and checks the identity is this wallet's before holding it: an encrypted
-  export can only be decrypted with this seed (no network call); a plain one must carry the public key this seed gives
-  for that provider and identity number (one call for the network's parameters, as when the identity was collected).
+- **It holds no keys.** Every key comes from the seed phrase, so the text alone cannot create accounts or answer
+  questions; but its details can be read by anyone who has it.
+- **`importIdentity` checks the identity is this wallet's** before holding it: it must carry the public key this seed
+  phrase gives for that provider and identity number (one call to the node for the network's parameters, as when the
+  identity was collected). It does not check the provider's signature: the chain does, when an account is created.
 - **Exported and held are separate.** `exportIdentity` exports the identity this object holds (collected, recovered or
   imported); `importIdentity` holds an exported one again, ready for the next steps. Deleting the wallet's copy is
   the wallet's own business; `dispose()` zeroes everything this object holds.
-- **A server with many users** keeps each user's text in that user's own record: only that user's seed can read it,
-  and deleting the record (and the seed) erases the identity from the server. Try it:
-  `npm run example:server-keeps-identities` (read-only on testnet).
+- **A server with many users** keeps each user's text in that user's own record, protected like the seed phrases
+  (encrypted at rest, access-controlled). Another user's seed phrase cannot use it, and deleting the record (and the
+  seed phrase) erases the identity from the server. Try it: `npm run example:server-keeps-identities` (read-only on
+  testnet).
 
 `importIdentity` refuses text it cannot use with `IdentityStorageError`:
 
 | `reason` | Meaning |
 |---|---|
-| `unreadable` | not an exported identity; for another network; another seed; changed or damaged; an unknown format version |
-| `not-yours` | a plain export whose identity does not belong to this wallet's seed |
-
-It also reads identities saved by the earlier, store-based versions of this package (format version 1). Those bytes do
-not say which identity they hold, so give its numbers: `importIdentity(saved, { providerIndex, identityIndex })`.
+| `unreadable` | not an exported identity; for another network; damaged; an unknown format version |
+| `not-yours` | an identity that does not belong to this wallet's seed phrase |
 
 ### The format
 
-The exact format (key derivation, encryption, byte layout, test vectors for both versions) is in
+The exact format (its fields, how ownership is checked, a test vector) is in
 [`docs/storage-format.md`](docs/storage-format.md).
 
 ## Creating accounts
@@ -404,7 +404,7 @@ const wallet = new WalletManagerConcordium(seedPhrase, CONCORDIUM_TESTNET_CONFIG
 
 const { identities, problems } = await identity.recoverAll();
 for (const { providerIndex, identityIndex, summary, accounts } of identities) {
-  const exported = await identity.exportIdentity({ providerIndex, identityIndex }); // keep it, encrypted, as usual
+  const exported = await identity.exportIdentity({ providerIndex, identityIndex }); // keep it in secure storage
   for (const { path } of accounts ?? []) {
     const account = await wallet.getAccountByPath(path);           // @concordium/wdk-wallet-concordium
   }
@@ -868,8 +868,8 @@ secret path, and accepts a single callback; other requests are refused.
 read the request shows an error page and never sends the browser back, so give
 the user a way to cancel.
 
-A runnable example of the whole flow on testnet, saving the identity encrypted in
-`./demo-identities`: `npm run example:verify-identity` (`examples/verify-identity.mjs`; set
+A runnable example of the whole flow on testnet, saving the identity in `./demo-identities` (a plain file, for its
+test identities only: a real wallet keeps it in secure storage): `npm run example:verify-identity` (`examples/verify-identity.mjs`; set
 `OPEN_BROWSER=1` to open the verification page for you). Load it again in a new program with
 `npm run example:load-identity`.
 

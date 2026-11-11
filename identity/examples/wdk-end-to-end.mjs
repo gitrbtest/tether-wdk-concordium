@@ -170,7 +170,7 @@ const wallet = new WalletManagerConcordium(seedPhrase, { ...CONCORDIUM_TESTNET_C
 const funder = new WalletManagerConcordium(FUNDING_SEED, { ...CONCORDIUM_TESTNET_CONFIG }); // the funding account
 
 try {
-  // 1. Import the identity verify-identity exported (decrypted with a key made from the seed). Accounts are made from it.
+  // 1. Import the identity verify-identity exported (checked to be this seed phrase's). Accounts are made from it.
   step(1, `Import the kept identity ${identityIndex} (provider ${providerIndex})          [this package]`);
   const exported = keptIdentity(folder, { providerIndex, identityIndex });
   if (exported === null) throw new Error(`Nothing kept in ${folder}: run npm run example:verify-identity first, or set IDENTITY_INDEX.`);

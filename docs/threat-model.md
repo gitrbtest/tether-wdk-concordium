@@ -10,7 +10,7 @@ for it. The [integration guide](integration-guide.md) explains each step referre
 | What | Why it matters | Where it lives |
 | --- | --- | --- |
 | **The seed phrase** | every key comes from it: the identities' and the accounts'. Whoever has it controls the accounts and can recover the identities | the wallet's own storage; a copy inside each package object while in use |
-| **The identity** | it holds the person's (or company's) verified details: name, date of birth, nationality, ID numbers, LEI | inside the identity package while in use; kept by the wallet as exported text |
+| **The identity** | it holds the person's (or company's) verified details: name, date of birth, nationality, ID numbers, LEI | inside the identity package while in use; kept by the wallet as exported text, **not encrypted**, in its secure storage |
 | **The accounts and their funds** | CCD and tokens | on chain, controlled by keys from the seed |
 | **What a website learns** | proofs should show only what the user agreed to | in each answer the wallet sends |
 | **The return from the provider** | its reply leads to the issued identity | the address the browser arrives at |
@@ -31,7 +31,7 @@ for it. The [integration guide](integration-guide.md) explains each step referre
 
 | Threat | Defence | Left to the wallet |
 | --- | --- | --- |
-| it is stolen from storage | the packages never store it | keep it in the device's secure storage, or encrypted |
+| it is stolen from storage | the packages never store it | keep it in the device's secure storage, or encrypted (and the exported identities with it) |
 | it ends up in a log or crash report through an error message (for example, when the user mistypes a word while restoring) | a wrong seed phrase is refused with only "Invalid seed phrase.", without the words (tested in both packages); both packages also check a seed given as raw bytes before Concordium's SDK sees it, because the SDK's error for a seed of the wrong length repeats the whole seed; the packages' own error messages contain no seed or key. Once a seed phrase has leaked, nothing can protect the accounts: whoever has it controls them | never log or report the seed phrase, the config objects or `keyPair` yourself |
 | it stays in memory longer than needed | `identity.dispose()` and `wallet.dispose()` zero each package's copy of the seed and what it holds; the identity package zeroes the signing keys it derives straight after use | dispose objects when done |
 
@@ -42,8 +42,8 @@ takes keys as text, which cannot be wiped. Zeroing reduces how long secrets are 
 
 | Threat | Defence | Left to the wallet |
 | --- | --- | --- |
-| the kept copy is stolen (a phone backup, a server database) | `exportIdentity` encrypts it (AES-256-GCM, a key derived from the seed with HKDF-SHA256, never stored): the text reveals nothing personal, and only this seed can read it | choosing where to keep it; the **plain** export (`encrypted: false`) is readable by anyone who has it: keep it like the seed |
-| the kept copy is changed, swapped or damaged | any change to the encrypted text is detected and refused (`unreadable`); its label (network, provider, identity number) is authenticated too | recover it (chapter 6) if it was damaged |
+| the kept copy is stolen (a phone backup, a server database, a log) | **none in the package: the exported identity is NOT encrypted.** It is plain JSON with the person's details, readable by anyone who has it. It holds no keys, so on its own it cannot create accounts or answer questions | **keep it like any other secret, in the same secure storage as the seed phrase** (Keychain / Keystore, an encrypted database, a key vault); never log it, or keep it in plain files or unencrypted backups |
+| the kept copy is changed or damaged | text that is not an exported identity is refused (`unreadable`); a changed detail is **not** detected on import, but the chain refuses an account from it, and a website a proof from it, because the provider's signature no longer matches | keep it where it cannot be changed; recover it (chapter 6) if it was damaged |
 | someone else's identity is slipped in (a wrong `code_uri`, a tampered reply, a plain export) | every identity is checked to belong to **this seed** (its public key, worked out from the seed) before it is held, when collected, recovered or imported; one that is not is refused (`not-yours`) and never kept | — |
 | a forged identity (not really issued by the provider) | the wallet does not check the provider's signature on the identity itself; **the chain does**, when an account is created from it, and websites do when they check a proof against the provider's keys. A forged identity can therefore never create an account or pass a check | — |
 | too much is shown on chain | nothing about the person is put on an account unless the wallet names it in `revealAttributes` | ask the user before revealing anything |
@@ -91,7 +91,7 @@ takes keys as text, which cannot be wiped. Zeroing reduces how long secrets are 
 ### Dependencies
 
 The packages depend on Concordium's SDK (`@concordium/web-sdk`), Tether's base package (`@tetherto/wdk-wallet`) and
-small audited cryptography libraries (`@noble/hashes`, `@noble/ciphers`). Where the packages re-apply the SDK's rules
+a small audited library of hash functions (`@noble/hashes`). Where the packages re-apply the SDK's rules
 (`checkTransfer`), a test checks they agree with the SDK's own check on every combination, so an SDK change is
 noticed. Versions are pinned in each package's lock file; `npm audit` reports advisories in dependencies (at the
 time of writing, two moderate ones in `uuid`, used by the SDK).

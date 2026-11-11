@@ -16,7 +16,7 @@
  *   4. reads the reply saved before the restart
  *   5. collects the identity from its code_uri ───────────► the issued identity
  *      and checks it is this seed's
- *   6. keeps it (exported, encrypted), deletes the saved reply
+ *   6. keeps it (exported: plain text, NOT encrypted), deletes the saved reply
  *   then, started again with nothing saved: says to run part 1 first
  *
  * The steps are the sample's own numbers (it prints them); the test reads what it prints.
@@ -65,14 +65,12 @@ test('the resume-after-restart sample: a fresh start collects the identity from 
     assert.ok(first.ok, `the sample should succeed; it printed:\n${first.output}`);
     assert.match(first.output, /A verification is waiting: provider 0, identity 334563111/, 'step 4: the saved reply is read');
     assert.match(first.output, /validTo: '202709'/, 'step 5: the identity is collected');
-    assert.match(first.output, /6\. Kept \(encrypted\)/, 'step 6: it is kept');
+    assert.match(first.output, /6\. Kept in /, 'step 6: it is kept');
 
     const kept = join(folder, 'testnet-0-334563111.txt');
     assert.ok(existsSync(kept), 'the exported identity is kept in the folder');
-    const text = readFileSync(kept, 'utf8');
-    const details = /John|Doe|19700101/; // the test form's details, which a plain export would show
-    assert.ok(!details.test(text) && !details.test(Buffer.from(text, 'base64').toString('latin1')),
-      'the kept text reveals none of the details, even decoded');
+    const record = JSON.parse(readFileSync(kept, 'utf8')); // the exported identity: plain JSON, NOT encrypted
+    assert.deepEqual([record.format, record.providerIndex, record.identityIndex], ['concordium-wdk-identity', 0, 334563111]);
     assert.ok(!existsSync(pendingFile), 'the saved reply is deleted once the identity is kept');
 
     const second = await resume(folder);

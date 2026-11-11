@@ -1,10 +1,16 @@
 /**
  * How these samples keep identities: one text file per identity in a folder. NOT part of the package.
  *
- * The package stores nothing: exportIdentity gives the identity as text (encrypted by default), and the wallet keeps
- * it however it keeps its seed (a phone's secure storage, a database, a file …). These samples are command-line
- * programs, so they keep it in a file, e.g. ./demo-identities/testnet-0-2.txt (network, provider, identity number).
- * importIdentity takes the text back.
+ * The package stores nothing: exportIdentity gives the identity as text, and the wallet keeps it however it keeps
+ * its seed phrase. importIdentity takes the text back.
+ *
+ * ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────┐
+ * │ NOT ENCRYPTED. The text holds the person's verified details (name, date of birth, ID number …) in plain JSON. │
+ * │ A real wallet keeps it like any other secret, in the same secure storage as the seed phrase (a phone's       │
+ * │ Keychain / Keystore, an encrypted database, a key vault). These samples are command-line programs with test  │
+ * │ identities only, so they keep it in a plain file, e.g. ./demo-identities/testnet-0-2.txt: do NOT do that     │
+ * │ with real identities.                                                                                        │
+ * └──────────────────────────────────────────────────────────────────────────────────────────────────────────────┘
  */
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

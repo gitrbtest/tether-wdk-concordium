@@ -59,7 +59,8 @@ seed phrase ──► identity keys ──► verify with a provider ──► t
 ### What your wallet provides
 
 - the **seed phrase**, from wherever your wallet already keeps it safely;
-- **somewhere to keep** each identity: the package gives it to you as text and stores nothing itself;
+- **secure storage** for each identity, as for the seed phrase: the package gives it to you as plain text (**not
+  encrypted**: it holds the person's details) and stores nothing itself;
 - a **connection to a Concordium node**: the packages never open one themselves;
 - the **list of identity providers**, fetched once: the package never fetches it;
 - a **return address**: where the provider's web page sends the user back to, and a way to catch them there.
@@ -263,7 +264,7 @@ const summary = await identity.retrieveIdentity(callbackUrl, {
 **Only a summary comes back:** which identity it is (`providerIndex`, `identityIndex`), when it was issued and when it
 expires (`createdAt`, `validTo`, as year and month: `'202711'` = November 2027), and how many accounts it can have
 (`maxAccounts`). The person's verified details (name, date of birth, nationality, ID document number…) are never
-returned to your code. The package uses them only when you export the identity (encrypted, chapter 4), when you create
+returned to your code. The package uses them only when you export the identity (as plain text, for your secure storage: chapter 4), when you create
 an account (none go on chain unless you name them, chapter 5), and when the user agrees to answer a website's question
 (only what it asks is proven or shown, chapter 7). This keeps them out of your logs and screens by accident.
 
@@ -297,15 +298,22 @@ stop; a fresh start collects the identity). The demo wallet
 
 The package stores nothing. It gives you the identity as text to keep, and takes it back on the next start.
 
+> **The exported identity is NOT encrypted.** It is plain text holding the person's verified details: name, date of
+> birth, nationality, ID document number and the other details the provider checked. Anyone who has it can read them.
+> **Keep it like any other secret: in the same secure storage as the seed phrase** (on a phone, the Keychain on iOS
+> or the Keystore on Android; on a server, an encrypted, access-controlled database or a key vault). Never log it,
+> send it to analytics or crash reports, or keep it in plain files or unencrypted backups.
+
 ```js
-// After collecting: get the identity as text, and keep it wherever your wallet keeps data.
+// After collecting: get the identity as text (NOT encrypted), and keep it where you keep the seed phrase.
 const exported = await identity.exportIdentity({ providerIndex, identityIndex });
-await myStorage.set('concordium-identity', exported);
-// myStorage.set / .get stand for your wallet's own storage calls (AsyncStorage, localStorage, a database…);
-// the package does not call them, and the name you keep it under is up to you.
+await mySecureStorage.set('concordium-identity', exported);
+// mySecureStorage.set / .get stand for your wallet's own secure storage calls (for example react-native-keychain,
+// the iOS Keychain, the Android Keystore, an encrypted database); the package does not call them, and the name you
+// keep it under is up to you. Not plain storage such as AsyncStorage or localStorage: the text holds personal details.
 
 // On every later start: create the identity object (chapter 2), then give it back the kept text.
-const summary = await identity.importIdentity(await myStorage.get('concordium-identity'));
+const summary = await identity.importIdentity(await mySecureStorage.get('concordium-identity'));
 // → { providerIndex: 0, identityIndex: 0, … }: the text itself says which identity it is
 ```
 
@@ -313,17 +321,15 @@ Keep it under a name your wallet always knows, such as `'concordium-identity'`: 
 yet know which provider and identity numbers it used. A wallet with several identities keeps a list of the exported
 texts and imports each one; `importIdentity` needs only the text.
 
-- **The text is encrypted.** The key is worked out from the seed phrase each time it is needed and never stored, so
-  the text reveals nothing personal and is safe to keep anywhere: phone storage, a database, a backend. Only the same
-  seed phrase can read it, and any change to the text is detected and refused.
-- **Plain text, if you ask for it** (`exportIdentity({ …, encrypted: false })`): the identity as JSON, with the user's
-  details readable. Only for a wallet that keeps everything in an encrypted store of its own; keep it as carefully as
-  the seed phrase.
-- **A server with many users** keeps each user's text in that user's own records; deleting a user's records erases
-  their identity. Sample: `npm run example:server-keeps-identities` in `identity/`
+- **It holds no keys.** Every key comes from the seed phrase, so the text alone cannot create accounts or answer
+  questions; but its details can be read by anyone who has it.
+- **`importIdentity` checks it is this wallet's identity:** another seed phrase's identity is refused (`not-yours`).
+  This needs one call to the node (the network's parameters).
+- **A server with many users** keeps each user's text in that user's own record, protected like the seed phrases;
+  another user's seed phrase cannot use it, and deleting a user's record (and seed phrase) erases their identity. Sample: `npm run example:server-keeps-identities` in `identity/`
 ([`examples/server-keeps-identities.mjs`](../identity/examples/server-keeps-identities.mjs)).
 
-The exact format, with worked examples: [`identity/docs/storage-format.md`](../identity/docs/storage-format.md).
+The exact format, with a worked example: [`identity/docs/storage-format.md`](../identity/docs/storage-format.md).
 
 ## 5. Create accounts
 
@@ -383,7 +389,7 @@ for (const { providerIndex, identityIndex, summary, accounts } of identities) {
   for (const { path } of accounts ?? []) await wallet.getAccountByPath(path);
 }
 // Several identities may come back, so keep them as a list (chapter 4); on later starts, import each one.
-await myStorage.set('concordium-identities', JSON.stringify(kept));
+await mySecureStorage.set('concordium-identities', JSON.stringify(kept));
 ```
 
 - `recoverAll` asks each provider for identity 0, 1, 2 …, and the chain for accounts 0, 1, 2 … under each, until

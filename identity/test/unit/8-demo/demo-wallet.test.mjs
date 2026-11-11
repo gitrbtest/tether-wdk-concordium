@@ -160,7 +160,7 @@ test('step 2: verify gives the provider link, which comes back to the demo\'s ow
   assert.ok(page.body.includes(`content="${demo.token}"`), 'the return page carries the token too');
 }));
 
-test('the reply is collected, checked, exported encrypted and kept; the identity card has no personal data', local, () => withRecordedDemo({}, async (demo, storeFolder) => {
+test('the reply is collected, checked, exported and kept; the identity card has no personal data', local, () => withRecordedDemo({}, async (demo, storeFolder) => {
   await post(demo, '/api/start');
   await post(demo, '/api/verify', { providerIndex: 0 });
   const accepted = await post(demo, '/api/callback', { url: `${demo.url}return#code_uri=${encodeURIComponent(CODE_URI)}` });
@@ -172,7 +172,7 @@ test('the reply is collected, checked, exported encrypted and kept; the identity
   });
   assert.equal(done.verification.stage, 5, 'all stages done');
   const { readFileSync } = await import('node:fs');
-  assert.match(readFileSync(done.identity.keptIn, 'utf8'), /^Q1dJRA/, 'kept: the encrypted export (base64 of "CWID" …)');
+  assert.equal(JSON.parse(readFileSync(done.identity.keptIn, 'utf8')).format, 'concordium-wdk-identity', 'kept: the exported identity (plain JSON)');
   assert.doesNotMatch(JSON.stringify(done), /John|Doe|19700101/, 'no personal data in the state');
 }));
 
@@ -458,17 +458,14 @@ test('Show the code, step 6: what happened is marked done, with its values; what
 
 const storage = (demo, action) => post(demo, '/api/storage', { action });
 
-test('step 3b: the panel shows what the wallet keeps: encrypted text, its readable label, no personal data', local, () => withIdentityReady(FUNDED, async (demo) => {
+test('step 3b: the panel shows what the wallet keeps: plain text, NOT encrypted, the person\'s details readable', local, () => withIdentityReady(FUNDED, async (demo) => {
   const opened = await storage(demo, 'open');
   assert.equal(opened.status, 200);
   const { kept } = opened.body.storage;
   assert.ok(kept.characters > 1000);
-  assert.match(kept.preview, /^Q1dJRA/);
-  assert.equal(kept.magic, 'CWID');
-  assert.equal(kept.version, 2);
-  assert.equal(kept.label, `concordium-identity/testnet/0/${RECORDED_IDENTITY}`);
-  assert.ok(kept.searched >= 5, 'the identity\'s own details are searched for (John, 19700101, …)');
-  assert.deepEqual(kept.found, [], 'none of them is in the kept text');
+  assert.match(kept.preview, /^\{"format":"concordium-wdk-identity"/);
+  assert.ok(kept.searched >= 5, "the identity's own details are searched for (John, 19700101, …)");
+  assert.ok(kept.found.includes('John') && kept.found.includes('19700101'), 'they are readable in the kept text');
   assert.ok(kept.where.endsWith(`testnet-0-${RECORDED_IDENTITY}.txt`));
 }));
 
@@ -478,37 +475,17 @@ test('step 3b: the panel needs an identity, and waits for a running step', local
   assert.match(early.body.error, /needs an identity/);
 }));
 
-test('step 3b: a restart imports it back; one changed character is refused; Repair restores it', local, () => withIdentityReady(FUNDED, async (demo) => {
+test("step 3b: a restart imports it back; another wallet's seed phrase is refused; unknown actions too", local, () => withIdentityReady(FUNDED, async (demo) => {
   await storage(demo, 'open');
   const restarted = await storage(demo, 'restart');
   assert.equal(restarted.body.storage.result.outcome, 'imported');
   assert.equal(restarted.body.storage.result.validTo, '202709');
-  const damaged = await storage(demo, 'damage');
-  assert.equal(damaged.body.storage.result.outcome, 'refused');
-  assert.equal(damaged.body.storage.result.reason, 'unreadable');
-  assert.equal(damaged.body.storage.damaged, true);
-  const repaired = await storage(demo, 'repair');
-  assert.equal(repaired.body.storage.result.outcome, 'repaired');
-  assert.equal(repaired.body.storage.damaged, false);
-  assert.equal((await storage(demo, 'repair')).status, 400, 'nothing left to repair');
-  assert.equal((await storage(demo, 'restart')).body.storage.result.outcome, 'imported', 'it imports again after the repair');
-}));
-
-test('step 3b: the plain form is shown, never kept, and its details ARE readable', local, () => withIdentityReady(FUNDED, async (demo) => {
-  await storage(demo, 'open');
-  const shown = await storage(demo, 'plain');
-  assert.ok(shown.body.storage.plain.found.includes('John'), 'the plain form shows the person\'s details');
-  assert.deepEqual(shown.body.storage.kept.found, [], 'what the wallet keeps is still the encrypted text');
-  assert.equal((await storage(demo, 'unknown')).status, 400);
-}));
-
-test('step 3b: a damaged copy is put back before the account is created, so the run carries on', local, () => withIdentityReady(FUNDED, async (demo) => {
-  await storage(demo, 'open');
-  await storage(demo, 'damage');
-  await post(demo, '/api/create-account');
-  const s = await until(demo, (x) => x.step === 'account' || x.error);
-  assert.equal(s.error, null);
-  assert.equal(s.storage.damaged, false);
+  const another = await storage(demo, 'another');
+  assert.equal(another.body.storage.result.outcome, 'refused');
+  assert.equal(another.body.storage.result.reason, 'not-yours');
+  assert.equal(another.body.storage.result.anotherWallet, true);
+  assert.equal((await storage(demo, 'restart')).body.storage.result.outcome, 'imported', 'the kept copy is unchanged');
+  for (const gone of ['damage', 'repair', 'plain', 'unknown']) assert.equal((await storage(demo, gone)).status, 400, gone);
 }));
 
 test('step 3b: its caption and its "Show the code" panel, with this run\'s values', async () => {
@@ -519,6 +496,7 @@ test('step 3b: its caption and its "Show the code" panel, with this run\'s value
   };
   assert.match(captionFor(run), /Phase 2 · Step 3b/);
   assert.match(captionFor(run), /stores nothing/);
+  assert.match(captionFor(run), /secure storage/);
   assert.match(captionFor({ ...run, storage: null }), /Step 3 of 6/, 'step 3 while the panel is closed');
   const panel = codeFor(run);
   assert.match(panel, /Under the hood · Step 3b/);
@@ -526,7 +504,10 @@ test('step 3b: its caption and its "Show the code" panel, with this run\'s value
   assert.match(panel, /18600 characters/);
   assert.match(panel, /restarted\.importIdentity/);
   assert.match(panel, /validTo: &#39;202709&#39;/);
-  assert.match(codeFor({ ...run, storage: { ...run.storage, result: { outcome: 'refused', reason: 'unreadable' } } }), /IdentityStorageError, reason &#39;unreadable&#39;/);
-  assert.match(codeFor({ ...run, storage: { ...run.storage, plain: { characters: 1 } } }), /encrypted: false/);
+  assert.match(panel, /NOT encrypted/);
+  const refused = codeFor({ ...run, storage: { ...run.storage, result: { outcome: 'refused', reason: 'not-yours', anotherWallet: true } } });
+  assert.match(refused, /Another wallet/);
+  assert.match(refused, /IdentityStorageError, reason &#39;not-yours&#39;/);
+  assert.doesNotMatch(panel, /encrypted: false|decrypt/, 'no encryption any more');
   assert.doesNotMatch(panel, /saveIdentity|loadIdentity|Store/, 'no store any more');
 });

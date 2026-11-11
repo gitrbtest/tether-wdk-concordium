@@ -2,8 +2,10 @@
  * @concordium/wdk-identity-concordium
  * -------------------------------------------------------------------
  * Entry point. Identity companion for @concordium/wdk-wallet-concordium:
- * identity verification with an identity provider, encrypted identity
- * storage, and account creation from a wallet seed.
+ * identity verification with an identity provider, the identity exported as
+ * text for the wallet to keep (NOT encrypted: keep it in secure storage, like
+ * the seed phrase), account creation and recovery from a wallet seed, and
+ * proofs to websites.
  *
  * The package is in development; its public API is added here as each
  * capability lands.

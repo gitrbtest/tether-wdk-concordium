@@ -82,11 +82,12 @@ try {
     console.log(issuanceUrl, '\n');
     console.log('Waiting for the provider to send the browser back...');
 
-    // 4-5. As for a person: collect the issued identity (checked to be this seed's), and keep it, encrypted.
+    // 4-5. As for a person: collect the issued identity (checked to be this seed's), and keep it. NOT ENCRYPTED: it holds
+    //      the company's details; a real wallet keeps it in secure storage, like the seed phrase.
     const summary = await identity.retrieveIdentity(await listener.callback, { signal: cancel.signal });
     console.log('\n4. The company\'s identity is issued:', summary);
     const file = keepIdentity(folder, { providerIndex, identityIndex }, await identity.exportIdentity({ providerIndex, identityIndex }));
-    console.log(`5. Exported (encrypted) and kept in ${file}. Accounts are created from it as for a person (create-account).`);
+    console.log(`5. Exported and kept in ${file} (plain text: a real wallet uses secure storage). Accounts are created from it as for a person (create-account).`);
   }
 } catch (e) {
   console.error(e instanceof IdentityIssuanceError ? `\nNo identity (${e.reason}): ${e.message}` : `\nFailed: ${e.message}`);

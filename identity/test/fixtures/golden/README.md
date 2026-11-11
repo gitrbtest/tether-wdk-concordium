@@ -12,10 +12,12 @@ If a golden test fails:
 - **an intentional format change**: add a new format version with its own golden file, and keep the
   reader for the old version, so every existing golden test still passes.
 
-The `.bin` and `.txt` files are kept binary (see `identity/.gitattributes`), so git never changes a byte.
+The `.bin`, `.txt` and `.json` files are kept binary (see `identity/.gitattributes`), so git never changes a byte.
 Name new golden files `<what>-v<version>.bin` (or `.txt`), so the rule covers them too.
 
 | File | Made with | Contents | Checked by |
 |---|---|---|---|
-| `identity-v1.bin` | storage format version 1 (the earlier, store-based package) | the recorded testnet identity (`../identity-done.testnet.json`), encrypted with the key of the public test phrase `abandon … about` (12 words) on testnet, for slot `concordium-identity/testnet/0/334563111` | `test/unit/4-keep-identity/export-and-import.test.mjs`: *reads identities saved in storage format version 1 (golden file)*; `test/unit/4-keep-identity/storage-format-spec.test.mjs` |
-| `identity-v2.txt` | export format version 2 (`exportIdentity`, encrypted; base64 text, made 5 Nov 2026) | the same recorded testnet identity, exported with the key of the same public test phrase on testnet; its label is `concordium-identity/testnet/0/334563111` | `test/unit/4-keep-identity/export-and-import.test.mjs`: *reads identities exported in format version 2 (golden file)*; `test/unit/4-keep-identity/storage-format-spec.test.mjs` |
+| `identity-plain-v1.json` | export format version 1 (`exportIdentity`, plain JSON, made 11 Nov 2026) | the recorded testnet identity (`../identity-done.testnet.json`) of the public test phrase `abandon … about` (12 words), provider 0, identity 334563111. **Not encrypted:** it holds the test form's made-up details in the clear, as every export does | `test/unit/4-keep-identity/export-and-import.test.mjs`: *reads identities exported in format version 1 (golden file)*; `test/unit/4-keep-identity/storage-format-spec.test.mjs` |
+
+The earlier encrypted formats were removed before the first release, with their golden files: the package no longer
+encrypts the exported identity, and does not read encrypted text.

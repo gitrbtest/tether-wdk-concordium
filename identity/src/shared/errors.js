@@ -126,9 +126,8 @@ export class AccountCreationError extends Error {
 
 /**
  * Thrown when importIdentity cannot take an exported identity back. `reason` says why:
- * - unreadable: not an exported identity, for another network, another seed, changed or damaged, or an unknown
- *   format version
- * - not-yours: a plain (unencrypted) export whose identity does not belong to this wallet's seed
+ * - unreadable: not an exported identity, for another network, changed or damaged, or an unknown format version
+ * - not-yours: an exported identity that does not belong to this wallet's seed phrase
  */
 export class IdentityStorageError extends Error {
   /**
