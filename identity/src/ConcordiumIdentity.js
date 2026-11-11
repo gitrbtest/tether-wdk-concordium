@@ -48,7 +48,7 @@ export default class ConcordiumIdentity {
     this._fetch = fetchFn;
     const fetchVia = (url, options) => this._fetch(url, options);
     const node = new ChainNode(this._config.node); // the wallet's own node connection
-    const providers = new IdentityProviders(this._config.identityProviders);
+    const providers = new IdentityProviders(this._config.identityProviders, { node }); // checked against the chain on first use
     const hdWallet = () => this._hdWallet; // the helpers never see the seed itself
 
     this._held = new HeldIdentities();

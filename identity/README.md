@@ -93,8 +93,8 @@ const config = { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders, node 
 | Field | Required | Meaning |
 |---|---|---|
 | `useMainnetKeyDerivation` | yes | Derive keys as on mainnet (`true`) or testnet (`false`). Same meaning as in `@concordium/wdk-wallet-concordium`: **use the same value for both packages**, so identities and accounts come from the same keys. It does not check which network the list or the node belongs to. |
-| `identityProviders` | yes | The identity provider list, in the shape of the wallet-proxy's `/v2/ip_info` (below; `/v2` lists every provider, including the company (Business ID) ones, and `/v1/ip_info` leaves those out). The package never fetches it, so if the wallet-proxy is replaced, any source giving the same shape works. It is checked when the `ConcordiumIdentity` is created: a list in the wrong shape is refused, naming the field. To use a newer list, create a new object. |
-| `node` | yes | Your connection to a Concordium node: any Concordium node client from `@concordium/web-sdk`, such as `ConcordiumGRPCNodeClient` (Node.js) or `ConcordiumGRPCWebClient` (browsers and phones), or the one your wallet already has. The package never opens a connection itself, so it runs wherever your client does. **Everything the package needs from the chain goes through it**: the network's cryptographic parameters (read once), whether an account exists, and sending a new account. |
+| `identityProviders` | yes | The identity provider list, in the shape of the wallet-proxy's `/v2/ip_info` (below; `/v2` lists every provider, including the company (Business ID) ones, and `/v1/ip_info` leaves those out). The package never fetches it, so if the wallet-proxy is replaced, any source giving the same shape works. It is checked when the `ConcordiumIdentity` is created: a list in the wrong shape is refused, naming the field. **Its keys are also checked against the chain** on first use (see below). To use a newer list, create a new object. |
+| `node` | yes | Your connection to a Concordium node: any Concordium node client from `@concordium/web-sdk`, such as `ConcordiumGRPCNodeClient` (Node.js) or `ConcordiumGRPCWebClient` (browsers and phones), or the one your wallet already has. The package never opens a connection itself, so it runs wherever your client does. **Everything the package needs from the chain goes through it**: the network's cryptographic parameters (read once), the chain's record of the identity providers and anonymity revokers (read once, to check the list against), whether an account exists, and sending a new account. |
 
 The presets hold only the key derivation choice; the wallet adds its provider list and its node. The package talks to
 nothing else: the identity providers (verification and recovery pages) and your node. (A `walletProxyUrl`, used by
@@ -116,8 +116,18 @@ One entry per provider; these are the fields the package reads (others are ignor
 }
 ```
 
-A Concordium node also knows the providers, but only their keys: the addresses where a person verifies
-(`issuanceStart`) and where a wallet asks for an identity back (`recoveryStart`) are only in this list.
+**Checked against the chain.** The chain keeps the official record of every registered identity provider and
+anonymity revoker. The first time a `ConcordiumIdentity` needs a provider, it reads that record from your node once
+and compares each provider in the list: its two verify keys (`ipVerifyKey`, `ipCdiVerifyKey`) and its anonymity
+revokers' public keys (`arPublicKey`). A provider that does not match, or is not registered on the chain, is refused
+with `IdentityProviderError` ("… the identity provider list may be tampered with or out of date"): no request,
+account or proof is built with it, `recoverAll` reports it in `problems`, and the other providers work as usual. So
+a tampered or out-of-date list cannot make the package build anything for the wrong keys.
+
+The chain records only the keys: the addresses where a person verifies (`issuanceStart`) and where a wallet asks for
+an identity back (`recoveryStart`) are only in this list, so they cannot be checked this way. **Fetch the list from a
+source you trust** (Concordium's wallet-proxy over HTTPS, or your own copy). `new IdentityProviders(list)` used on its
+own, to show the list, does not check it.
 
 ## Identity providers
 

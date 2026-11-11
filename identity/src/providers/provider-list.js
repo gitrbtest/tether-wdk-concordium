@@ -22,6 +22,7 @@
  *   }
  *
  * The node also knows the providers, but only their keys: the issuance and recovery addresses exist only in this list.
+ * ConcordiumIdentity checks the list's keys against the node's record on first use (check-against-chain.js).
  */
 
 const bad = (message) => new Error(`config.identityProviders ${message} (expected the identity provider list, in the shape `

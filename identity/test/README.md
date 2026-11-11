@@ -26,6 +26,7 @@ the chain by a pretend node (`helpers.mjs`).
 | | `dispose` | wiping the seed and the identities held |
 | | `node-connection` | the wallet's node connection: parameters, account lookups, sending, following a transaction |
 | `2-providers` | `provider-list` | the identity providers, from the list the wallet passes in; company (Business ID) providers |
+| | `provider-list-checked-against-chain` | the list's keys checked against the chain's record: a changed or unregistered provider refused |
 | | `recorded-provider-data` | the recorded provider lists and parameters have the shape the package reads |
 | | `provider-check-script` | `npm run check:providers`: how each kind of provider answer is reported |
 | `3-verify-identity` | `identity-request` | building the identity request a provider verifies |
@@ -52,6 +53,7 @@ the chain by a pretend node (`helpers.mjs`).
 | Folder | File | What it tests |
 | --- | --- | --- |
 | `2-providers` | `provider-accepts-request` | Concordium's testnet provider and Global FinReg (Business ID) accept our requests |
+| | `provider-list-matches-chain` | the published testnet and mainnet lists match their chains |
 | | `company-identity-samples` | the company (Business ID) samples: the providers, the company page opening, company questions |
 | `5-accounts` | `create-real-account` | **WRITE=1**: a real account created through the node |
 | `3-verify-identity` | `resume-after-restart-sample` | the resume sample, part 2: a fresh start collects the identity from the saved reply |

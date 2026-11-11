@@ -1,6 +1,6 @@
 /**
- * Thrown when an identity provider cannot be used: it is not published on the
- * connected network, or its published data is incomplete. Carries the index.
+ * Thrown when an identity provider cannot be used: it is not in the provider list, its published data is
+ * incomplete, or its keys (or its anonymity revokers' keys) differ from the chain's record. Carries the index.
  */
 export class IdentityProviderError extends Error {
   /**

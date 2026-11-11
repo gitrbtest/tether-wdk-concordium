@@ -1,14 +1,16 @@
 /**
  * The Concordium node, through the connection the wallet passes in (`config.node`). Internal: ConcordiumIdentity's
  * helpers use it for everything they need from the chain: the network's cryptographic parameters, whether an account
- * exists, sending a new account's credential and following it, and finding a version 1 question's anchor. The package never opens a connection itself, so
+ * exists, sending a new account's credential and following it, finding a version 1 question's anchor, and the
+ * official record of the identity providers and anonymity revokers (to check the wallet's provider list against). The package never opens a connection itself, so
  * it runs wherever the wallet's own client does: a gRPC client in Node.js (ConcordiumGRPCNodeClient), gRPC-web in
  * browsers and phones (ConcordiumGRPCWebClient), or the client a WDK wallet already has.
  */
 import * as sdk from '@concordium/web-sdk';
 
 /** The node methods the package calls. */
-export const NODE_METHODS = ['getCryptographicParameters', 'getAccountInfo', 'sendCredentialDeploymentTransaction', 'getBlockItemStatus'];
+export const NODE_METHODS = ['getCryptographicParameters', 'getAccountInfo', 'sendCredentialDeploymentTransaction', 'getBlockItemStatus',
+  'getIdentityProviders', 'getAnonymityRevokers'];
 
 /**
  * Check the node connection the wallet passed in has the methods the package calls.
@@ -31,6 +33,7 @@ export const isNotFound = (e) => e?.code === 'NOT_FOUND' || e?.code === 5;
 export default class ChainNode {
   #client;
   #globalContext; // read once: the parameters do not change
+  #providerRecord; // read once per object: the chain's record of providers and anonymity revokers
 
   /** @param {object} client  the node connection the wallet passed in (checked by requireNode) */
   constructor(client) {
@@ -56,6 +59,23 @@ export default class ChainNode {
       this.#globalContext = parameters;
     }
     return this.#globalContext;
+  }
+
+  /**
+   * The chain's official record of the identity providers and anonymity revokers (their numbers, names and public
+   * keys), at the last finalized block: what the wallet's provider list is checked against. Read once per object,
+   * then reused; a failed read is not remembered, so the next call tries again.
+   * @returns {Promise<{ identityProviders: object[], anonymityRevokers: object[] }>}
+   */
+  async providerRecord() {
+    if (!this.#providerRecord) {
+      const identityProviders = [];
+      for await (const ip of this.#client.getIdentityProviders()) identityProviders.push(ip);
+      const anonymityRevokers = [];
+      for await (const ar of this.#client.getAnonymityRevokers()) anonymityRevokers.push(ar);
+      this.#providerRecord = { identityProviders, anonymityRevokers };
+    }
+    return this.#providerRecord;
   }
 
   /**

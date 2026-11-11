@@ -74,7 +74,7 @@ takes keys as text, which cannot be wiped. Zeroing reduces how long secrets are 
 | Threat | Defence | Left to the wallet |
 | --- | --- | --- |
 | someone between the wallet and the network | everything goes over HTTPS (the providers) and TLS (the node) | use `https://` endpoints and a TLS node connection |
-| a wrong provider list (an untrusted source, tampered with) | the package checks the list's shape, with clear errors; it does **not** check that the list is genuine. A list with a fake provider could send the user to a fake verification page; a list with wrong keys produces requests and identities the chain would refuse | fetch the list over HTTPS from a source you trust (the wallet-proxy, or your own copy); see "Possible additions" |
+| a wrong provider list (an untrusted source, tampered with, out of date) | the package checks the list's shape, and **checks its keys against the chain**: on first use it reads the chain's record of the providers and anonymity revokers from the wallet's node, and refuses any provider whose verify keys, or whose anonymity revokers' keys, differ from it, or which is not registered (`IdentityProviderError`): nothing is built with it. The addresses of the providers' pages are not on chain, so a list with the right keys but a fake page address would still pass, and could send the user to a fake verification page | fetch the list over HTTPS from a source you trust (the wallet-proxy, or your own copy) |
 | a wrong node | everything the packages read from the chain comes through the wallet's node connection | connect to a node you trust (Concordium's public node, or your own) |
 
 ### Accounts, transfers and tokens
@@ -118,11 +118,7 @@ Some things the packages rely on, by Concordium's design:
 
 Found while writing this; none is needed for testnet, each would make mainnet use safer:
 
-1. **Check the provider list against the chain.** The node knows the providers' and anonymity revokers' keys
-   (`getIdentityProviders`, `getAnonymityRevokers`). Comparing the list's keys with them, once when the
-   `ConcordiumIdentity` is created, would catch a tampered or out-of-date list before a request is built. (The
-   addresses of the providers' pages are only in the list, so those still depend on fetching it from a trusted source.)
-2. **Check the provider's signature on a collected identity**, so a forged identity is refused at once instead of when
+1. **Check the provider's signature on a collected identity**, so a forged identity is refused at once instead of when
    an account is created.
 
 ## Status

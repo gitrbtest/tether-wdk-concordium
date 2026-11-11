@@ -14,6 +14,7 @@ import { requireIndex, IDENTITY_INDEX_HINT, MAX_CRED_NUMBER } from '../shared/in
 import { identityContent, summaryOf } from '../issuance/identity-object.js';
 import { recoveryRequest, recoveryLink, askProviderForIdentity, cancelledRecovery } from './identity-recovery.js';
 import { accountAddressOf } from '../account/credential.js';
+import { mismatchError } from '../providers/IdentityProviders.js';
 import { sleep } from '../shared/sleep.js';
 
 /** findAccounts stops after this many account numbers in a row with no account (wallets number accounts 0, 1, 2 …). */
@@ -150,9 +151,10 @@ export default class IdentityRecovery {
       try {
         const found = published.find((p) => p.index === providerIndex);
         if (!found) throw new IdentityProviderError(`No identity provider ${providerIndex} is published on this network.`, providerIndex);
+        if (found.mismatch) throw mismatchError(providerIndex, found.mismatch); // its keys do not match the chain
         provider = requireRecoveryAddress(found);
       } catch (error) {
-        problems.push({ providerIndex, identityIndex: null, error }); // e.g. not published, or no recovery address
+        problems.push({ providerIndex, identityIndex: null, error }); // e.g. not published, no recovery address, not matching the chain
         continue;
       }
       // Identity 0, 1, 2 … with this provider, until `identityGap` numbers in a row have none.

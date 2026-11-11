@@ -155,11 +155,25 @@ export const nodeStatus = {
  *                        (default: accepted, with transaction hash `hash`)
  *   statuses             answers to the status checks, in order; the last repeats. Each is a nodeStatus value,
  *                        'absent' (the node does not know it), or an Error (the node unreachable). Default: final, created.
- * It records what it was asked: calls (parameters), accountsAsked (addresses), sent (credentials), statusCalls.
+ *   providerRecord       the chain's record of identity providers and anonymity revokers it gives (default: recorded,
+ *                        fixtures/chain-providers.<network>.json), or an Error to throw instead
+ * It records what it was asked: calls (parameters), accountsAsked (addresses), sent (credentials), statusCalls,
+ * providerCalls (reads of the provider record).
  */
-export function recordedNode(network, { parameters, fail, accountExists, send, statuses, hash = 'ab'.repeat(32) } = {}) {
+export function recordedNode(network, { parameters, fail, accountExists, send, statuses, hash = 'ab'.repeat(32), providerRecord } = {}) {
+  const record = () => {
+    if (providerRecord instanceof Error) throw providerRecord;
+    return providerRecord ?? readFixture(`chain-providers.${network}.json`);
+  };
   const node = {
-    calls: 0, accountsAsked: [], sent: [], statusCalls: 0,
+    calls: 0, accountsAsked: [], sent: [], statusCalls: 0, providerCalls: 0,
+    async* getIdentityProviders() {
+      node.providerCalls++;
+      yield* record().identityProviders;
+    },
+    async* getAnonymityRevokers() {
+      yield* record().anonymityRevokers;
+    },
     async getCryptographicParameters() {
       node.calls++;
       if (fail) throw fail;

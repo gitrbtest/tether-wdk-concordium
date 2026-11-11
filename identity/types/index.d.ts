@@ -47,6 +47,10 @@ export interface ConcordiumNodeConnection {
   getAccountInfo(address: unknown): Promise<object>;
   sendCredentialDeploymentTransaction(payload: Uint8Array, expiry: unknown): Promise<object>;
   getBlockItemStatus(transactionHash: unknown): Promise<object>;
+  /** The chain's record of the identity providers: the provider list is checked against it. */
+  getIdentityProviders(): AsyncIterable<object>;
+  /** The chain's record of the anonymity revokers: the provider list is checked against it. */
+  getAnonymityRevokers(): AsyncIterable<object>;
 }
 
 /** A preset without the provider list and the node: add them, e.g. { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders, node }. */
@@ -147,7 +151,9 @@ export class AccountCreationError extends Error {
 /** The identity providers in the list the wallet passes in. */
 export class IdentityProviders {
   /**
-   * The providers in the list the wallet passes in (the package does not fetch it).
+   * The providers in the list the wallet passes in (the package does not fetch it). Used on its own, it does not
+   * check the list against the chain; ConcordiumIdentity does, on first use (a provider whose keys differ from the
+   * chain's record is refused there).
    * @throws {Error} If the list is missing, empty, or not in the /v2/ip_info (or /v1/ip_info) shape (the message names the field).
    */
   constructor(identityProviders: IdentityProviderEntry[]);

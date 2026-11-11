@@ -113,7 +113,8 @@ const seedPhrase = await loadSeedPhrase();   // your wallet's own code: read the
 const wallet = new WalletManagerConcordium(seedPhrase, { ...CONCORDIUM_TESTNET_CONFIG });
 
 // 2. The identity package's configuration: the provider list and a node connection.
-//    The /v2 list includes every provider, also those for companies (chapter 9).
+//    The /v2 list includes every provider, also those for companies (chapter 9). Fetch it from a source you trust:
+//    the package checks its keys against the chain, but the addresses of the providers' pages only come from it.
 const identityProviders = await (await fetch('https://wallet-proxy.testnet.concordium.com/v2/ip_info')).json();
 //    Concordium's public testnet node (port 20000, with TLS). In a browser or a phone app use ConcordiumGRPCWebClient
 //    from '@concordium/web-sdk' instead.
@@ -597,7 +598,7 @@ try {
 
 | Error | `reason` | What to tell the user / do |
 | --- | --- | --- |
-| `IdentityProviderError` | — | the provider is not in the list, or does not publish the page needed: offer another provider |
+| `IdentityProviderError` | — | the provider is not in the list, or does not publish the page needed: offer another provider; or its keys in the list differ from the chain's record: fetch the list again from a source you trust |
 | `IdentityIssuanceError` | `provider-error`, `rejected` | the provider did not issue the identity: show its message; start a new request |
 | | `timeout`, `cancelled` | still being verified, or the wait was stopped: wait again later with the same reply (chapter 3) |
 | `IdentityStorageError` | `unreadable` | the kept text is not this seed phrase's identity, or was damaged: recover it (chapter 6) |
