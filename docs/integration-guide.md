@@ -416,15 +416,17 @@ asks a question ─────────────────────�
 checks the answer against the chain ◄─────── answers with a proof
 ```
 
-There are two versions of questions, both Concordium's own formats:
+There are two versions of questions, both Concordium's own formats. **Concordium recommends version 1 for new
+integrations**: the answer comes from the identity itself, and the question is recorded on chain (its "anchor").
+Version 0 is the earlier format, which existing websites still use; the package answers and checks both.
 
-| | Version 0 | Version 1 |
+| | Version 1 (recommended) | Version 0 (earlier) |
 | --- | --- | --- |
-| The answer comes from | one of the user's accounts | the identity itself |
-| The user needs an account | yes | no |
-| The website learns which account | yes | no |
-| The website pays | nothing | about EUR 0.013 per question, to record it on chain (or a sponsor pays) |
-| Supported by | WalletConnect's Concordium request, Concordium's example apps, Concordium's browser wallet | Concordium's browser wallet and SDK |
+| The answer comes from | the identity itself | one of the user's accounts |
+| The user needs an account | no | yes |
+| The website learns which account | no | yes |
+| The website pays | about EUR 0.013 per question, to record it on chain (or a sponsor pays) | nothing |
+| Supported by | Concordium's browser wallet and SDK | WalletConnect's Concordium request, Concordium's example apps, Concordium's browser wallet |
 
 ### The wallet's side
 
@@ -442,15 +444,16 @@ describeProofRequest(question);
 // For a version 1 question, also: who is asking. Compare `website` with the site the wallet is connected to.
 describeProofContext(question);   // → { website: 'shop.example', purpose: 'age check', … }
 
-// 2a. Version 0: find an account that can truly answer, and answer from it.
+// 2a. Version 1 (recommended): answer from the identity itself. The package first checks the question's anchor on
+//     chain records exactly this question.
+const answer = await identity.proveIdentity({ providerIndex, identityIndex, request: question });
+// send back: JSON.stringify(answer)
+
+// 2b. Version 0 (earlier format): find an account that can truly answer, and answer from it.
 const accounts = await identity.accountsThatCanAnswer({ providerIndex, identityIndex, ...question });
 if (accounts.length === 0) { /* this identity cannot answer truthfully: tell the user, and decline */ }
-const answer = await identity.prove({ providerIndex, identityIndex, credNumber: accounts[0].credNumber, ...question });
-// send back: answer.toString() (WalletConnect: { verifiablePresentationJson: answer.toString() })
-
-// 2b. Version 1: answer from the identity itself.
-const answerV1 = await identity.proveIdentity({ providerIndex, identityIndex, request: question });
-// send back: JSON.stringify(answerV1)
+const answerV0 = await identity.prove({ providerIndex, identityIndex, credNumber: accounts[0].credNumber, ...question });
+// send back: answerV0.toString() (WalletConnect: { verifiablePresentationJson: answerV0.toString() })
 ```
 
 The wallet **never makes a false answer**: it refuses before building anything if the identity has expired, the
@@ -461,47 +464,63 @@ website does not accept its provider, or its details do not satisfy the question
 The website (the shop, the bank, …) asks the question and checks the answer, on its own server. It does not use WDK,
 a seed phrase or an identity: it uses a separate entry point of the identity package made for websites,
 `@concordium/wdk-identity-concordium/verify` (install the identity package as in chapter 2), and its own connection
-to a Concordium node. For version 0:
+to a Concordium node. For version 1, the website also needs a Concordium account to record its questions from, and
+optionally a sponsor account that pays the fee for it:
 
 ```js
-import { requestFor, checkPresentation, connectToNode } from '@concordium/wdk-identity-concordium/verify';
+import { requestForV1, checkPresentationV1, connectToNode } from '@concordium/wdk-identity-concordium/verify';
+import { buildBasicAccountSigner } from '@concordium/web-sdk';
 
 const node = connectToNode('testnet');   // Concordium's public testnet node (or the address of your own node)
+const shop = { address: SHOP_ADDRESS, signer: buildBasicAccountSigner(SHOP_SIGNING_KEY) };          // your account
+const sponsor = { address: SPONSOR_ADDRESS, signer: buildBasicAccountSigner(SPONSOR_SIGNING_KEY) }; // optional: pays the fee
 
-// 1. Build the question, keep it on your server, and send it to the wallet (as in "The wallet's side" above).
-const question = requestFor({ providers: [0, 1, 2], adult: true });   // "over 18?", trusting providers 0, 1 and 2
+// 1. Build the question and record it on chain (it waits until the record is final, a few seconds). Keep it on your
+//    server, and send it to the wallet (as in "The wallet's side" above).
+const question = await requestForV1(
+  { network: 'testnet', website: 'shop.example', purpose: 'age check', providers: [0, 1, 2], adult: true },
+  { node, sender: shop.address, signer: shop.signer, sponsor },
+);
 
 // 2. When the wallet's answer arrives: accept only one answer per question, then check it against the chain.
-if (await myDatabase.wasAnswered(question.challenge)) throw new Error('This question was already answered.');
-await myDatabase.markAnswered(question.challenge);   // myDatabase: your server's own storage
-const result = await checkPresentation(answer, question, { node, network: 'testnet' });
+if (await myDatabase.wasAnswered(question.transactionRef)) throw new Error('This question was already answered.');
+const result = await checkPresentationV1(answer, question, { node, network: 'testnet' });
+await myDatabase.markAnswered(question.transactionRef, result.auditRecord);   // myDatabase: your server's own storage
 
 if (result.ok) {
-  // accepted: result.account is the account that answered; result.revealed holds any details the question asked to see
+  // accepted: result.revealed holds any details the question asked to see; keep result.auditRecord (the question
+  // and the answer) as your record of the check
 } else {
   // refused: result.reasons says why (for example an answer to another question, or an expired identity)
 }
 ```
 
-`checkPresentation` checks that the answer is for this exact question, from a provider you trust, on the right
-network, from an identity still valid on chain, and that the proof's maths holds. A refused answer is not an error:
-`ok` is `false`, with the reasons. What it cannot do for you:
+`checkPresentationV1` checks that the answer is for this exact question (tied to its record on chain), from a
+provider you trust, on the right network, from an identity still valid on chain, and that the proof's maths holds. A
+refused answer is not an error: `ok` is `false`, with the reasons. What it cannot do for you:
 
-- **accept one answer per question**: remember the questions answered (by `question.challenge`) where all your
-  servers can see them, so a copied answer cannot be used twice;
-- **ask a fresh question each time**: call `requestFor` for every check; each question it builds is unique;
-- **keep only what you need** from the result.
+- **accept one answer per question**: remember the questions answered (by `question.transactionRef`, the reference of
+  its record on chain) where all your servers can see them, so a copied answer cannot be used twice;
+- **ask a fresh question each time**: call `requestForV1` for every check; each question it builds is unique;
+- **keep only what you need** from the result, and keep your account's signing key as a secret.
 
-**Version 1** works the same way with `requestForV1` and `checkPresentationV1`. The difference: `requestForV1` records
-the question on chain (about EUR 0.013, which a sponsor can pay), so it needs an account to send from; and an accepted
-answer gives an `auditRecord` to keep. As for version 0, accept one answer per question: keep the audit record of the
-answer you accepted, and refuse a second answer to the same question.
+**Version 0** (the earlier format) works the same way with `requestFor` and `checkPresentation`, and costs nothing: the
+question is not recorded on chain, so no account is needed. Use it for wallets that only answer version 0 questions:
+
+```js
+import { requestFor, checkPresentation } from '@concordium/wdk-identity-concordium/verify';
+
+const question = requestFor({ providers: [0, 1, 2], adult: true });   // no network call
+// … send it, receive the answer; accept one answer per question, by question.challenge …
+const result = await checkPresentation(answer, question, { node, network: 'testnet' });
+// result.ok; result.account is the account that answered; result.revealed; result.reasons
+```
 
 The website can also check answers without this package, with Concordium's own SDK or Concordium's verifier service;
 these helpers do it in a few lines, with plain reasons.
 
-Samples: `npm run example:age-check` (version 0) and `npm run example:age-check-v1` (version 1: a shop with no CCD
-whose partner pays the fee), in `identity/`. More: [proving facts](../identity/README.md#proving-facts-proofs).
+Samples: `npm run example:age-check-v1` (version 1: a shop with no CCD whose partner pays the fee) and
+`npm run example:age-check` (version 0), in `identity/`. More: [proving facts](../identity/README.md#proving-facts-proofs).
 
 ## 8. Regulated tokens
 

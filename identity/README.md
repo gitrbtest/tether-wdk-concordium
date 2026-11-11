@@ -511,10 +511,11 @@ The question and the answer are in Concordium's own format (account-based, somet
 exactly as WalletConnect's `request_verifiable_presentation` carries them, so the wallet side also answers
 questions from other apps built for Concordium.
 
-Concordium's newer **version 1** questions are supported too: the website records its question on chain first,
-and the wallet answers from the identity itself, with no account. See
-[Version 1: from the identity, with an anchor](#version-1-from-the-identity-with-an-anchor) below, and
-[Which version?](#which-version) to choose.
+> **Concordium recommends version 1 for new integrations:** the website records its question on chain first, and
+> the wallet answers from the identity itself, with no account. See
+> [Version 1: from the identity, with an anchor](#version-1-from-the-identity-with-an-anchor) below, and
+> [Which version?](#which-version). Version 0, described first here, is the earlier format that existing websites
+> still use; the package answers and checks both.
 
 ### The wallet's side
 
@@ -662,9 +663,10 @@ account can hold **no CCD at all**: for example a payment partner paying for its
 | The website learns which account answered | yes | no (only the provider) |
 | A public record that the question was asked | no | yes, the anchor |
 | The wallet checks the question on chain | no | yes (its anchor, through the wallet's node) |
-| Who uses it today | Concordium's apps and wallets, WalletConnect's `request_verifiable_presentation` | Concordium's newer tools (its verifier service) |
+| Supported by | WalletConnect's `request_verifiable_presentation`, Concordium's example apps, Concordium's browser wallet | Concordium's browser wallet and SDK |
 
-Both are in Concordium's own formats; a wallet can support both, and this package does.
+Both are in Concordium's own formats; a wallet can support both, and this package does. **For new integrations,
+Concordium recommends version 1.**
 
 #### The wallet's side
 
