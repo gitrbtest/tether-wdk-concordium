@@ -21,6 +21,7 @@ the chain by a pretend node (`helpers.mjs`).
 | `1-setup` | `package` | the package itself: its entry point, published files, and alignment with the wallet package |
 | | `config` | the configuration: key derivation, the provider list, the node connection |
 | | `types` | the published type declarations accept Concordium's real node clients |
+| | `cryptography-plug-in` | the cryptography plug-in point: a whole journey through a native-like plug-in; some steps only; a phone plug-in without the proof check |
 | | `number-ranges` | provider, identity and account numbers within Concordium's ranges |
 | | `seed-and-keys` | the seed phrase and the keys worked out from it |
 | | `dispose` | wiping the seed and the identities held |

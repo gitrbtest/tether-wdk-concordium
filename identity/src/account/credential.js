@@ -9,16 +9,15 @@
  * itself is never handed to the SDK.
  */
 import * as sdk from '@concordium/web-sdk';
-import { getDeploymentDetails } from '@concordium/rust-bindings/wallet';
-import { bytesToHex } from '@noble/hashes/utils';
+import { asHex, wipe, sdkCryptography } from '../shared/cryptography.js';
 
 /**
  * The address of account number credNumber under an identity, without building the credential (fast):
  * it comes from the credential id, which comes from the seed and the network's commitment key.
  */
-export function accountAddressOf({ provider, globalContext, hdWallet, identityIndex, credNumber }) {
-  const credId = hdWallet.getCredentialId(provider.ipInfo.ipIdentity, identityIndex, credNumber, globalContext);
-  return sdk.getAccountAddress(bytesToHex(credId)).toString();
+export async function accountAddressOf({ provider, globalContext, hdWallet, identityIndex, credNumber }) {
+  const credId = await hdWallet.getCredentialId(provider.ipInfo.ipIdentity, identityIndex, credNumber, globalContext);
+  return sdk.getAccountAddress(asHex(credId)).toString();
 }
 
 /** The attribute names an identity can hold, e.g. 'firstName', 'countryOfResidence'. */
@@ -36,6 +35,7 @@ export const ATTRIBUTE_NAMES = Object.keys(sdk.AttributesKeys).filter((name) => 
  *   credNumber: number,           the account number under this identity: 0, 1, 2…
  *   revealAttributes?: string[],  attribute names to show publicly on the account (default: none)
  *   expiry: Date,                 the chain ignores the credential if it is not included by then
+ *   cryptography: object,               the cryptography steps in use (src/shared/cryptography.js)
  * }} options
  * @returns {Promise<{ payload: Uint8Array, expiry: object, credInfo: object, transactionHash: string, address: string,
  *   expiryEpochSeconds: number }>}
@@ -44,16 +44,16 @@ export const ATTRIBUTE_NAMES = Object.keys(sdk.AttributesKeys).filter((name) => 
  *   it is sent).
  */
 export async function buildAccountCredential({
-  provider, globalContext, hdWallet, idObject, identityIndex, credNumber, revealAttributes = [], expiry,
+  provider, globalContext, hdWallet, idObject, identityIndex, credNumber, revealAttributes = [], expiry, cryptography = sdkCryptography,
 }) {
   // Keys are derived with the provider's own index, so the credential and the keys always agree.
   const ipIdentity = provider.ipInfo.ipIdentity;
-  const attributeRandomness = Object.fromEntries(ATTRIBUTE_NAMES.map((name) => [
-    name,
-    hdWallet.getAttributeCommitmentRandomness(ipIdentity, identityIndex, credNumber, sdk.AttributesKeys[name]).toString('hex'),
-  ]));
+  const attributeRandomness = {};
+  for (const name of ATTRIBUTE_NAMES) {
+    attributeRandomness[name] = asHex(await hdWallet.getAttributeCommitmentRandomness(ipIdentity, identityIndex, credNumber, sdk.AttributesKeys[name]));
+  }
 
-  const unsigned = sdk.createCredentialPayloadNoSeed({
+  const unsigned = await cryptography.createCredentialPayloadNoSeed({
     ipInfo: provider.ipInfo,
     arsInfos: provider.arsInfos,
     globalContext,
@@ -61,11 +61,11 @@ export async function buildAccountCredential({
     revealedAttributes: revealAttributes,
     identityIndex,
     credNumber,
-    idCredSec: hdWallet.getIdCredSec(ipIdentity, identityIndex).toString('hex'),
-    prfKey: hdWallet.getPrfKey(ipIdentity, identityIndex).toString('hex'),
-    sigRetrievelRandomness: hdWallet.getSignatureBlindingRandomness(ipIdentity, identityIndex).toString('hex'),
+    idCredSec: asHex(await hdWallet.getIdCredSec(ipIdentity, identityIndex)),
+    prfKey: asHex(await hdWallet.getPrfKey(ipIdentity, identityIndex)),
+    sigRetrievelRandomness: asHex(await hdWallet.getSignatureBlindingRandomness(ipIdentity, identityIndex)),
     credentialPublicKeys: {
-      keys: { 0: { schemeId: 'Ed25519', verifyKey: hdWallet.getAccountPublicKey(ipIdentity, identityIndex, credNumber).toString('hex') } },
+      keys: { 0: { schemeId: 'Ed25519', verifyKey: asHex(await hdWallet.getAccountPublicKey(ipIdentity, identityIndex, credNumber)) } },
       threshold: 1,
     },
     attributeRandomness,
@@ -73,19 +73,19 @@ export async function buildAccountCredential({
 
   // Signed with the new account's key, so the chain knows the sender controls it. The key bytes are
   // zeroed straight after (the SDK takes keys as hex text, which JavaScript cannot wipe).
-  const signingKey = hdWallet.getAccountSigningKey(ipIdentity, identityIndex, credNumber);
+  const signingKey = await hdWallet.getAccountSigningKey(ipIdentity, identityIndex, credNumber);
   let signature;
   try {
-    signature = await sdk.signCredentialTransaction(unsigned, bytesToHex(signingKey));
+    signature = await sdk.signCredentialTransaction(unsigned, asHex(signingKey)); // plain JavaScript (Ed25519): fast anywhere
   } finally {
-    signingKey.fill(0);
+    wipe(signingKey);
   }
 
   const expiryEpochSeconds = Number(unsigned.expiry.expiryEpochSeconds);
-  const details = JSON.parse(getDeploymentDetails([signature], JSON.stringify(unsigned.unsignedCdi), BigInt(expiryEpochSeconds)));
+  const details = JSON.parse(await cryptography.getDeploymentDetails([signature], JSON.stringify(unsigned.unsignedCdi), BigInt(expiryEpochSeconds)));
   return {
     // The credential with its signature, in the bytes a node takes (the SDK's own serializer).
-    payload: new Uint8Array(sdk.serializeCredentialDeploymentPayload([signature], unsigned)),
+    payload: new Uint8Array(await cryptography.serializeCredentialDeploymentPayload([signature], unsigned)),
     expiry: unsigned.expiry,
     credInfo: details.credInfo,
     transactionHash: details.transactionHash,

@@ -4,7 +4,7 @@
  * answers with the whole identity it issued (the same `{ v, value }` shape as at issuance), or 404 if it
  * never issued one for these keys. One request: no browser, no form, no waiting.
  */
-import * as sdk from '@concordium/web-sdk';
+import { asHex, wipe, sdkCryptography } from '../shared/cryptography.js';
 import { IdentityRecoveryError } from '../shared/errors.js';
 import { identityContent } from '../issuance/identity-object.js';
 import { sleep } from '../shared/sleep.js';
@@ -21,20 +21,20 @@ export function cancelledRecovery() {
  * provider to look the identity up by. `now` is when it is made (the provider checks it is recent).
  *
  * @param {{ provider: { ipInfo: object }, globalContext: object, hdWallet: object, identityIndex: number,
- *   now?: number }} input
- * @returns {{ v: number, value: { idCredPub: string, timestamp: number, proof: string } }}
+ *   cryptography: object, now?: number }} input  cryptography: the cryptography steps in use (src/shared/cryptography.js)
+ * @returns {Promise<{ v: number, value: { idCredPub: string, timestamp: number, proof: string } }>}
  */
-export function recoveryRequest({ provider, globalContext, hdWallet, identityIndex, now = Date.now() }) {
-  const secret = hdWallet.getIdCredSec(provider.ipInfo.ipIdentity, identityIndex);
+export async function recoveryRequest({ provider, globalContext, hdWallet, identityIndex, cryptography = sdkCryptography, now = Date.now() }) {
+  const secret = await hdWallet.getIdCredSec(provider.ipInfo.ipIdentity, identityIndex);
   try {
-    return sdk.createIdentityRecoveryRequestWithKeys({
+    return await cryptography.createIdentityRecoveryRequestWithKeys({
       ipInfo: provider.ipInfo,
       globalContext,
-      idCredSec: secret.toString('hex'),
+      idCredSec: asHex(secret),
       timestamp: Math.floor(now / 1000),
     });
   } finally {
-    secret.fill(0);
+    wipe(secret);
   }
 }
 

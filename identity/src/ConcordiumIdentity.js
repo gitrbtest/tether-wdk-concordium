@@ -13,6 +13,7 @@ import { IdentityStorageError } from './shared/errors.js';
 import { networkLabel, exportText, readExport } from './storage/identity-export.js';
 import AccountCreator, { readAccountOptions } from './account/AccountCreator.js';
 import { isSignedByProvider } from './issuance/identity-signature.js';
+import { readCryptography } from './shared/cryptography.js';
 
 /**
  * A wallet's Concordium identity, derived from the wallet's own seed, without the Concordium ID App:
@@ -38,32 +39,38 @@ export default class ConcordiumIdentity {
    *   e.g. { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders, node }: use the same key derivation as the
    *   wallet package; identityProviders is the identity provider list (the wallet-proxy's /v2/ip_info shape), which
    *   the package does not fetch; node is the wallet's connection to a Concordium node (the package never opens one)
-   * @param {{ fetch?: typeof fetch }} [options]  fetch: HTTP implementation (defaults to the global fetch).
+   * @param {{ fetch?: typeof fetch, cryptography?: object }} [options]  fetch: HTTP implementation (defaults to the global
+   *   fetch). cryptography: the heavy cryptography steps to use instead of Concordium's JavaScript SDK, all or some of them,
+   *   e.g. Concordium's native library on a phone with React Native (see src/shared/cryptography.js; default: the SDK).
    *   (`_signatureCheck` is internal, for the package's own tests only: it replaces the check that an identity's
    *   provider signature fits it, so tests can try identities with a detail changed on purpose. Never pass it.)
    */
-  constructor(seed, config, { fetch: fetchFn = (url, options) => fetch(url, options), _signatureCheck = isSignedByProvider, ...rest } = {}) {
+  constructor(seed, config, {
+    fetch: fetchFn = (url, options) => fetch(url, options), cryptography, _signatureCheck = isSignedByProvider, ...rest
+  } = {}) {
     if ('store' in rest) {
       throw new Error('The store option is gone: the package no longer stores identities. Use exportIdentity to get '
         + 'the identity as text to keep your own way, and importIdentity to hold it again.');
     }
     this._config = parseIdentityConfig(config); // validated before the seed is touched
+    this._cryptography = readCryptography(cryptography); // the heavy cryptography: the plug-in's steps, or Concordium's JavaScript SDK
     this._fetch = fetchFn;
     const fetchVia = (url, options) => this._fetch(url, options);
     const node = new ChainNode(this._config.node); // the wallet's own node connection
     const providers = new IdentityProviders(this._config.identityProviders, { node }); // checked against the chain on first use
-    const hdWallet = () => this._hdWallet; // the helpers never see the seed itself
+    const hdWallet = () => this._hdWallet; // the helpers never see the seed itself (the result may be a promise)
+    const cryptographySteps = this._cryptography;
 
     this._held = new HeldIdentities();
     const network = this._config.derivationNetwork;
     const isSigned = _signatureCheck;
-    this._issuance = new IdentityIssuance({ providers, node, fetch: fetchVia, hdWallet, held: this._held, network, isSigned });
-    this._recovery = new IdentityRecovery({ providers, node, fetch: fetchVia, hdWallet, held: this._held, network, isSigned });
+    this._issuance = new IdentityIssuance({ providers, node, fetch: fetchVia, hdWallet, held: this._held, network, isSigned, cryptography: cryptographySteps });
+    this._recovery = new IdentityRecovery({ providers, node, fetch: fetchVia, hdWallet, held: this._held, network, isSigned, cryptography: cryptographySteps });
     this._proofs = new IdentityProofs({
-      node, hdWallet, held: this._held, network: this._config.derivationNetwork,
+      node, hdWallet, held: this._held, network: this._config.derivationNetwork, cryptography: cryptographySteps,
       findAccounts: (options) => this._recovery.findAccounts(options), providers,
     });
-    this._accounts = new AccountCreator({ providers, node, hdWallet });
+    this._accounts = new AccountCreator({ providers, node, hdWallet, cryptography: cryptographySteps });
     this._seed = toSeedBytes(seed);
   }
 
@@ -84,10 +91,13 @@ export default class ConcordiumIdentity {
     if (this.disposed) throw new Error('This identity has been disposed.');
   }
 
-  /** Key derivation for this identity's seed and network (the same tree as the wallet package). */
+  /**
+   * Key derivation for this identity's seed and network (the same tree as the wallet package), from the cryptography
+   * steps in use: Concordium's JavaScript SDK by default (then it is ready at once), or a plug-in (it may be a promise).
+   */
   get _hdWallet() {
     this._requireNotDisposed();
-    return sdk.ConcordiumHdWallet.fromHex(bytesToHex(this._seed), this._config.derivationNetwork);
+    return this._cryptography.deriveKeys(bytesToHex(this._seed), this._config.derivationNetwork);
   }
 
   // ---- Starting verification ----

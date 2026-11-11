@@ -47,7 +47,7 @@ chain and lets them in. It never sees the date of birth, and the same answer can
 Try it: `npm run example:age-check` (both sides, the website and the wallet, in one run; see
 [Proving facts](#proving-facts-proofs)).
 
-**A shop with no crypto, and a partner who pays.** A shop wants to ask "over 18?" without its customers
+**A shop with no CCD, and a partner who pays.** A shop wants to ask "over 18?" without its customers
 needing an account, and without learning which account they hold. It asks a version 1 question: the question
 is recorded on chain, and its payment partner pays the fee (about 1.3 euro cents), so the shop holds no CCD at
 all. The customer's wallet answers from the identity itself; the shop learns "over 18", and nothing else.
@@ -838,6 +838,53 @@ with Global FinReg: it is its real onboarding service, also on testnet.
 **Try it:** [`examples/company-identity/`](examples/company-identity/): `npm run example:company-providers`,
 `npm run example:company-verify` (`CHECK_ONLY=1` stops once the company page has opened) and
 `npm run example:company-questions`. All read-only on testnet.
+
+## Phones: plugging in faster cryptography
+
+A few steps need Concordium's cryptography: working out keys from the seed, building an identity or recovery
+request, building an account's credential, making a proof, and checking an identity's provider signature. By
+default the package uses Concordium's JavaScript SDK for them, which runs the cryptography as WebAssembly: fast on
+computers, servers and in browsers.
+
+React Native has no WebAssembly: there, the SDK's cryptography becomes plain JavaScript and is far too slow (an
+identity request did not finish in 47 minutes on an Android emulator). Concordium's own phone wallets use the same
+cryptography compiled for the phone, which Concordium publishes as native libraries (on Android, Concordium's Android
+SDK). A phone wallet can plug those in, for all the steps or only some, and use the package unchanged:
+
+```js
+import { ConcordiumIdentity, sdkCryptography, CRYPTOGRAPHY_STEPS } from '@concordium/wdk-identity-concordium';
+
+const identity = new ConcordiumIdentity(seedPhrase, config, { cryptography: myNativeCryptography });
+```
+
+`myNativeCryptography` is an object with some of these steps (`CRYPTOGRAPHY_STEPS`); each has the name, the arguments and the
+result of the SDK function it stands in for (`sdkCryptography` holds the SDK's own, to wrap or reuse), and may answer with
+a promise, as native calls do:
+
+| Step | Stands in for |
+|---|---|
+| `deriveKeys(seedHex, network)` | `ConcordiumHdWallet.fromHex`: an object with `getIdCredSec`, `getPrfKey`, `getSignatureBlindingRandomness`, `getAttributeCommitmentRandomness`, `getAccountSigningKey`, `getAccountPublicKey`, `getCredentialId` (keys as hex text or bytes) |
+| `createIdentityRequestWithKeys(input)` | the identity request |
+| `createIdentityRecoveryRequestWithKeys(input)` | the recovery request (also the ownership check) |
+| `createCredentialPayloadNoSeed(input, expiry)` | an account's credential, unsigned |
+| `serializeCredentialDeploymentPayload(signatures, unsigned)` | the credential's bytes for the node |
+| `getDeploymentDetails(signatures, unsignedCdiJson, expiry)` | its readable form and transaction hash |
+| `getVerifiablePresentation(input)` | a version 0 proof |
+| `createPresentationV1(request, inputs, globalContext)` | a version 1 proof (`VerifiablePresentationV1.create`) |
+| `verifyPresentationV1(presentation, globalContext, material)` | checking one (`VerifiablePresentationV1.verify`) |
+
+Steps not provided stay with the SDK. An unknown step name, or a step that is not a function, is refused when the
+`ConcordiumIdentity` is created.
+
+**One step has no native version: checking a proof.** Concordium's Android library builds proofs but cannot check
+one, and the SDK's check in plain JavaScript fails on a phone. The package uses that check for one thing: confirming
+an identity's provider signature when it comes in ([only genuine identities are held](#collecting-the-issued-identity)).
+A phone plug-in says, explicitly, that it cannot make it: `verifyPresentationV1: SIGNATURE_CHECK_UNAVAILABLE` (the
+text `'unavailable'`). The package then skips that check and works as Concordium's own phone wallets do: a forged or
+changed identity is still refused, by the chain when an account is created from it, and by websites when they check a
+proof, but not as early, on import. Leaving the step out entirely does not do this: it would fall back to the SDK's
+check, which fails on a phone. The plug-in handles secrets (keys from the seed): it must be your own code, never
+something loaded from elsewhere.
 
 ## Handling errors
 

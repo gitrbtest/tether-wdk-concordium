@@ -63,7 +63,9 @@ text cannot be used to create accounts or answer questions, but its details can 
    reason `not-yours`;
 4. the identity is genuine: its provider's signature fits it exactly as it is. The package builds a tiny proof from
    the identity locally (stating nothing, sent nowhere) and checks it with Concordium's verifier against the provider's
-   keys; otherwise reason `not-genuine`, so a changed detail or a forged identity is never held.
+   keys; otherwise reason `not-genuine`, so a changed detail or a forged identity is never held. (Not on a phone whose
+   cryptography plug-in cannot check proofs, `verifyPresentationV1: 'unavailable'`: there the chain and websites check
+   the signature later, as in Concordium's own phone wallets.)
 
 ## Versions
 

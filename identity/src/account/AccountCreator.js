@@ -42,15 +42,17 @@ export default class AccountCreator {
   #providers;
   #node;
   #hdWallet;
+  #cryptography; // the cryptography steps in use (src/shared/cryptography.js)
 
   /**
    * @param {{ providers: object, node: object, hdWallet: () => object }} collaborators
    *   hdWallet: returns the key derivation for the wallet's seed (throws once the seed is disposed)
    */
-  constructor({ providers, node, hdWallet }) {
+  constructor({ providers, node, hdWallet, cryptography }) {
     this.#providers = providers;
     this.#node = node;
     this.#hdWallet = hdWallet;
+    this.#cryptography = cryptography;
   }
 
   /**
@@ -65,8 +67,8 @@ export default class AccountCreator {
 
     const provider = await this.#providers.get(providerIndex);
     const globalContext = await this.#node.globalContext();
-    const hdWallet = this.#hdWallet();
-    const address = accountAddressOf({ provider, globalContext, hdWallet, identityIndex, credNumber });
+    const hdWallet = await this.#hdWallet();
+    const address = await accountAddressOf({ provider, globalContext, hdWallet, identityIndex, credNumber });
     // path: how the wallet package asks for this account, getAccountByPath('provider/identity/credNumber').
     const result = { providerIndex, identityIndex, credNumber, path: `${providerIndex}/${identityIndex}/${credNumber}`, address };
 
@@ -74,7 +76,7 @@ export default class AccountCreator {
     if (await this.#exists(address, signal)) return { ...result, created: false };
 
     const credential = await buildAccountCredential({
-      provider, globalContext, hdWallet, idObject: identity, identityIndex, credNumber, revealAttributes,
+      provider, globalContext, hdWallet, idObject: identity, identityIndex, credNumber, revealAttributes, cryptography: this.#cryptography,
       expiry: new Date(Date.now() + timeoutMs + ACCOUNT_CREDENTIAL_MARGIN_MS),
     });
     const { transactionHash, blockHash } = await submitAndWait({

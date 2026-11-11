@@ -100,7 +100,7 @@ test('imported: the kept text of a genuine identity is held again; with a detail
 });
 
 // Step 4.
-test('the check itself: genuine → true; checked with another provider\'s keys → false; an unreadable identity → an error', () => {
+test('the check itself: genuine → true; checked with another provider\'s keys → false; an unreadable identity → an error', async () => {
   const content = issued().token.identityObject.value;
   const providers = ipInfoFixture('testnet');
   const common = {
@@ -109,8 +109,8 @@ test('the check itself: genuine → true; checked with another provider\'s keys 
   };
   const provider0 = providers.find((p) => p.ipInfo.ipIdentity === 0);
   const provider3 = providers.find((p) => p.ipInfo.ipIdentity === 3);
-  assert.equal(isSignedByProvider({ ...common, content, provider: provider0 }), true);
-  assert.equal(isSignedByProvider({ ...common, content, provider: provider3 }), false);
-  assert.throws(() => isSignedByProvider({ ...common, content: { attributeList: {} }, provider: provider0 }),
+  assert.equal(await isSignedByProvider({ ...common, content, provider: provider0 }), true);
+  assert.equal(await isSignedByProvider({ ...common, content, provider: provider3 }), false);
+  await assert.rejects(isSignedByProvider({ ...common, content: { attributeList: {} }, provider: provider0 }),
     'an identity in an unexpected format is an error, never mistaken for "not genuine"');
 });

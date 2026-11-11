@@ -17,7 +17,8 @@
  * The identity never leaves the wallet: only the proof does (plus any detail the question asks to show).
  */
 import * as sdk from '@concordium/web-sdk';
-import { bytesToHex } from '@noble/hashes/utils';
+import { asHex } from '../shared/cryptography.js';
+import { identityCommitmentInput } from '../issuance/identity-signature.js';
 import { ProofError } from '../shared/errors.js';
 import { requireIndex, IDENTITY_INDEX_HINT, MAX_CRED_NUMBER } from '../shared/inputs.js';
 import { identityContent, hasExpired } from '../issuance/identity-object.js';
@@ -31,6 +32,7 @@ const nodeFailed = (e) => new ProofError(`The Concordium node could not be asked
 export default class IdentityProofs {
   #node;
   #hdWallet;
+  #cryptography; // the cryptography steps in use (src/shared/cryptography.js)
   #held;
   #network;
   #findAccounts;
@@ -41,13 +43,14 @@ export default class IdentityProofs {
    *   findAccounts: (options: object) => Promise<Array<{ credNumber: number, address: string, path: string }>>,
    *   providers: object }} collaborators  `providers`: the identity provider list (IdentityProviders)
    */
-  constructor({ node, hdWallet, held, network, findAccounts, providers }) {
+  constructor({ node, hdWallet, held, network, findAccounts, providers, cryptography }) {
     this.#providers = providers;
     this.#node = node;
     this.#hdWallet = hdWallet;
     this.#held = held;
     this.#network = network;
     this.#findAccounts = findAccounts;
+    this.#cryptography = cryptography;
   }
 
   /** See ConcordiumIdentity.prove. */
@@ -67,16 +70,23 @@ export default class IdentityProofs {
 
     // Which account answers: its credential id (worked out from the seed) names it, as a "DID".
     const globalContext = await this.#node.globalContext();
-    const hdWallet = this.#hdWallet();
-    const credId = bytesToHex(hdWallet.getCredentialId(providerIndex, identityIndex, credNumber, globalContext));
+    const hdWallet = await this.#hdWallet();
+    const credId = asHex(await hdWallet.getCredentialId(providerIndex, identityIndex, credNumber, globalContext));
     const did = sdk.createAccountDID(this.#network, credId);
 
     // The secret ingredients, per question group: the details asked about, and the random numbers that sealed them
-    // when the account was created (worked out from the seed again; Concordium's SDK helper does this). They are
-    // handed to the SDK as text, which JavaScript cannot wipe: they live only as long as this call.
-    const commitmentInputs = credentialStatements.map((cs) => sdk.createAccountCommitmentInputWithHdWallet(
-      cs.statement, providerIndex, attributeList, hdWallet, identityIndex, credNumber));
-    return sdk.getVerifiablePresentation({
+    // when the account was created (worked out from the seed again). They are handed to the SDK as text, which
+    // JavaScript cannot wipe: they live only as long as this call.
+    const commitmentInputs = [];
+    for (const cs of credentialStatements) {
+      const randomness = {};
+      for (const statement of cs.statement) {
+        randomness[statement.attributeTag] = asHex(await hdWallet.getAttributeCommitmentRandomness(
+          providerIndex, identityIndex, credNumber, sdk.AttributesKeys[statement.attributeTag]));
+      }
+      commitmentInputs.push(sdk.createAccountCommitmentInput(cs.statement, providerIndex, attributeList, randomness));
+    }
+    return this.#cryptography.getVerifiablePresentation({
       request: { challenge, credentialStatements: credentialStatements.map((cs) => ({ id: did, statement: cs.statement })) },
       globalContext,
       commitmentInputs,
@@ -129,7 +139,7 @@ export default class IdentityProofs {
     // The secret ingredients: the identity, with its secrets worked out from the seed again (Concordium's SDK helper),
     // and the provider's keys. Handed to the SDK as text, which JavaScript cannot wipe: they live only for this call.
     const { ipInfo, arsInfos } = await this.#providers.get(providerIndex);
-    const input = sdk.createIdentityCommitmentInputWithHdWallet(identity, { ipInfo, arsInfos }, identityIndex, this.#hdWallet());
+    const input = await identityCommitmentInput({ identity, ipInfo, arsInfos, identityIndex, hdWallet: await this.#hdWallet() });
     // What is proven, per part: the statements as asked, with any detail to show filled in from the identity.
     const subjectClaims = question.claims.map((claim) => sdk.VerifiablePresentationV1.createIdentityClaims(
       this.#network, providerIndex, sdk.VerifiablePresentationV1.revealRequestedStatements(claim.statements, attributeList.chosenAttributes)));
@@ -147,7 +157,7 @@ export default class IdentityProofs {
     const filled = [...filledByWallet];
     if (question.requested.includes('BlockHash')) filled.push({ label: 'BlockHash', context: anchor.blockHash });
     const proofContext = sdk.VerifiablePresentationV1.createContext(question.request.context, filled);
-    return sdk.VerifiablePresentationV1.create({ context: proofContext, subjectClaims }, subjectClaims.map(() => input), globalContext);
+    return this.#cryptography.createPresentationV1({ context: proofContext, subjectClaims }, subjectClaims.map(() => input), globalContext);
   }
 
   /**

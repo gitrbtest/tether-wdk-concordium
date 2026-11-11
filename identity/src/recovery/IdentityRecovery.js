@@ -40,13 +40,14 @@ export default class IdentityRecovery {
   #held;
   #network;
   #isSigned;
+  #cryptography; // the cryptography steps in use (src/shared/cryptography.js)
 
   /**
    * @param {{ providers: object, node: object, fetch: typeof fetch, hdWallet: () => object,
    *   held: import('../shared/HeldIdentities.js').default }} collaborators
    *   hdWallet: returns the key derivation for the wallet's seed (throws once the seed is disposed)
    */
-  constructor({ providers, node, fetch, hdWallet, held, network, isSigned = isSignedByProvider }) {
+  constructor({ providers, node, fetch, hdWallet, held, network, isSigned = isSignedByProvider, cryptography }) {
     this.#providers = providers;
     this.#node = node;
     this.#fetch = fetch;
@@ -54,6 +55,7 @@ export default class IdentityRecovery {
     this.#held = held;
     this.#network = network;
     this.#isSigned = isSigned;
+    this.#cryptography = cryptography;
   }
 
   /** See ConcordiumIdentity.recoverIdentity. */
@@ -75,9 +77,9 @@ export default class IdentityRecovery {
     const found = await this.#askFor(provider, identityIndex, signal);
     if (found === null) return null;
     // Genuine: the provider's signature fits the identity it returned, exactly as it is.
-    const genuine = this.#isSigned({
-      content: found.content, provider, identityIndex, hdWallet: this.#hdWallet(),
-      globalContext: await this.#node.globalContext(), network: this.#network,
+    const genuine = await this.#isSigned({
+      content: found.content, provider, identityIndex, hdWallet: await this.#hdWallet(),
+      globalContext: await this.#node.globalContext(), network: this.#network, cryptography: this.#cryptography,
     });
     if (!genuine) {
       throw new IdentityRecoveryError(`The identity provider returned an identity for provider ${provider.index}, identity `
@@ -94,7 +96,7 @@ export default class IdentityRecovery {
   async #askFor(provider, identityIndex, signal) {
     const providerIndex = provider.index;
     const globalContext = await this.#node.globalContext();
-    const request = recoveryRequest({ provider, globalContext, hdWallet: this.#hdWallet(), identityIndex });
+    const request = await recoveryRequest({ provider, globalContext, hdWallet: await this.#hdWallet(), identityIndex, cryptography: this.#cryptography });
     const identityObject = await askProviderForIdentity({
       fetch: this.#fetch, url: recoveryLink(provider.recoveryStart, request), signal,
     });
@@ -223,7 +225,7 @@ export default class IdentityRecovery {
   async #findAccountsFrom(provider, identityIndex, gap, signal) {
     const providerIndex = provider.index;
     const globalContext = await this.#node.globalContext();
-    const hdWallet = this.#hdWallet();
+    const hdWallet = await this.#hdWallet();
     // An identity held here says how many accounts it allows; there is no point looking beyond that. Never beyond
     // account number 255 either: the largest Concordium supports (past it, the SDK reduces the number to another's).
     const limit = Math.min(MAX_CRED_NUMBER + 1, this.#held.has(providerIndex, identityIndex)
@@ -234,7 +236,7 @@ export default class IdentityRecovery {
     const found = [];
     let missingInARow = 0;
     for (let credNumber = 0; credNumber < limit && missingInARow < gap; credNumber++) {
-      const address = accountAddressOf({ provider, globalContext, hdWallet, identityIndex, credNumber });
+      const address = await accountAddressOf({ provider, globalContext, hdWallet, identityIndex, credNumber });
       if (await this.#exists(address, signal)) {
         found.push({ credNumber, address, path: `${providerIndex}/${identityIndex}/${credNumber}` });
         missingInARow = 0;

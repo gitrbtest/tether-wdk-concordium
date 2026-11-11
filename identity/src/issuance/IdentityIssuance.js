@@ -21,6 +21,7 @@ export default class IdentityIssuance {
   #held;
   #network;
   #isSigned;
+  #cryptography; // the cryptography steps in use (src/shared/cryptography.js)
 
   /**
    * The provider and identity index of the last request started here, so the wallet can hand back just
@@ -33,7 +34,7 @@ export default class IdentityIssuance {
    *   held: import('../shared/HeldIdentities.js').default }} collaborators
    *   hdWallet: returns the key derivation for the wallet's seed (throws once the seed is disposed)
    */
-  constructor({ providers, node, fetch, hdWallet, held, network, isSigned = isSignedByProvider }) {
+  constructor({ providers, node, fetch, hdWallet, held, network, isSigned = isSignedByProvider, cryptography }) {
     this.#providers = providers;
     this.#node = node;
     this.#fetch = fetch;
@@ -41,6 +42,7 @@ export default class IdentityIssuance {
     this.#held = held;
     this.#network = network;
     this.#isSigned = isSigned;
+    this.#cryptography = cryptography;
   }
 
   /**
@@ -49,8 +51,8 @@ export default class IdentityIssuance {
    */
   async isGenuine(content, providerIndex, identityIndex) {
     return this.#isSigned({
-      content, provider: await this.#providers.get(providerIndex), identityIndex, hdWallet: this.#hdWallet(),
-      globalContext: await this.#node.globalContext(), network: this.#network,
+      content, provider: await this.#providers.get(providerIndex), identityIndex, hdWallet: await this.#hdWallet(),
+      globalContext: await this.#node.globalContext(), network: this.#network, cryptography: this.#cryptography,
     });
   }
 
@@ -73,7 +75,7 @@ export default class IdentityIssuance {
         `Identity provider ${providerIndex} publishes no issuance address on this network.`, providerIndex);
     }
     const globalContext = await this.#node.globalContext();
-    const idObjectRequest = buildIdentityRequest({ provider, globalContext, hdWallet: this.#hdWallet(), identityIndex });
+    const idObjectRequest = await buildIdentityRequest({ provider, globalContext, hdWallet: await this.#hdWallet(), identityIndex, cryptography: this.#cryptography });
     this.requestAwaitingIdentity = { providerIndex, identityIndex };
     return { issuanceUrl: issuanceLink(provider.issuanceStart, idObjectRequest, redirectUri), providerIndex, identityIndex };
   }
@@ -116,7 +118,7 @@ export default class IdentityIssuance {
   async expectedIdCredPub(providerIndex, identityIndex) {
     const provider = await this.#providers.get(providerIndex);
     const globalContext = await this.#node.globalContext();
-    return expectedIdCredPub({ provider, globalContext, hdWallet: this.#hdWallet(), identityIndex });
+    return expectedIdCredPub({ provider, globalContext, hdWallet: await this.#hdWallet(), identityIndex, cryptography: this.#cryptography });
   }
 
   /** Check waitForIdentity's inputs before any network call; resolves which identity is being collected. */

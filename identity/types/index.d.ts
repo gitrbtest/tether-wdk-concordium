@@ -307,6 +307,57 @@ export interface CreatedAccount extends IdentityRef {
 }
 
 /** A wallet's Concordium identity, derived from the wallet's own seed. */
+/** A key, as a key derivation step gives it: hex text, or bytes. */
+export type KeyBytes = string | Uint8Array;
+
+/** Key derivation for one seed and network (what ConcordiumHdWallet provides); any method may answer with a promise. */
+export interface ConcordiumKeyDerivation {
+  getIdCredSec(ipIndex: number, identityIndex: number): KeyBytes | Promise<KeyBytes>;
+  getPrfKey(ipIndex: number, identityIndex: number): KeyBytes | Promise<KeyBytes>;
+  getSignatureBlindingRandomness(ipIndex: number, identityIndex: number): KeyBytes | Promise<KeyBytes>;
+  getAttributeCommitmentRandomness(ipIndex: number, identityIndex: number, credNumber: number, attributeIndex: number): KeyBytes | Promise<KeyBytes>;
+  getAccountSigningKey(ipIndex: number, identityIndex: number, credNumber: number): KeyBytes | Promise<KeyBytes>;
+  getAccountPublicKey(ipIndex: number, identityIndex: number, credNumber: number): KeyBytes | Promise<KeyBytes>;
+  getCredentialId(ipIndex: number, identityIndex: number, credNumber: number, globalContext: { onChainCommitmentKey: string }): KeyBytes | Promise<KeyBytes>;
+}
+
+/**
+ * The heavy cryptography steps, the plug-in point of ConcordiumIdentity (option `cryptography`). Each has the name, the
+ * arguments and the result of the Concordium SDK function it stands in for (see sdkCryptography); any step may answer with a
+ * promise, as native calls do. A wallet provides all or some of them; the others stay with the SDK.
+ */
+export interface ConcordiumCryptography {
+  /** ConcordiumHdWallet.fromHex(seedHex, network). */
+  deriveKeys(seedHex: string, network: 'Testnet' | 'Mainnet'): ConcordiumKeyDerivation | Promise<ConcordiumKeyDerivation>;
+  /** createIdentityRequestWithKeys: the identity request a provider verifies. */
+  createIdentityRequestWithKeys(input: object): object | Promise<object>;
+  /** createIdentityRecoveryRequestWithKeys: the recovery request (also how ownership is checked). */
+  createIdentityRecoveryRequestWithKeys(input: object): object | Promise<object>;
+  /** createCredentialPayloadNoSeed: an account's credential, unsigned. */
+  createCredentialPayloadNoSeed(input: object, expiry: object): object | Promise<object>;
+  /** serializeCredentialDeploymentPayload: the signed credential as the bytes sent to the node. */
+  serializeCredentialDeploymentPayload(signatures: string[], unsigned: object): Uint8Array | Promise<Uint8Array>;
+  /** getDeploymentDetails (the SDK's rust bindings): the credential's readable form and transaction hash, as JSON text. */
+  getDeploymentDetails(signatures: string[], unsignedCdiJson: string, expiry: bigint): string | Promise<string>;
+  /** getVerifiablePresentation: a version 0 proof (from an account). */
+  getVerifiablePresentation(input: object): object | Promise<object>;
+  /** VerifiablePresentationV1.create: a version 1 proof. */
+  createPresentationV1(request: object, inputs: object[], globalContext: object): object | Promise<object>;
+  /**
+   * VerifiablePresentationV1.verify: checking one (throws, or rejects, if it does not hold). A phone plug-in that cannot
+   * check proofs (Concordium's Android library cannot) gives 'unavailable' instead: the package then skips its check of
+   * an identity's provider signature, which the chain and websites still make later.
+   */
+  verifyPresentationV1: ((presentation: object, globalContext: object, material: object[]) => unknown) | 'unavailable';
+}
+
+/** The default cryptography steps: Concordium's JavaScript SDK. Wrap or reuse them in a plug-in. */
+export const sdkCryptography: Readonly<ConcordiumCryptography>;
+/** The names of the cryptography steps a plug-in may provide. */
+export const CRYPTOGRAPHY_STEPS: readonly (keyof ConcordiumCryptography)[];
+/** 'unavailable': what a phone plug-in gives as verifyPresentationV1 when it cannot check proofs. */
+export const SIGNATURE_CHECK_UNAVAILABLE: 'unavailable';
+
 export class ConcordiumIdentity {
   /**
    * @param seed The wallet's BIP-39 seed phrase, or its 64-byte seed.
@@ -314,8 +365,10 @@ export class ConcordiumIdentity {
    */
   /**
    * @param options.fetch HTTP implementation (defaults to the global fetch).
+   * @param options.cryptography the heavy cryptography steps to use instead of Concordium's JavaScript SDK, all or some of
+   *   them, e.g. Concordium's native library on a phone with React Native (default: the SDK; see ConcordiumCryptography).
    */
-  constructor(seed: string | Uint8Array, config: IdentityConfig, options?: { fetch?: typeof fetch });
+  constructor(seed: string | Uint8Array, config: IdentityConfig, options?: { fetch?: typeof fetch; cryptography?: Partial<ConcordiumCryptography> });
   /**
    * Start identity verification: build the identity request for a provider and the link to its verification page.
    * @throws {IdentityProviderError} If the provider is not published, or publishes no issuance address.

@@ -53,16 +53,16 @@ const rejectsWith = (promise, reason) => assert.rejects(promise, (e) => {
 });
 
 // Step 1.
-test('the recovery request is for the identity issued to these keys (its idCredPub matches)', () => {
+test('the recovery request is for the identity issued to these keys (its idCredPub matches)', async () => {
   const hdWallet = sdk.ConcordiumHdWallet.fromSeedPhrase(PHRASE, 'Testnet');
-  const request = recoveryRequest({
+  const request = await recoveryRequest({
     provider: provider0(), globalContext: globalFixture('testnet').value, hdWallet, identityIndex: RECORDED_IDENTITY,
     now: Date.UTC(2026, 10, 1, 12, 0, 0),
   });
   assert.equal(request.value.idCredPub, issued().value.preIdentityObject.idCredPub);
   assert.equal(request.value.timestamp, Date.UTC(2026, 10, 1, 12, 0, 0) / 1000, 'the time it was made, in seconds');
   assert.equal(typeof request.value.proof, 'string');
-  const other = recoveryRequest({ provider: provider0(), globalContext: globalFixture('testnet').value, hdWallet, identityIndex: 1 });
+  const other = await recoveryRequest({ provider: provider0(), globalContext: globalFixture('testnet').value, hdWallet, identityIndex: 1 });
   assert.notEqual(other.value.idCredPub, request.value.idCredPub, 'another identity index gives another key');
 });
 
@@ -209,7 +209,7 @@ test('recoverIdentity: providerIndex and identityIndex are required (no default 
   await assert.rejects(wallet.recoverIdentity({ providerIndex: 0 }), /identityIndex is required: .*recoverAll/);
   assert.equal(network.recoveryCalls.length, 0, 'bad input is refused before anything is sent');
   assert.equal(await wallet.recoverIdentity({ providerIndex: 0, identityIndex: 0 }), null);
-  const expected = recoveryRequest({
+  const expected = await recoveryRequest({
     provider: provider0(), globalContext: globalFixture('testnet').value,
     hdWallet: sdk.ConcordiumHdWallet.fromSeedPhrase(PHRASE, 'Testnet'), identityIndex: 0,
   });
@@ -244,14 +244,17 @@ test('recoverIdentity: cancelled before it starts; refused once disposed', async
 // ---- Piece 3: findAccounts ------------------------------------------------------------------------------------
 
 const ACCOUNT_0 = '3Z4WkEMb5msvBRPAZyneFcntHWqceHf7Q9JitSjBAegvQXSB5t'; // account 0 of the recorded identity, on testnet
-const { accountAddressOf } = await import('../../../src/account/credential.js');
 
-/** The address of account n of the recorded identity, worked out from the seed. */
+/** The address of account n of an identity of this seed, worked out from the seed straight with Concordium's SDK. */
+function sdkAddressOf(providerIndex, identityIndex, credNumber) {
+  const credId = sdk.ConcordiumHdWallet.fromSeedPhrase(PHRASE, 'Testnet')
+    .getCredentialId(providerIndex, identityIndex, credNumber, globalFixture('testnet').value);
+  return sdk.getAccountAddress(credId.toString('hex')).toString();
+}
+
+/** The address of account n of the recorded identity. */
 function addressOf(credNumber, identityIndex = RECORDED_IDENTITY) {
-  return accountAddressOf({
-    provider: provider0(), globalContext: globalFixture('testnet').value,
-    hdWallet: sdk.ConcordiumHdWallet.fromSeedPhrase(PHRASE, 'Testnet'), identityIndex, credNumber,
-  });
+  return sdkAddressOf(0, identityIndex, credNumber);
 }
 
 /**
@@ -368,8 +371,9 @@ const providerEntry = (index) => ipInfoFixture('testnet').find((entry) => entry.
 const PROVIDERS = [0, 3, 5]; // every testnet provider in the recorded list publishes a recovery address
 
 /** The public key (idCredPub) of identity `identityIndex` with provider `providerIndex`, for this seed. */
-const keyOf = (providerIndex, identityIndex) => recoveryRequest({
-  provider: providerEntry(providerIndex), globalContext: globalFixture('testnet').value, hdWallet: HD, identityIndex,
+const keyOf = (providerIndex, identityIndex) => sdk.createIdentityRecoveryRequestWithKeys({
+  ipInfo: providerEntry(providerIndex).ipInfo, globalContext: globalFixture('testnet').value, timestamp: 0,
+  idCredSec: HD.getIdCredSec(providerIndex, identityIndex).toString('hex'),
 }).value.idCredPub;
 
 /** An identity "issued" for this provider and identity number: the recorded one, carrying that identity's key. */
@@ -393,10 +397,7 @@ function recoveryWorld(world, { down = [], accountsDown = false } = {}) {
   for (const [p, identities] of Object.entries(world)) {
     for (const [i, accounts] of Object.entries(identities)) {
       for (const n of accounts) {
-        addresses.add(accountAddressOf({
-          provider: providerEntry(Number(p)), globalContext: globalFixture('testnet').value, hdWallet: HD,
-          identityIndex: Number(i), credNumber: n,
-        }));
+        addresses.add(sdkAddressOf(Number(p), Number(i), n));
       }
     }
   }

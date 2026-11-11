@@ -16,3 +16,4 @@ export { default as IdentityProviders } from './src/providers/IdentityProviders.
 export { IdentityProviderError, IdentityIssuanceError, IdentityRecoveryError, IdentityStorageError, AccountCreationError, ProofError } from './src/shared/errors.js';
 export { default as ConcordiumIdentity } from './src/ConcordiumIdentity.js';
 export { describeProofRequest, describeProofContext } from './src/proofs/proof-request.js';
+export { sdkCryptography, CRYPTOGRAPHY_STEPS, UNAVAILABLE as SIGNATURE_CHECK_UNAVAILABLE } from './src/shared/cryptography.js';

@@ -85,6 +85,10 @@ The identity package's main part uses nothing that only works in Node.js, so it 
 too (so far it is tested on Node.js). Its optional desktop helper (chapter 3) comes from
 `@concordium/wdk-identity-concordium/node`.
 
+On a phone with React Native, plug in Concordium's native cryptography (`{ cryptography }`): the SDK's own is far too
+slow there. See [Phones: plugging in faster cryptography](../identity/README.md#phones-plugging-in-faster-cryptography);
+the React Native example shows it working.
+
 ### Create the two objects
 
 **Use the same network setting in both packages.** Each package has a setting, `useMainnetKeyDerivation`, that picks
