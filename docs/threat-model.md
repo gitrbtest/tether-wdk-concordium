@@ -43,9 +43,9 @@ takes keys as text, which cannot be wiped. Zeroing reduces how long secrets are 
 | Threat | Defence | Left to the wallet |
 | --- | --- | --- |
 | the kept copy is stolen (a phone backup, a server database, a log) | **none in the package: the exported identity is NOT encrypted.** It is plain JSON with the person's details, readable by anyone who has it. It holds no keys, so on its own it cannot create accounts or answer questions | **keep it like any other secret, in the same secure storage as the seed phrase** (Keychain / Keystore, an encrypted database, a key vault); never log it, or keep it in plain files or unencrypted backups |
-| the kept copy is changed or damaged | text that is not an exported identity is refused (`unreadable`); a changed detail is **not** detected on import, but the chain refuses an account from it, and a website a proof from it, because the provider's signature no longer matches | keep it where it cannot be changed; recover it (chapter 6) if it was damaged |
+| the kept copy is changed or damaged | text that is not an exported identity is refused (`unreadable`); a changed detail is detected on import, because the provider's signature no longer fits (`not-genuine`), and the identity is never held | recover it (chapter 6) if it was damaged |
 | someone else's identity is slipped in (a wrong `code_uri`, a tampered reply, a plain export) | every identity is checked to belong to **this seed** (its public key, worked out from the seed) before it is held, when collected, recovered or imported; one that is not is refused (`not-yours`) and never kept | — |
-| a forged identity (not really issued by the provider) | the wallet does not check the provider's signature on the identity itself; **the chain does**, when an account is created from it, and websites do when they check a proof against the provider's keys. A forged identity can therefore never create an account or pass a check | — |
+| a forged identity (not really issued by the provider) | **every identity's provider signature is checked** when it is collected, recovered or imported: the package builds a tiny proof from it locally (stating nothing, sent nowhere) and checks it with Concordium's verifier against the provider's keys (themselves checked against the chain). A forged or changed identity is refused (`not-genuine`) and never held. The chain and websites check it again, for accounts and proofs | — |
 | too much is shown on chain | nothing about the person is put on an account unless the wallet names it in `revealAttributes` | ask the user before revealing anything |
 
 ### Answering websites (proofs)
@@ -116,10 +116,8 @@ Some things the packages rely on, by Concordium's design:
 
 ## Possible additions
 
-Found while writing this; none is needed for testnet, each would make mainnet use safer:
-
-1. **Check the provider's signature on a collected identity**, so a forged identity is refused at once instead of when
-   an account is created.
+None open. The two found while writing this are done: the provider list is checked against the chain, and every
+identity's provider signature is checked when it comes in.
 
 ## Status
 

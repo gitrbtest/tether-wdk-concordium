@@ -44,10 +44,12 @@ function whatToTellTheUser(e) {
     if (e.reason === 'timeout' || e.reason === 'cancelled') {
       return 'Your identity is not ready yet. We will check again later.'; // keep the saved reply; wait again later
     }
+    if (e.reason === 'not-genuine') return 'The identity received could not be confirmed as genuine. Please start again.';
     return `The identity provider did not issue your identity${e.detail ? ` (${e.detail})` : ''}. Please start again.`;
   }
   if (e instanceof IdentityStorageError) {
     if (e.reason === 'not-yours') return 'This identity belongs to another wallet and cannot be used here.';
+    if (e.reason === 'not-genuine') return 'Your saved identity was changed. We will get it back from your identity provider.'; // recover it
     return 'Your saved identity could not be read. We will get it back from your identity provider.'; // recover it
   }
   if (e instanceof AccountCreationError) {
@@ -59,7 +61,7 @@ function whatToTellTheUser(e) {
     return 'Your account is not confirmed yet. We will check again.'; // expired, timeout, cancelled, node: try again
   }
   if (e instanceof IdentityRecoveryError) {
-    if (e.reason === 'not-yours') return 'The identity provider returned an identity that is not yours. Please contact support.';
+    if (e.reason === 'not-yours' || e.reason === 'not-genuine') return 'The identity provider returned an identity that cannot be used. Please contact support.';
     return 'Your identity provider could not be reached. Please try again later.';
   }
   if (e instanceof ProofError) {
@@ -142,6 +144,7 @@ try {
   const kept = await identity.exportIdentity(VALID); // plain text with the person's details: keep it in secure storage
   await scene('The kept identity was damaged (cut short)', () => identity.importIdentity(kept.slice(0, kept.length / 2)));
   await scene("Another wallet's identity, imported here", () => otherWallet.importIdentity(kept));
+  await scene('The kept identity had a detail changed (the first name)', () => identity.importIdentity(kept.replace('"firstName":"John"', '"firstName":"Jane"')));
 
   // Creating accounts (chapter 5): each refused before anything is sent
   await scene('An account number beyond what the identity allows', () => identity.createAccount({ ...VALID, credNumber: 200 }));

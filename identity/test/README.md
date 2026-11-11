@@ -33,6 +33,7 @@ the chain by a pretend node (`helpers.mjs`).
 | | `polling-and-link` | waiting for the provider, and the link a person opens |
 | | `callback` | reading the provider's reply from the return address |
 | | `callback-listener` | the built-in listener (Node.js desktop apps) |
+| | `genuine-identity` | only genuine identities are held: a changed or forged one is refused when collected, recovered or imported |
 | | `collecting-the-identity` | collecting the issued identity, and checking it is this seed's |
 | `4-keep-identity` | `export-and-import` | the identity as plain text the wallet keeps (NOT encrypted), and taking it back after checking it is this wallet's |
 | | `storage-format-spec` | `docs/storage-format.md` is exact: a reader written from the document alone |

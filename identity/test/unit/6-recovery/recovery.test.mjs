@@ -25,7 +25,7 @@ import { readFileSync } from 'node:fs';
 import * as sdk from '@concordium/web-sdk';
 import { recoveryRequest, recoveryLink, askProviderForIdentity } from '../../../src/recovery/identity-recovery.js';
 import { IdentityRecoveryError } from '../../../index.js';
-import { ipInfoFixture, globalFixture, testnetConfig, recordedNode } from '../../helpers.mjs';
+import { ipInfoFixture, globalFixture, testnetConfig, recordedNode, SIGNATURE_NOT_CHECKED } from '../../helpers.mjs';
 
 const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const RECORDED_IDENTITY = 334563111; // the identity issued on testnet for this phrase (provider 0)
@@ -275,7 +275,7 @@ function networkWithAccounts(existing, { failures = 0, recovery = [] } = {}) {
   return { fetch, checked, node };
 }
 
-const newWallet = (network) => new ConcordiumIdentity(PHRASE, testnetConfig({ node: network.node }), { fetch: network.fetch });
+const newWallet = (network, options = {}) => new ConcordiumIdentity(PHRASE, testnetConfig({ node: network.node }), { fetch: network.fetch, ...options });
 
 // Step 5.
 test('findAccounts: accounts 0 and 1 exist: both found, with their paths; it stops after 3 missing in a row', async () => {
@@ -321,7 +321,7 @@ test('findAccounts: with the identity held, it never looks beyond the identity\'
   const allowsTwo = issued();
   allowsTwo.value.attributeList.maxAccounts = 2;
   const network = networkWithAccounts([0, 1, 2, 3], { recovery: [{ status: 200, body: allowsTwo }] });
-  const wallet = newWallet(network);
+  const wallet = newWallet(network, SIGNATURE_NOT_CHECKED); // a detail changed on purpose
   await wallet.recoverIdentity({ providerIndex: 0, identityIndex: RECORDED_IDENTITY });
   const accounts = await wallet.findAccounts({ providerIndex: 0, identityIndex: RECORDED_IDENTITY });
   assert.deepEqual(accounts.map((a) => a.credNumber), [0, 1]);
@@ -430,7 +430,7 @@ const describe = (identities) => identities.map((x) => `${x.providerIndex}/${x.i
 // Step 6 (steps 1-5 for each identity).
 test('recoverAll: every identity with every provider comes back, with its accounts, held and ready to export', async () => {
   const world = recoveryWorld({ 0: { 0: [0], 1: [0, 1] } });
-  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch, ...SIGNATURE_NOT_CHECKED });
   const { identities, problems } = await wallet.recoverAll();
   assert.deepEqual(problems, []);
   assert.deepEqual(identities.map((x) => [x.providerIndex, x.identityIndex, x.accounts.map((a) => a.path)]), [
@@ -450,7 +450,7 @@ test('recoverAll: a hole shorter than the gap is skipped over; identityGap and a
   // Provider 0: identities 0, 2, 4 and 6, each one missing number apart: the count of missing numbers starts
   // again after each one found, so all four are found (without that, it would stop before 6).
   const world = recoveryWorld({ 0: { 0: [0], 2: [0], 4: [0], 6: [0] }, 5: { 0: [0, 2] } });
-  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch, ...SIGNATURE_NOT_CHECKED });
   assert.deepEqual(describe((await wallet.recoverAll()).identities), ['0/0: 0', '0/2: 0', '0/4: 0', '0/6: 0', '5/0: 0,2']);
   assert.deepEqual(describe((await wallet.recoverAll({ identityGap: 1, accountGap: 1 })).identities), ['0/0: 0', '5/0: 0'],
     'gaps of 1: stops at the first missing number');
@@ -462,7 +462,7 @@ test('recoverAll: a hole shorter than the gap is skipped over; identityGap and a
 // Step 6: a provider down.
 test('recoverAll: a provider that is down is noted in problems; the others are still asked', async () => {
   const world = recoveryWorld({ 0: { 0: [0] }, 5: { 0: [] } }, { down: [3] });
-  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch, ...SIGNATURE_NOT_CHECKED });
   const { identities, problems } = await wallet.recoverAll();
   assert.deepEqual(identities.map((x) => `${x.providerIndex}/${x.identityIndex}`), ['0/0', '5/0']);
   assert.equal(problems.length, 1);
@@ -475,7 +475,7 @@ test('recoverAll: a provider that is down is noted in problems; the others are s
 // Step 6: the node down.
 test('recoverAll: accounts that cannot be looked up: the identity still comes back (accounts null), the problem is noted', async () => {
   const world = recoveryWorld({ 0: { 0: [0] } }, { accountsDown: true });
-  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch, ...SIGNATURE_NOT_CHECKED });
   const { identities, problems } = await wallet.recoverAll({ providerIndexes: [0] });
   assert.deepEqual(identities.map((x) => [x.identityIndex, x.accounts]), [[0, null]]);
   assert.equal(problems[0].error.reason, 'node');
@@ -486,7 +486,7 @@ test('recoverAll: accounts that cannot be looked up: the identity still comes ba
 // Step 6: chosen providers.
 test('recoverAll: only the providers asked for; an unknown provider is a problem, not a failure', async () => {
   const world = recoveryWorld({ 0: { 0: [0] }, 5: { 0: [0] } });
-  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch, ...SIGNATURE_NOT_CHECKED });
   const only0 = await wallet.recoverAll({ providerIndexes: [0, 99] });
   assert.deepEqual(only0.identities.map((x) => `${x.providerIndex}/${x.identityIndex}`), ['0/0']);
   assert.deepEqual(world.asked[5], [], 'provider 5 was not asked');
@@ -500,7 +500,7 @@ test('recoverAll: only the providers asked for; an unknown provider is a problem
 // Step 6: cancelled; disposed.
 test('recoverAll: cancelled stops everything; refused once disposed', async () => {
   const world = recoveryWorld({ 0: { 0: [0] } });
-  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch, ...SIGNATURE_NOT_CHECKED });
   const cancelled = new AbortController();
   cancelled.abort();
   await rejectsWith(wallet.recoverAll({ signal: cancelled.signal }), 'cancelled');
@@ -514,7 +514,7 @@ test('recoverAll: cancelled stops everything; refused once disposed', async () =
 // Step 7: the next identity number.
 test('nextIdentityIndex: one after the highest identity this seed has with the provider; 0 if none; nothing kept', async () => {
   const world = recoveryWorld({ 0: { 0: [0], 1: [], 3: [0] } }); // identities 0, 1 and 3 (2 is a hole)
-  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch, ...SIGNATURE_NOT_CHECKED });
   assert.equal(await wallet.nextIdentityIndex({ providerIndex: 0 }), 4, 'past the hole at 2, so 3 is not reused');
   assert.deepEqual(world.asked[0], [0, 1, 2, 3, 4, 5, 6], 'asked until 3 numbers in a row had none');
   assert.equal(await wallet.nextIdentityIndex({ providerIndex: 3 }), 0, 'none with provider 3');
@@ -530,7 +530,7 @@ test('nextIdentityIndex: one after the highest identity this seed has with the p
 // Step 7: the next account number.
 test('nextCredNumber: one after the highest account the identity has on chain; 0 if none', async () => {
   const world = recoveryWorld({ 0: { 1: [0, 1], 2: [] } });
-  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node: world.node }), { fetch: world.fetch, ...SIGNATURE_NOT_CHECKED });
   assert.equal(await wallet.nextCredNumber({ providerIndex: 0, identityIndex: 1 }), 2);
   assert.equal(await wallet.nextCredNumber({ providerIndex: 0, identityIndex: 2 }), 0);
   await assert.rejects(wallet.nextCredNumber({ providerIndex: 0 }), /identityIndex is required/);

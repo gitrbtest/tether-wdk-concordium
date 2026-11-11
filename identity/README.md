@@ -206,8 +206,10 @@ identity.dispose(); // zero the seed and the collected identity when no longer n
 `retrieveIdentity` reads the reply, then polls the provider until the identity
 is issued or refused (by default every 3 seconds, for up to 15 minutes). It
 checks that the issued identity belongs to this seed, provider and identity
-index, and keeps it inside the object for the steps that follow. Only a summary,
+index, and that it is genuine (see below), and keeps it inside the object for the steps that follow. Only a summary,
 with no personal data, is returned.
+
+**Only genuine identities are held.** Wherever an identity comes in (collected after verifying, recovered from the provider, imported from the wallet's copy), the package checks, before holding it, that it belongs to this seed phrase and that its provider's signature fits it exactly as it is. Concordium's SDK has no function for that signature alone, so the package builds a tiny proof from the identity locally, stating nothing and sent nowhere, and checks it with Concordium's own verifier against the provider's keys (which are checked against the chain). A forged identity, or one with any detail changed, is refused with reason `not-genuine` and never held. It takes about a second each time.
 
 After `createIdentityRequest` on the same object, the callback address is all
 that is needed. Browsers never send the part after `#` to a server, so read the
@@ -260,6 +262,7 @@ Its `reason` says why, and its `message` includes the provider's own words:
 | `'rejected'` | the provider did not issue the identity (`detail`) | show the message; start a new request |
 | `'timeout'` | not issued within `timeoutMs`; the provider may still be verifying | wait again later with the same `code_uri` |
 | `'cancelled'` | the `signal` was aborted | wait again later with the same `code_uri` |
+| `'not-genuine'` | the identity collected is not as its provider issued it (its signature does not fit); never held | should not happen: report it; start a new request |
 
 A rejected or refused request is finished: a new request may use the same
 identity index. An identity that does not belong to this wallet is refused with
@@ -294,7 +297,8 @@ const summary = await identity.importIdentity(await mySecureStorage.get('concord
   questions; but its details can be read by anyone who has it.
 - **`importIdentity` checks the identity is this wallet's** before holding it: it must carry the public key this seed
   phrase gives for that provider and identity number (one call to the node for the network's parameters, as when the
-  identity was collected). It does not check the provider's signature: the chain does, when an account is created.
+  identity was collected), **and that it is genuine**: its provider's signature must fit it, so a changed detail or a
+  forged identity is refused (`not-genuine`). About a second.
 - **Exported and held are separate.** `exportIdentity` exports the identity this object holds (collected, recovered or
   imported); `importIdentity` holds an exported one again, ready for the next steps. Deleting the wallet's copy is
   the wallet's own business; `dispose()` zeroes everything this object holds.
@@ -309,6 +313,7 @@ const summary = await identity.importIdentity(await mySecureStorage.get('concord
 |---|---|
 | `unreadable` | not an exported identity; for another network; damaged; an unknown format version |
 | `not-yours` | an identity that does not belong to this wallet's seed phrase |
+| `not-genuine` | its provider's signature does not fit it: changed since it was issued, or forged |
 
 ### The format
 
@@ -480,6 +485,7 @@ would otherwise silently reduce some of them to another identity's or account's 
 | `network` | the provider could not be reached (after three tries) | check the connection; try again |
 | `node` | finding accounts: the node could not be asked (`detail`) | try `findAccounts` again later |
 | `not-yours` | the provider returned an identity that does not belong to this seed; it is never kept | should not happen: report it |
+| `not-genuine` | the provider returned an identity its signature does not fit; it is never kept (`recoverAll` notes it in `problems` and carries on) | should not happen: report it |
 | `cancelled` | cancelled through `signal` | nothing |
 
 `IdentityProviderError` if the provider is not published, or publishes no recovery address.

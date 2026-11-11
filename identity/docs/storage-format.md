@@ -22,7 +22,7 @@ The package stores nothing itself: the wallet keeps the text its own way, as it 
  JSON text (NOT encrypted)        → the wallet keeps it in its secure storage, next to the seed phrase
       │  importIdentity(text)
       ▼
- identity held again, after checking it belongs to this seed phrase
+ identity held again, after checking it belongs to this seed phrase and is genuine
 ```
 
 ## The format (version 1)
@@ -60,10 +60,10 @@ text cannot be used to create accounts or answer questions, but its details can 
 3. the identity belongs to this seed phrase: `identityObject.value.preIdentityObject.idCredPub` must equal the public
    key this seed phrase gives for `providerIndex` and `identityIndex` (the same check as when the identity was
    collected from the provider; it needs the network's cryptographic parameters, one call to the node); otherwise
-   reason `not-yours`.
-
-It does not check the provider's signature: the chain checks it when an account is created, and websites when they
-check a proof.
+   reason `not-yours`;
+4. the identity is genuine: its provider's signature fits it exactly as it is. The package builds a tiny proof from
+   the identity locally (stating nothing, sent nowhere) and checks it with Concordium's verifier against the provider's
+   keys; otherwise reason `not-genuine`, so a changed detail or a forged identity is never held.
 
 ## Versions
 
@@ -84,8 +84,8 @@ identity 334563111. Its details are the test provider's made-up ones (John Doe, 
 | Protected | Not protected (the wallet's job) |
 |---|---|
 | an identity of another seed phrase, or another network, is refused on import (`not-yours`, `unreadable`) | **the text being read**: it is not encrypted; keep it in secure storage |
+| a changed detail, or a forged identity, is refused on import (`not-genuine`): the provider's signature must fit | |
 | the text holds no keys: on its own it cannot create accounts or answer questions | the wallet losing or deleting its copy (recovery gets the identity back from the provider with the seed phrase) |
-| | a changed detail in the text: not detected on import; the chain refuses an account from it, and a website refuses a proof from it, because the provider's signature no longer matches |
 
 While in use, the identity is held in memory as bytes, and the seed and held identities are zeroed by `dispose()`.
 JavaScript strings cannot be wiped, so while the identity's JSON is read or written, short-lived string copies exist

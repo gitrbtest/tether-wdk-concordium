@@ -11,6 +11,7 @@ import { buildIdentityRequest, issuanceLink, expectedIdCredPub } from './identit
 import { pollIdentityProvider, cancelledError, DEFAULT_TIMEOUT_MS, DEFAULT_INTERVAL_MS } from './identity-polling.js';
 import { parseIdentityCallback } from './identity-callback.js';
 import { identityContent, summaryOf } from './identity-object.js';
+import { isSignedByProvider } from './identity-signature.js';
 
 export default class IdentityIssuance {
   #providers;
@@ -18,6 +19,8 @@ export default class IdentityIssuance {
   #fetch;
   #hdWallet;
   #held;
+  #network;
+  #isSigned;
 
   /**
    * The provider and identity index of the last request started here, so the wallet can hand back just
@@ -30,12 +33,25 @@ export default class IdentityIssuance {
    *   held: import('../shared/HeldIdentities.js').default }} collaborators
    *   hdWallet: returns the key derivation for the wallet's seed (throws once the seed is disposed)
    */
-  constructor({ providers, node, fetch, hdWallet, held }) {
+  constructor({ providers, node, fetch, hdWallet, held, network, isSigned = isSignedByProvider }) {
     this.#providers = providers;
     this.#node = node;
     this.#fetch = fetch;
     this.#hdWallet = hdWallet;
     this.#held = held;
+    this.#network = network;
+    this.#isSigned = isSigned;
+  }
+
+  /**
+   * Whether an identity is genuine: its provider's signature fits it exactly as it is (see identity-signature.js).
+   * @param {object} content  the identity's content (identityContent)
+   */
+  async isGenuine(content, providerIndex, identityIndex) {
+    return this.#isSigned({
+      content, provider: await this.#providers.get(providerIndex), identityIndex, hdWallet: this.#hdWallet(),
+      globalContext: await this.#node.globalContext(), network: this.#network,
+    });
   }
 
   /** Forget the request awaiting its identity (when the ConcordiumIdentity is disposed). */
@@ -80,7 +96,7 @@ export default class IdentityIssuance {
         `The identity provider did not issue the identity${reply.detail ? `: ${reply.detail}` : '.'}`,
         { reason: 'rejected', detail: reply.detail || undefined });
     }
-    return this.#checkAndKeep(reply.token?.identityObject, { providerIndex, identityIndex, ownersIdCredPub });
+    return await this.#checkAndKeep(reply.token?.identityObject, { providerIndex, identityIndex, ownersIdCredPub });
   }
 
   /** See ConcordiumIdentity.retrieveIdentity. */
@@ -126,11 +142,16 @@ export default class IdentityIssuance {
   }
 
   /** Check an issued identity is this wallet's, hold it, and return its summary. */
-  #checkAndKeep(identityObject, { providerIndex, identityIndex, ownersIdCredPub }) {
+  async #checkAndKeep(identityObject, { providerIndex, identityIndex, ownersIdCredPub }) {
     const content = identityContent(identityObject, 'The identity provider returned an identity in an unexpected format.');
     if (content.preIdentityObject.idCredPub !== ownersIdCredPub) {
       throw new Error(
         `The issued identity does not belong to this wallet for provider ${providerIndex}, identity ${identityIndex}.`);
+    }
+    if (!await this.isGenuine(content, providerIndex, identityIndex)) {
+      this.#finishRequest(providerIndex, identityIndex); // it can never become genuine
+      throw new IdentityIssuanceError(`The identity collected for provider ${providerIndex}, identity ${identityIndex}, is `
+        + 'not as its provider issued it: its signature does not fit (a forged or changed identity).', { reason: 'not-genuine' });
     }
     this.#held.hold(providerIndex, identityIndex, identityObject);
     this.#finishRequest(providerIndex, identityIndex);

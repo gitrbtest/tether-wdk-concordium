@@ -250,7 +250,8 @@ const summary = await identity.retrieveIdentity(callbackUrl);   // callbackUrl: 
   `{ timeoutMs }`, for example `retrieveIdentity(callbackUrl, { timeoutMs: 30 * 60 * 1000 })` for 30 minutes. If time
   runs out, it throws `IdentityIssuanceError` with reason `'timeout'`; the provider may still be working on it, so
   you can wait again later (see "If the app may be closed while it waits", below).
-- **It checks** the identity was issued to this seed phrase; if not, it refuses it.
+- **It checks** the identity was issued to this seed phrase, and that it is genuine (its provider's signature fits it
+  exactly as it is); if not, it refuses it. This takes about a second.
 - **It holds** the identity in the `identity` object, in memory.
 
 To wait longer, or check more or less often, pass your own values (both in milliseconds):
@@ -324,8 +325,9 @@ texts and imports each one; `importIdentity` needs only the text.
 
 - **It holds no keys.** Every key comes from the seed phrase, so the text alone cannot create accounts or answer
   questions; but its details can be read by anyone who has it.
-- **`importIdentity` checks it is this wallet's identity:** another seed phrase's identity is refused (`not-yours`).
-  This needs one call to the node (the network's parameters).
+- **`importIdentity` checks it is this wallet's identity, and genuine:** another seed phrase's identity is refused
+  (`not-yours`), and so is a changed or forged one (`not-genuine`: its provider's signature does not fit). This needs
+  one call to the node (the network's parameters) and takes about a second.
 - **A server with many users** keeps each user's text in that user's own record, protected like the seed phrases;
   another user's seed phrase cannot use it, and deleting a user's record (and seed phrase) erases their identity. Sample: `npm run example:server-keeps-identities` in `identity/`
 ([`examples/server-keeps-identities.mjs`](../identity/examples/server-keeps-identities.mjs)).
@@ -601,15 +603,17 @@ try {
 | `IdentityProviderError` | — | the provider is not in the list, or does not publish the page needed: offer another provider; or its keys in the list differ from the chain's record: fetch the list again from a source you trust |
 | `IdentityIssuanceError` | `provider-error`, `rejected` | the provider did not issue the identity: show its message; start a new request |
 | | `timeout`, `cancelled` | still being verified, or the wait was stopped: wait again later with the same reply (chapter 3) |
+| | `not-genuine` | the identity is not as its provider issued it (never held): report it; start a new request |
 | `IdentityStorageError` | `unreadable` | the kept text is not this seed phrase's identity, or was damaged: recover it (chapter 6) |
-| | `not-yours` | a plain export of someone else's identity: do not use it |
+| | `not-yours` | someone else's identity: do not use it |
+| | `not-genuine` | the kept text was changed (or the identity forged): recover it from the provider (chapter 6) |
 | `AccountCreationError` | `identity-expired` | the identity has expired: verify again for a new one |
 | | `max-accounts`, `unknown-attribute` | a wrong account number or detail name in the call: fix it (nothing was sent) |
 | | `expired` | the account was not created in time: try again |
 | | `rejected` | the chain refused the account: show its message; trying again does not help if the identity is not genuine |
 | | `timeout`, `cancelled`, `node` | not known yet: call `createAccount` again; it returns the account if it was created |
 | `IdentityRecoveryError` | `provider-error`, `network`, `node` | a provider or the node could not be asked: try again later |
-| | `not-yours` | the provider returned an identity that is not this seed phrase's: report it |
+| | `not-yours`, `not-genuine` | the provider returned an identity that is not this seed phrase's, or not genuine: report it |
 | | `cancelled` | stopped by your wallet |
 | `ProofError` | `invalid-request`, `unknown-attribute` | the website's question is broken: decline |
 | | `not-held` | this identity is not loaded: import it (chapter 4) or recover it (chapter 6) first |

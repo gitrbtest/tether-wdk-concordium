@@ -15,6 +15,7 @@ import { identityContent, summaryOf } from '../issuance/identity-object.js';
 import { recoveryRequest, recoveryLink, askProviderForIdentity, cancelledRecovery } from './identity-recovery.js';
 import { accountAddressOf } from '../account/credential.js';
 import { mismatchError } from '../providers/IdentityProviders.js';
+import { isSignedByProvider } from '../issuance/identity-signature.js';
 import { sleep } from '../shared/sleep.js';
 
 /** findAccounts stops after this many account numbers in a row with no account (wallets number accounts 0, 1, 2 …). */
@@ -37,18 +38,22 @@ export default class IdentityRecovery {
   #fetch;
   #hdWallet;
   #held;
+  #network;
+  #isSigned;
 
   /**
    * @param {{ providers: object, node: object, fetch: typeof fetch, hdWallet: () => object,
    *   held: import('../shared/HeldIdentities.js').default }} collaborators
    *   hdWallet: returns the key derivation for the wallet's seed (throws once the seed is disposed)
    */
-  constructor({ providers, node, fetch, hdWallet, held }) {
+  constructor({ providers, node, fetch, hdWallet, held, network, isSigned = isSignedByProvider }) {
     this.#providers = providers;
     this.#node = node;
     this.#fetch = fetch;
     this.#hdWallet = hdWallet;
     this.#held = held;
+    this.#network = network;
+    this.#isSigned = isSigned;
   }
 
   /** See ConcordiumIdentity.recoverIdentity. */
@@ -69,6 +74,15 @@ export default class IdentityRecovery {
   async #recoverFrom(provider, identityIndex, signal) {
     const found = await this.#askFor(provider, identityIndex, signal);
     if (found === null) return null;
+    // Genuine: the provider's signature fits the identity it returned, exactly as it is.
+    const genuine = this.#isSigned({
+      content: found.content, provider, identityIndex, hdWallet: this.#hdWallet(),
+      globalContext: await this.#node.globalContext(), network: this.#network,
+    });
+    if (!genuine) {
+      throw new IdentityRecoveryError(`The identity provider returned an identity for provider ${provider.index}, identity `
+        + `${identityIndex}, that is not as it issued it: its signature does not fit. It is not kept.`, { reason: 'not-genuine' });
+    }
     this.#held.hold(provider.index, identityIndex, found.identityObject);
     return summaryOf(found.content, provider.index, identityIndex);
   }
@@ -165,6 +179,12 @@ export default class IdentityRecovery {
           summary = await this.#recoverFrom(provider, identityIndex, signal);
         } catch (error) {
           if (error instanceof IdentityRecoveryError && error.reason === 'cancelled') throw error;
+          if (error instanceof IdentityRecoveryError && error.reason === 'not-genuine') {
+            // An identity is there but is not genuine: note it, never keep it, and carry on with the next number.
+            problems.push({ providerIndex, identityIndex, error });
+            missingInARow = 0;
+            continue;
+          }
           // This provider cannot be asked now (down, refusing, not published …): note it and move on, so
           // the identities found with the other providers are not lost.
           problems.push({ providerIndex, identityIndex, error });

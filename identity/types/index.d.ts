@@ -93,7 +93,7 @@ export class IdentityProviderError extends Error {
 
 /** Thrown when an identity is not issued: the provider reported an error, rejected it, or the wait timed out or was cancelled. */
 export class IdentityIssuanceError extends Error {
-  reason: 'provider-error' | 'rejected' | 'timeout' | 'cancelled';
+  reason: 'provider-error' | 'rejected' | 'timeout' | 'cancelled' | 'not-genuine';
   /** The provider's error code, if it gave one. */
   code?: string;
   /** The provider's explanation, if it gave one. */
@@ -107,7 +107,7 @@ export class IdentityRecoveryError extends Error {
   /** provider-error: the provider answered with an error or not an identity; not-yours: the identity does not belong
  *  to this seed; network: the provider could not be reached; node: finding accounts, the Concordium node could not be asked;
  *  cancelled: the AbortSignal fired. */
-  reason: 'provider-error' | 'not-yours' | 'network' | 'node' | 'cancelled';
+  reason: 'provider-error' | 'not-yours' | 'not-genuine' | 'network' | 'node' | 'cancelled';
   /** The provider's HTTP status, for provider-error. */
   status?: number;
   /** The provider's explanation, if it gave one. */
@@ -119,8 +119,9 @@ export class IdentityRecoveryError extends Error {
  */
 export class IdentityStorageError extends Error {
   /** unreadable: not an exported identity, for another network, changed or damaged, or an unknown format version.
-   *  not-yours: an exported identity that does not belong to this wallet's seed phrase. */
-  reason: 'unreadable' | 'not-yours';
+   *  not-yours: an exported identity that does not belong to this wallet's seed phrase.
+   *  not-genuine: its provider's signature does not fit it (changed since it was issued, or forged). */
+  reason: 'unreadable' | 'not-yours' | 'not-genuine';
 }
 
 /**

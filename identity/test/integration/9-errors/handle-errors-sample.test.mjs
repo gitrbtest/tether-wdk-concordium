@@ -35,6 +35,7 @@ const EXPECTED = [
   'IdentityIssuanceError (cancelled)',
   'IdentityStorageError (unreadable)',
   'IdentityStorageError (not-yours)',
+  'IdentityStorageError (not-genuine)',
   'AccountCreationError (max-accounts)',
   'AccountCreationError (unknown-attribute)',
   'AccountCreationError (identity-expired)',

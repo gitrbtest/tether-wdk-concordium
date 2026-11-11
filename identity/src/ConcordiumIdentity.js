@@ -12,6 +12,7 @@ import { identityContent, summaryOf } from './issuance/identity-object.js';
 import { IdentityStorageError } from './shared/errors.js';
 import { networkLabel, exportText, readExport } from './storage/identity-export.js';
 import AccountCreator, { readAccountOptions } from './account/AccountCreator.js';
+import { isSignedByProvider } from './issuance/identity-signature.js';
 
 /**
  * A wallet's Concordium identity, derived from the wallet's own seed, without the Concordium ID App:
@@ -37,9 +38,11 @@ export default class ConcordiumIdentity {
    *   e.g. { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders, node }: use the same key derivation as the
    *   wallet package; identityProviders is the identity provider list (the wallet-proxy's /v2/ip_info shape), which
    *   the package does not fetch; node is the wallet's connection to a Concordium node (the package never opens one)
-   * @param {{ fetch?: typeof fetch }} [options]  fetch: HTTP implementation (defaults to the global fetch)
+   * @param {{ fetch?: typeof fetch }} [options]  fetch: HTTP implementation (defaults to the global fetch).
+   *   (`_signatureCheck` is internal, for the package's own tests only: it replaces the check that an identity's
+   *   provider signature fits it, so tests can try identities with a detail changed on purpose. Never pass it.)
    */
-  constructor(seed, config, { fetch: fetchFn = (url, options) => fetch(url, options), ...rest } = {}) {
+  constructor(seed, config, { fetch: fetchFn = (url, options) => fetch(url, options), _signatureCheck = isSignedByProvider, ...rest } = {}) {
     if ('store' in rest) {
       throw new Error('The store option is gone: the package no longer stores identities. Use exportIdentity to get '
         + 'the identity as text to keep your own way, and importIdentity to hold it again.');
@@ -52,8 +55,10 @@ export default class ConcordiumIdentity {
     const hdWallet = () => this._hdWallet; // the helpers never see the seed itself
 
     this._held = new HeldIdentities();
-    this._issuance = new IdentityIssuance({ providers, node, fetch: fetchVia, hdWallet, held: this._held });
-    this._recovery = new IdentityRecovery({ providers, node, fetch: fetchVia, hdWallet, held: this._held });
+    const network = this._config.derivationNetwork;
+    const isSigned = _signatureCheck;
+    this._issuance = new IdentityIssuance({ providers, node, fetch: fetchVia, hdWallet, held: this._held, network, isSigned });
+    this._recovery = new IdentityRecovery({ providers, node, fetch: fetchVia, hdWallet, held: this._held, network, isSigned });
     this._proofs = new IdentityProofs({
       node, hdWallet, held: this._held, network: this._config.derivationNetwork,
       findAccounts: (options) => this._recovery.findAccounts(options), providers,
@@ -388,10 +393,11 @@ export default class ConcordiumIdentity {
   }
 
   /**
-   * Hold an identity again from the text exportIdentity gave, e.g. after an app restart. The identity is checked to
-   * be this wallet's before it is held: its public key must be the one this seed phrase gives for that provider and
-   * identity number (as when it was collected from the provider). This needs the network's cryptographic parameters
-   * (one call to the node, then kept).
+   * Hold an identity again from the text exportIdentity gave, e.g. after an app restart. Before it is held, the
+   * identity is checked to be this wallet's (its public key must be the one this seed phrase gives for that provider
+   * and identity number, as when it was collected from the provider), and to be genuine (its provider's signature
+   * must fit it exactly as it is: a changed detail, or a forged identity, is refused). This needs the network's
+   * cryptographic parameters (one call to the node, then kept) and takes about a second.
    *
    * The text is the person's details in plain JSON: read it from the wallet's secure storage, as the seed phrase.
    *
@@ -399,7 +405,8 @@ export default class ConcordiumIdentity {
    * @returns {Promise<{ providerIndex: number, identityIndex: number, createdAt: string, validTo: string,
    *   maxAccounts: number }>}  the identity's summary
    * @throws {IdentityStorageError} reason 'unreadable' (not an exported identity, another network, an unknown format
-   *   version, changed or damaged text) or 'not-yours' (an identity that does not belong to this seed phrase)
+   *   version, damaged text), 'not-yours' (an identity that does not belong to this seed phrase) or 'not-genuine'
+   *   (its provider's signature does not fit it: changed since it was issued, or forged)
    */
   async importIdentity(exported) {
     this._requireNotDisposed();
@@ -413,6 +420,11 @@ export default class ConcordiumIdentity {
     if (content.preIdentityObject.idCredPub !== expected) {
       throw new IdentityStorageError(`This identity does not belong to this wallet for provider ${record.providerIndex}, `
         + `identity ${record.identityIndex}.`, { reason: 'not-yours' });
+    }
+    // And it is genuine: its provider's signature fits it exactly as it is (nothing changed since it was issued).
+    if (!await this._issuance.isGenuine(content, record.providerIndex, record.identityIndex)) {
+      throw new IdentityStorageError(`This identity (provider ${record.providerIndex}, identity ${record.identityIndex}) `
+        + 'is not as its provider issued it: its signature does not fit (changed or damaged text, or a forged identity).', { reason: 'not-genuine' });
     }
     this._held.hold(record.providerIndex, record.identityIndex, record.identityObject);
     return summaryOf(content, record.providerIndex, record.identityIndex);

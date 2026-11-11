@@ -12,7 +12,7 @@ import {
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
 import { hasExpired } from '../../../src/issuance/identity-object.js';
-import { testnetConfig, recordedNode } from '../../helpers.mjs';
+import { testnetConfig, recordedNode, SIGNATURE_NOT_CHECKED } from '../../helpers.mjs';
 
 const TEST_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const CODE_URI = 'https://id-service.testnet.concordium.com/api/v1/identity/51cf6074722e6685934b4d06fba5baf0045d1d8130ead5ba7fac04dabff9ba3a';
@@ -28,15 +28,15 @@ const json = (status, body) => ({ ok: status < 400, status, json: async () => bo
  * `statuses` the status checks. `editIdentity` can change the identity before it is collected (e.g. its validTo).
  * `node` records what was asked of it; `sent()` lists the credentials sent.
  */
-async function identityHolding({ exists = false, send, statuses, editIdentity = (o) => o } = {}) {
+async function identityHolding({ exists = false, send, statuses, editIdentity } = {}) {
   const fetch = async (url) => {
     if (url !== CODE_URI) throw new Error(`no network in this test: ${url}`);
     const reply = issuedReply();
-    reply.token.identityObject = editIdentity(reply.token.identityObject);
+    if (editIdentity) reply.token.identityObject = editIdentity(reply.token.identityObject);
     return json(200, reply);
   };
   const node = recordedNode('testnet', { accountExists: () => exists, send, statuses });
-  const identity = new ConcordiumIdentity(TEST_PHRASE, testnetConfig({ node }), { fetch });
+  const identity = new ConcordiumIdentity(TEST_PHRASE, testnetConfig({ node }), { fetch, ...(editIdentity ? SIGNATURE_NOT_CHECKED : {}) });
   await identity.waitForIdentity(CODE_URI, { ...ISSUED_FOR, intervalMs: 1 });
   return { identity, node, sent: () => node.sent };
 }

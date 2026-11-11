@@ -28,7 +28,7 @@ import { readFileSync } from 'node:fs';
 import * as sdk from '@concordium/web-sdk';
 import { ConcordiumIdentity, ProofError, CONCORDIUM_TESTNET_IDENTITY_CONFIG } from '@concordium/wdk-identity-concordium';
 import { requestFor } from '@concordium/wdk-identity-concordium/verify';
-import { walletProxyFetch, globalFixture, testnetConfig, recordedNode } from '../../helpers.mjs';
+import { walletProxyFetch, globalFixture, testnetConfig, recordedNode, SIGNATURE_NOT_CHECKED } from '../../helpers.mjs';
 
 const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const RECORDED = { providerIndex: 0, identityIndex: 334563111 };
@@ -49,7 +49,7 @@ async function walletWithIdentity({ accountsOnChain = [ACCOUNT_0.address], valid
     return recorded.fetch(url, options);
   };
   const node = recordedNode('testnet', { accountExists: (address) => accountsOnChain.includes(address) });
-  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node }), { fetch });
+  const wallet = new ConcordiumIdentity(PHRASE, testnetConfig({ node }), { fetch, ...(validTo ? SIGNATURE_NOT_CHECKED : {}) });
   await wallet.waitForIdentity(CODE_URI, { ...RECORDED, intervalMs: 1 });
   return wallet;
 }

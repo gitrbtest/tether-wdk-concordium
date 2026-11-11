@@ -16,13 +16,14 @@ export class IdentityProviderError extends Error {
 
 /**
  * Thrown when an identity is not issued: the provider reported an error,
- * rejected the verification, or the wait timed out or was cancelled.
+ * rejected the verification, or the wait timed out or was cancelled; or the identity collected is not genuine
+ * (`not-genuine`: its provider's signature does not fit it).
  * `reason` says which; `code` and `detail` carry what the provider said, if anything.
  */
 export class IdentityIssuanceError extends Error {
   /**
    * @param {string} message
-   * @param {{ reason: 'provider-error' | 'rejected' | 'timeout' | 'cancelled', code?: string, detail?: string }} info
+   * @param {{ reason: 'provider-error' | 'rejected' | 'timeout' | 'cancelled' | 'not-genuine', code?: string, detail?: string }} info
    */
   constructor(message, { reason, code, detail } = {}) {
     super(message);
@@ -39,6 +40,7 @@ export class IdentityIssuanceError extends Error {
  * - provider-error: the provider answered with an error, or with something that is not an identity
  *   (`status` and `detail` carry what it said)
  * - not-yours: the provider returned an identity that does not belong to this wallet's seed
+ * - not-genuine: the provider returned an identity its signature does not fit (not kept)
  * - network: the provider could not be reached (after a few tries)
  * - node: finding accounts, the Concordium node could not be asked (`detail` has what it said)
  * - cancelled: the wallet cancelled it (its AbortSignal)
@@ -46,7 +48,7 @@ export class IdentityIssuanceError extends Error {
 export class IdentityRecoveryError extends Error {
   /**
    * @param {string} message
-   * @param {{ reason: 'provider-error' | 'not-yours' | 'network' | 'node' | 'cancelled', status?: number, detail?: string }} info
+   * @param {{ reason: 'provider-error' | 'not-yours' | 'not-genuine' | 'network' | 'node' | 'cancelled', status?: number, detail?: string }} info
    */
   constructor(message, { reason, status, detail } = {}) {
     super(message);
@@ -128,11 +130,12 @@ export class AccountCreationError extends Error {
  * Thrown when importIdentity cannot take an exported identity back. `reason` says why:
  * - unreadable: not an exported identity, for another network, changed or damaged, or an unknown format version
  * - not-yours: an exported identity that does not belong to this wallet's seed phrase
+ * - not-genuine: its provider's signature does not fit it (changed since it was issued, or forged)
  */
 export class IdentityStorageError extends Error {
   /**
    * @param {string} message
-   * @param {{ reason: 'unreadable' | 'not-yours' }} info
+   * @param {{ reason: 'unreadable' | 'not-yours' | 'not-genuine' }} info
    */
   constructor(message, { reason } = {}) {
     super(message);

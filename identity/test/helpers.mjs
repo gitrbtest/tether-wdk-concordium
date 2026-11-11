@@ -78,6 +78,13 @@ export function recordedAccount0() {
  * those details in the wallet's copy (e.g. { countryOfResidence: 'US' }), to try an identity that cannot answer.
  * `node` replaces the pretend node (see recordedNode).
  */
+/**
+ * The test-only switch that replaces the check of an identity's provider signature, for tests that change a detail
+ * of a genuine identity on purpose (an expiry date, a country, the number of accounts) to try what happens next: the
+ * real check would rightly refuse such an identity at the door. Tests of the check itself never use it.
+ */
+export const SIGNATURE_NOT_CHECKED = { _signatureCheck: () => true };
+
 export async function walletWithRecordedIdentity({ details, node } = {}) {
   const { ConcordiumIdentity } = await import('@concordium/wdk-identity-concordium');
   const recorded = walletProxyFetch('testnet');
@@ -87,7 +94,7 @@ export async function walletWithRecordedIdentity({ details, node } = {}) {
     Object.assign(issued.token.identityObject.value.attributeList.chosenAttributes, details);
     return { ok: true, status: 200, json: async () => issued };
   };
-  const wallet = new ConcordiumIdentity(RECORDED_PHRASE, testnetConfig(node ? { node } : {}), { fetch });
+  const wallet = new ConcordiumIdentity(RECORDED_PHRASE, testnetConfig(node ? { node } : {}), { fetch, ...(details ? SIGNATURE_NOT_CHECKED : {}) });
   await wallet.waitForIdentity(RECORDED_CODE_URI, { ...RECORDED_IDENTITY, intervalMs: 1 });
   return wallet;
 }
