@@ -42,3 +42,34 @@ test('getBalanceForAddress rethrows a non-"not found" error unchanged', async ()
   await assert.rejects(() => account.getBalanceForAddress(KNOWN_ADDRESS), /connection refused/);
   dispose();
 });
+
+/** An account whose CIS-2 contract reports `url` as the metadata location, with HTTP faked by `fetchImpl`. */
+async function accountWithFakeMetadata(url, fetchImpl) {
+  const manager = makeManager(CONFIG);
+  const account = await manager.getAccountByPath('0/899424164/0');
+  account._cis2Contract = async () => ({ tokenMetadata: async () => ({ url }) });
+  account._fetch = fetchImpl;   // inject the fake (dependency was constructor-provided)
+  return { account, dispose: () => manager.dispose() };
+}
+
+test('getCis2Metadata downloads and parses the metadata at the on-chain URL', async () => {
+  const requested = [];
+  const { account, dispose } = await accountWithFakeMetadata('https://meta.example/token.json', async (url) => {
+    requested.push(url);
+    return { ok: true, json: async () => ({ name: 'Euro Stablecoin', symbol: 'EUROe', decimals: 6 }) };
+  });
+  assert.deepEqual(await account.getCis2Metadata('cis2:12754:0:01'), {
+    url: 'https://meta.example/token.json',
+    metadata: { name: 'Euro Stablecoin', symbol: 'EUROe', decimals: 6 },
+  });
+  assert.deepEqual(requested, ['https://meta.example/token.json']);
+  dispose();
+});
+
+test('getCis2Metadata returns metadata: null when the URL cannot be read', async () => {
+  const { account, dispose } = await accountWithFakeMetadata('https://meta.example/down.json',
+    async () => { throw new Error('gateway timeout'); });
+  assert.deepEqual(await account.getCis2Metadata('cis2:12754:0:01'),
+    { url: 'https://meta.example/down.json', metadata: null });
+  dispose();
+});

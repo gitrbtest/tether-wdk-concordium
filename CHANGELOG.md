@@ -21,6 +21,13 @@ User-facing changes to `@concordium/wdk-wallet-concordium` are recorded here.
 - `transfer` and `submitSponsored`: a transfer the chain refuses now throws `ConcordiumTransferError` (with `hash` and `rejectReason`) instead of `TransactionRejectedError`.
 - `sendTransaction` (native CCD): too little CCD for the amount and the fee throws WDK's `TransactionError` with reason `INSUFFICIENT_BALANCE`, before sending (for a `{ to, value }` request), and when the chain refuses it for that (`AmountTooLarge`; then with `hash`).
 
+### Fixed
+
+- `dispose()` now zeroes and drops the seed; previously it remained readable through `manager.seed`. Requesting an account afterwards throws `DisposalError`.
+- Reading `account.keyPair` after disposal no longer throws; it returns the public key with `privateKey: null`.
+- `getAccountByPath` refuses numbers outside Concordium's ranges (an account number above 255; a provider or identity number above 2147483647), and `recoverAccountsForIdentity` refuses a `startIndex` or `maxIndex` above 255. Previously such a path was accepted, and Concordium's SDK silently reduced the number: `0/0/9999` gave account `0/0/15`'s address, with a signing key that is not that account's.
+- Raw seed bytes that are not 64 bytes long are refused at construction with a `ValueError` that does not contain the seed; previously the first account request failed with an error from Concordium's SDK that repeated the whole seed.
+
 ## [0.1.0] - 2026-10-16
 
 ### Added

@@ -8,22 +8,31 @@
  * paths. Manager configuration does not select an identity.
  */
 
-import WalletManager, { NotImplementedError } from '@tetherto/wdk-wallet';
+import WalletManager, { DisposalError, NotImplementedError, ValueError } from '@tetherto/wdk-wallet';
 import * as sdk from '@concordium/web-sdk';
 import { ConcordiumGRPCNodeClient, credentials } from '@concordium/web-sdk/nodejs';
 import WalletAccountConcordium, { AccountNotCreatedError } from './WalletAccountConcordium.js';
 import { parseConfig } from './config.js';
 
-import { validateIdentityCoordinates } from './identity-coordinates.js';
+import { validateIdentityCoordinates, validateCredNumber } from './identity-coordinates.js';
+
+/** Concordium's key derivation takes a 64-byte seed: what a seed phrase becomes. */
+const SEED_BYTES = 64;
 
 export default class WalletManagerConcordium extends WalletManager {
   /**
    * @param {string | Uint8Array} seed  BIP-39 mnemonic or raw seed bytes.
    * @param {object} config WDK WalletConfig plus required useMainnetKeyDerivation
    *   and grpcUrl.
+   * @throws {ValueError} If the seed phrase is invalid, or raw seed bytes are not 64 bytes long.
    * @throws {Error} If configuration is missing or invalid.
    */
   constructor(seed, config) {
+    // The base accepts raw seeds of 16 to 64 bytes, but Concordium's SDK needs exactly 64, and its error
+    // for any other length repeats the whole seed. Refuse it here, without the seed in the message.
+    if (seed instanceof Uint8Array && seed.length !== SEED_BYTES) {
+      throw new ValueError('The seed must be a BIP-39 seed phrase or a 64-byte seed.');
+    }
     const parsed = parseConfig(config);
     super(seed, config);                       // base stores the seed + config
     this._ccd = parsed;
@@ -33,6 +42,7 @@ export default class WalletManagerConcordium extends WalletManager {
 
   /** The 64-byte BIP-39 seed (inherited from the base) as hex, for ConcordiumHdWallet. */
   get _seedHex() {
+    if (!this.seed) throw new DisposalError('The wallet manager has been disposed.');
     return Buffer.from(this.seed).toString('hex');
   }
 
@@ -91,6 +101,13 @@ export default class WalletManagerConcordium extends WalletManager {
     if (![p, id, cred].every(Number.isSafeInteger)) {
       throw new Error(`Concordium path "${path}" exceeds the supported integer range.`);
     }
+    // Within Concordium's ranges: outside them the SDK would silently reduce the number to another account's.
+    try {
+      validateIdentityCoordinates(p, id);
+      validateCredNumber(cred, 'the account number (the last part)');
+    } catch (e) {
+      throw new Error(`Concordium path "${path}": ${e.message}`);
+    }
     const info = await this._lookupAccountInfo(p, id, cred);
     if (!info) throw new AccountNotCreatedError(undefined, { path: value });
     return this._makeAccount(p, id, cred, info.accountAddress.toString());
@@ -137,6 +154,8 @@ export default class WalletManagerConcordium extends WalletManager {
     maxIndex = 50,
   } = {}) {
     validateIdentityCoordinates(providerIndex, identityIndex);
+    validateCredNumber(startIndex, 'startIndex');
+    validateCredNumber(maxIndex, 'maxIndex');
     const found = [];
     let gap = 0;
     for (let i = startIndex; i <= maxIndex && gap < gapLimit; i++) {
@@ -155,7 +174,10 @@ export default class WalletManagerConcordium extends WalletManager {
   }
 
   dispose() {
-    super.dispose();     // disposes tracked accounts + clears the seed
+    super.dispose();     // disposes tracked accounts
+    // The base keeps the seed after dispose(), so zero the bytes and drop the reference here.
+    if (this._seed instanceof Uint8Array) this._seed.fill(0);
+    this._seed = undefined;
     this._client = null;
     this._global = null;
   }

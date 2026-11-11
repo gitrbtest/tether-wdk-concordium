@@ -117,13 +117,14 @@ export class TransactionRejectedError extends Error {
 }
 
 export default class WalletAccountConcordium extends WalletAccountReadOnly {
-  constructor({ wallet, getClient, getGlobal, network,
-                providerIndex, identityIndex, credNumber, address }) {
+  constructor({ wallet, getClient, getGlobal, fetch: fetchFn = (url, options) => fetch(url, options),
+                network, providerIndex, identityIndex, credNumber, address }) {
     super(address);                 // base keeps the address (if known up front)
     this._sdk = sdk;                // the statically-imported @concordium/web-sdk namespace
     this._wallet = wallet;
     this._getClient = getClient;
     this._getGlobal = getGlobal;
+    this._fetch = fetchFn;          // HTTP for CIS-2 metadata; injectable like getClient
     this._network = network;
     this._providerIndex = providerIndex;
     this._identityIndex = identityIndex;
@@ -141,10 +142,10 @@ export default class WalletAccountConcordium extends WalletAccountReadOnly {
 
   /** The account's key pair (Ed25519). */
   get keyPair() {
+    if (this._disposed) return { publicKey: this._disposedPublicKey, privateKey: null };
     return {
       publicKey: this._wallet.getAccountPublicKey(this._providerIndex, this._identityIndex, this._credNumber),
-      privateKey: this._disposed ? null
-        : this._wallet.getAccountSigningKey(this._providerIndex, this._identityIndex, this._credNumber),
+      privateKey: this._wallet.getAccountSigningKey(this._providerIndex, this._identityIndex, this._credNumber),
     };
   }
 
@@ -185,8 +186,14 @@ export default class WalletAccountConcordium extends WalletAccountReadOnly {
   /** Returns this same instance; signing capabilities are not removed. */
   async toReadOnlyAccount() { return this; }
 
-  /** Erase key references. */
-  dispose() { this._disposed = true; this._wallet = null; }
+  /** Erase key references. The public key is kept: it is not secret, and keyPair stays readable. */
+  dispose() {
+    if (this._disposed) return;
+    this._disposedPublicKey = this._wallet?.getAccountPublicKey(
+      this._providerIndex, this._identityIndex, this._credNumber) ?? null;
+    this._disposed = true;
+    this._wallet = null;
+  }
 
   // ---- native CCD transfers ----
 
@@ -514,7 +521,7 @@ export default class WalletAccountConcordium extends WalletAccountReadOnly {
     const contract = await this._cis2Contract(ref);
     const { url } = await contract.tokenMetadata(ref.tokenId);
     let metadata = null;
-    try { metadata = await (await fetch(url)).json(); } catch { /* url unreachable / not JSON */ }
+    try { metadata = await (await this._fetch(url)).json(); } catch { /* url unreachable / not JSON */ }
     return { url, metadata };
   }
 
