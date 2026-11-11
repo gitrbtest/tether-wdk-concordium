@@ -32,18 +32,8 @@ for it. The [integration guide](integration-guide.md) explains each step referre
 | Threat | Defence | Left to the wallet |
 | --- | --- | --- |
 | it is stolen from storage | the packages never store it | keep it in the device's secure storage, or encrypted |
-| it ends up in a log or crash report through an error message (for example, when the user mistypes a word while restoring) | a wrong seed phrase is refused with only "Invalid seed phrase.", without the words (tested in both packages); the identity package also checks a seed given as raw bytes before Concordium's SDK sees it, because the SDK's error for a seed of the wrong length repeats the whole seed (see the known limit below for the wallet package); the packages' own error messages contain no seed or key. Once a seed phrase has leaked, nothing can protect the accounts: whoever has it controls them | never log or report the seed phrase, the config objects or `keyPair` yourself |
-| it stays in memory longer than needed | `identity.dispose()` zeroes the identity package's copy and what it holds; the identity package zeroes the signing keys it derives straight after use | dispose objects when done |
-
-**Known limit (wallet package).** `wallet.dispose()` releases the module's accounts, but does not yet zero the
-module's own copy of the seed; `keyPair` also stops working after an account is disposed. Fixes for both are ready
-in a separate change to the wallet package. Until then, keep the wallet manager only as long as needed.
-
-**Known limit (wallet package, raw seed bytes).** WDK's base package accepts a seed given as raw bytes of 16 to 64
-bytes, but Concordium's SDK needs exactly 64. Given a shorter one, the wallet package passes it to the SDK on the
-first account, and the SDK's error repeats the whole seed (checked). A seed phrase is not affected: it always
-becomes 64 bytes. A fix is ready in the same separate change to the wallet package as the one above; until then,
-pass a seed phrase, or a 64-byte seed.
+| it ends up in a log or crash report through an error message (for example, when the user mistypes a word while restoring) | a wrong seed phrase is refused with only "Invalid seed phrase.", without the words (tested in both packages); both packages also check a seed given as raw bytes before Concordium's SDK sees it, because the SDK's error for a seed of the wrong length repeats the whole seed; the packages' own error messages contain no seed or key. Once a seed phrase has leaked, nothing can protect the accounts: whoever has it controls them | never log or report the seed phrase, the config objects or `keyPair` yourself |
+| it stays in memory longer than needed | `identity.dispose()` and `wallet.dispose()` zero each package's copy of the seed and what it holds; the identity package zeroes the signing keys it derives straight after use | dispose objects when done |
 
 **Known limit (both).** JavaScript cannot guarantee that every copy of a value in memory is erased: Concordium's SDK
 takes keys as text, which cannot be wiped. Zeroing reduces how long secrets are held; it is not a guarantee.
@@ -134,8 +124,6 @@ Found while writing this; none is needed for testnet, each would make mainnet us
    addresses of the providers' pages are only in the list, so those still depend on fetching it from a trusted source.)
 2. **Check the provider's signature on a collected identity**, so a forged identity is refused at once instead of when
    an account is created.
-3. **Zero the wallet module's seed on dispose, and check a raw seed's length before Concordium's SDK sees it**
-   (fixes for both are ready, in a separate change to the wallet package).
 
 ## Status
 

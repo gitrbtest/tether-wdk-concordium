@@ -22,9 +22,12 @@ and accounts (`token-chain.mjs`, over `fixtures/plt.testnet.json`, recorded by `
 | | `identity-coordinates-required` | recovery and onboarding need the identity's numbers given (no defaults) |
 | | `wdk-base-compatibility` | the module fits WDK's base package (its methods, its receipt and wait loop) |
 | | `errors` | the module's errors |
+| | `seed-input` | a wrong seed is refused without being repeated in the error |
+| | `dispose` | disposal wipes the seed; a disposed account keeps its public key |
 | `2-accounts` | `account-lookup` | an account by its path, checked on chain |
 | | `account-recovery` | an identity's accounts, found again from the seed |
 | | `ccd-balance-reads` | CCD balances, and a missing account reported as such |
+| | `path-ranges` | account paths within Concordium's ranges; bigger numbers refused, not reduced |
 | `3-tokens` | `token-names` | how a token is named: a PLT ("UPEU") or a CIS-2 token ("cis2:…") |
 | | `token-rules` | a token's rules (paused, allow list, deny list) and an account's standing with it |
 | | `check-transfer` | every reason a transfer would be refused, before sending; agreement with the SDK's own check |

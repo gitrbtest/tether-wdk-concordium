@@ -5,7 +5,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { makeManager, KNOWN_ADDRESS } from '../helpers.mjs';
+import { makeManager, KNOWN_ADDRESS } from '../../helpers.mjs';
 
 /** A manager whose node lookups are counted (and answered with a known account). */
 function countingManager() {

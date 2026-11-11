@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DisposalError } from '@tetherto/wdk-wallet';
-import { makeManager, ACCOUNT_PATH } from '../helpers.mjs';
+import { makeManager, ACCOUNT_PATH } from '../../helpers.mjs';
 
 test('dispose zeroes the seed bytes and drops the seed', () => {
   const manager = makeManager();

@@ -2,8 +2,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { ValueError } from '@tetherto/wdk-wallet';
-import WalletManagerConcordium from '../../index.js';
-import { CONFIG, TEST_SEED } from '../helpers.mjs';
+import WalletManagerConcordium from '../../../index.js';
+import { CONFIG, TEST_SEED } from '../../helpers.mjs';
 
 test('raw seed bytes of the wrong length are refused without the seed in the message', () => {
   for (const length of [16, 32, 63]) {
