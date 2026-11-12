@@ -885,6 +885,10 @@ proof, but not as early, on import. Leaving the step out entirely does not do th
 check, which fails on a phone. The plug-in handles secrets (keys from the seed): it must be your own code, never
 something loaded from elsewhere.
 
+**A working example:** [`examples/react-native`](examples/react-native/README.md) is a small Android wallet with
+such a plug-in (Concordium's Android library in an Expo native module). It opens the provider's page in a WebView,
+catches the return address, keeps the identity in secure storage and creates an account, on testnet.
+
 ## Handling errors
 
 Every error the package throws has a name, and most have a `reason`: a short code the wallet acts on; its `message`
