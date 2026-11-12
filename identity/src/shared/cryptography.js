@@ -27,7 +27,6 @@
  *   createIdentityRecoveryRequestWithKeys(input)  the recovery request (also how ownership is checked)
  *   createCredentialPayloadNoSeed(input, expiry)  an account's credential, unsigned
  *   serializeCredentialDeploymentPayload(signatures, unsigned)   the credential as the bytes sent to the node
- *   getDeploymentDetails(signatures, unsignedCdiJson, expiry)    its readable form and transaction hash (JSON text)
  *   getVerifiablePresentation(input)              a version 0 proof (from an account)
  *   createPresentationV1(request, inputs, globalContext)        a version 1 proof (VerifiablePresentationV1.create)
  *   verifyPresentationV1(presentation, globalContext, material) checking one (VerifiablePresentationV1.verify)
@@ -39,7 +38,6 @@
  * by the chain when an account is created, and by websites when they check a proof. Nothing else can be left out.
  */
 import * as sdk from '@concordium/web-sdk';
-import { getDeploymentDetails } from '@concordium/rust-bindings/wallet';
 import { bytesToHex } from '@noble/hashes/utils';
 
 /** What a plug-in gives as verifyPresentationV1 when it cannot check proofs (see above). */
@@ -48,7 +46,7 @@ export const UNAVAILABLE = 'unavailable';
 /** The steps a plug-in may provide. */
 export const CRYPTOGRAPHY_STEPS = [
   'deriveKeys', 'createIdentityRequestWithKeys', 'createIdentityRecoveryRequestWithKeys', 'createCredentialPayloadNoSeed',
-  'serializeCredentialDeploymentPayload', 'getDeploymentDetails', 'getVerifiablePresentation', 'createPresentationV1',
+  'serializeCredentialDeploymentPayload', 'getVerifiablePresentation', 'createPresentationV1',
   'verifyPresentationV1',
 ];
 
@@ -59,7 +57,6 @@ export const sdkCryptography = Object.freeze({
   createIdentityRecoveryRequestWithKeys: (input) => sdk.createIdentityRecoveryRequestWithKeys(input),
   createCredentialPayloadNoSeed: (input, expiry) => sdk.createCredentialPayloadNoSeed(input, expiry),
   serializeCredentialDeploymentPayload: (signatures, unsigned) => sdk.serializeCredentialDeploymentPayload(signatures, unsigned),
-  getDeploymentDetails: (signatures, unsignedCdiJson, expiry) => getDeploymentDetails(signatures, unsignedCdiJson, expiry),
   getVerifiablePresentation: (input) => sdk.getVerifiablePresentation(input),
   createPresentationV1: (request, inputs, globalContext) => sdk.VerifiablePresentationV1.create(request, inputs, globalContext),
   verifyPresentationV1: (presentation, globalContext, material) => sdk.VerifiablePresentationV1.verify(presentation, globalContext, material),

@@ -337,8 +337,6 @@ export interface ConcordiumCryptography {
   createCredentialPayloadNoSeed(input: object, expiry: object): object | Promise<object>;
   /** serializeCredentialDeploymentPayload: the signed credential as the bytes sent to the node. */
   serializeCredentialDeploymentPayload(signatures: string[], unsigned: object): Uint8Array | Promise<Uint8Array>;
-  /** getDeploymentDetails (the SDK's rust bindings): the credential's readable form and transaction hash, as JSON text. */
-  getDeploymentDetails(signatures: string[], unsignedCdiJson: string, expiry: bigint): string | Promise<string>;
   /** getVerifiablePresentation: a version 0 proof (from an account). */
   getVerifiablePresentation(input: object): object | Promise<object>;
   /** VerifiablePresentationV1.create: a version 1 proof. */

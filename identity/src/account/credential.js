@@ -9,6 +9,8 @@
  * itself is never handed to the SDK.
  */
 import * as sdk from '@concordium/web-sdk';
+import { sha256 } from '@noble/hashes/sha256';
+import { bytesToHex } from '@noble/hashes/utils';
 import { asHex, wipe, sdkCryptography } from '../shared/cryptography.js';
 
 /**
@@ -40,8 +42,8 @@ export const ATTRIBUTE_NAMES = Object.keys(sdk.AttributesKeys).filter((name) => 
  * @returns {Promise<{ payload: Uint8Array, expiry: object, credInfo: object, transactionHash: string, address: string,
  *   expiryEpochSeconds: number }>}
  *   payload is the signed credential, serialized as a node takes it; expiry its expiry (the SDK's TransactionExpiry);
- *   credInfo the same credential, readable (keys, policy, proofs); transactionHash identifies it on chain (known before
- *   it is sent).
+ *   credInfo the credential, readable (keys, policy, proofs; without the signature); transactionHash identifies it on
+ *   chain (known before it is sent).
  */
 export async function buildAccountCredential({
   provider, globalContext, hdWallet, idObject, identityIndex, credNumber, revealAttributes = [], expiry, cryptography = sdkCryptography,
@@ -82,15 +84,31 @@ export async function buildAccountCredential({
   }
 
   const expiryEpochSeconds = Number(unsigned.expiry.expiryEpochSeconds);
-  const details = JSON.parse(await cryptography.getDeploymentDetails([signature], JSON.stringify(unsigned.unsignedCdi), BigInt(expiryEpochSeconds)));
+  // The credential with its signature, in the bytes a node takes (the SDK's own serializer).
+  const payload = new Uint8Array(await cryptography.serializeCredentialDeploymentPayload([signature], unsigned));
   return {
-    // The credential with its signature, in the bytes a node takes (the SDK's own serializer).
-    payload: new Uint8Array(await cryptography.serializeCredentialDeploymentPayload([signature], unsigned)),
+    payload,
     expiry: unsigned.expiry,
-    credInfo: details.credInfo,
-    transactionHash: details.transactionHash,
+    credInfo: unsigned.unsignedCdi,
+    transactionHash: credentialTransactionHash(expiryEpochSeconds, payload),
     address: sdk.getAccountAddress(unsigned.unsignedCdi.credId).toString(),
     expiryEpochSeconds,
   };
 }
 
+/**
+ * The transaction hash of a credential deployment, known before it is sent: SHA-256 of the block item, which is its
+ * kind (1, a credential deployment), its expiry (8 bytes, big-endian seconds) and the credential's bytes. The same
+ * value Concordium's SDK gives (getDeploymentDetails; a unit test compares them), worked out in plain JavaScript, so
+ * it works on phones too (the SDK's React Native build cannot pass that function its 64-bit expiry).
+ */
+export function credentialTransactionHash(expiryEpochSeconds, payload) {
+  const expiry = new Uint8Array(8);
+  let rest = expiryEpochSeconds;
+  for (let i = 7; i >= 0; i--) { expiry[i] = rest % 256; rest = Math.floor(rest / 256); }
+  const item = new Uint8Array(1 + 8 + payload.length);
+  item[0] = 1;
+  item.set(expiry, 1);
+  item.set(payload, 9);
+  return bytesToHex(sha256(item));
+}

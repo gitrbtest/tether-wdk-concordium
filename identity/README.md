@@ -868,7 +868,6 @@ a promise, as native calls do:
 | `createIdentityRecoveryRequestWithKeys(input)` | the recovery request (also the ownership check) |
 | `createCredentialPayloadNoSeed(input, expiry)` | an account's credential, unsigned |
 | `serializeCredentialDeploymentPayload(signatures, unsigned)` | the credential's bytes for the node |
-| `getDeploymentDetails(signatures, unsignedCdiJson, expiry)` | its readable form and transaction hash |
 | `getVerifiablePresentation(input)` | a version 0 proof |
 | `createPresentationV1(request, inputs, globalContext)` | a version 1 proof (`VerifiablePresentationV1.create`) |
 | `verifyPresentationV1(presentation, globalContext, material)` | checking one (`VerifiablePresentationV1.verify`) |

@@ -44,8 +44,15 @@ test('the signed credential, with the account key and nothing revealed; its byte
   assert.deepEqual(credInfo.policy.revealedAttributes, {});
   assert.equal(credInfo.policy.createdAt, idObject.attributeList.createdAt);
   assert.equal(credInfo.policy.validTo, idObject.attributeList.validTo);
-  assert.match(credInfo.proofs, /^[0-9a-f]+$/);
+  assert.equal(typeof credInfo.proofs, 'object', 'the proofs of the credential (unsigned)');
   assert.match(transactionHash, /^[0-9a-f]{64}$/);
+  // The hash, worked out in plain JavaScript, is the one Concordium's SDK gives for the signed credential (the
+  // signature is deterministic, so it can be made again here).
+  const { getDeploymentDetails } = await import('@concordium/rust-bindings/wallet');
+  const signature = await sdk.signCredentialTransaction({ unsignedCdi: credInfo, expiry: transactionExpiry },
+    hdWallet().getAccountSigningKey(0, IDENTITY_INDEX, 0).toString('hex'));
+  assert.equal(transactionHash,
+    JSON.parse(getDeploymentDetails([signature], JSON.stringify(credInfo), BigInt(expiryEpochSeconds))).transactionHash);
   assert.equal(expiryEpochSeconds, Math.floor(expiry.getTime() / 1000));
   assert.equal(Number(transactionExpiry.expiryEpochSeconds), expiryEpochSeconds);
   // The bytes sent to the node hold the same credential: its id and the account's public key.
