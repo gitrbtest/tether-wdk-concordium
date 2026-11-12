@@ -1,0 +1,26 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.concordiumnative'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.concordiumnative"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+  packaging {
+    resources {
+      excludes += ["META-INF/*"]
+    }
+  }
+}
+
+dependencies {
+  // Concordium's Java SDK for Android: its Rust cryptography, compiled for phones (libcrypto_jni.so).
+  // Needs Android 8.0 (API 26) or later: set in app.json (expo-build-properties).
+  implementation 'com.concordium.sdk:concordium-android-sdk:12.1.0'
+}

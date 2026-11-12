@@ -1,0 +1,8 @@
+# Installed and generated: recreated by npm install and npm run android
+node_modules/
+/android/
+modules/*/android/build/
+/ios/
+.expo/
+# The packed packages (npm run pack-packages)
+packages/
