@@ -37,7 +37,7 @@ import {
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
 import { listenForIdentityCallback } from '@concordium/wdk-identity-concordium/node';
-import { keepIdentity } from './kept-identities.mjs';
+import { keepIdentity } from '../terminal/kept-identities.mjs';
 import { ConcordiumGRPCNodeClient, credentials } from '@concordium/web-sdk/nodejs';
 
 // Public demonstration phrase only. Never use it for anything of value.

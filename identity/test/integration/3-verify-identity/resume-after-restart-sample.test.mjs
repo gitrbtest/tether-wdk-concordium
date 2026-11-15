@@ -1,5 +1,5 @@
 /**
- * Live (testnet), read-only: runs part 2 of the resume-after-restart sample (examples/resume-after-restart.mjs) as
+ * Live (testnet), read-only: runs part 2 of the resume-after-restart sample (examples/terminal-and-browser/resume-after-restart.mjs) as
  * a fresh start would, and reads what it prints. Part 1 needs a person to fill in the provider's page, so the test
  * gives part 2 what part 1 would have saved: the reply for the recorded identity (the public "abandon" phrase,
  * provider 0, identity 334563111), whose code_uri the testnet provider still answers. Nothing is sent to the chain
@@ -45,7 +45,7 @@ async function resume(folder) {
   const env = { ...process.env, IDENTITY_FOLDER: folder };
   delete env.SEED_PHRASE; // the sample's public demonstration phrase
   try {
-    const { stdout, stderr } = await run(process.execPath, ['examples/resume-after-restart.mjs', 'resume'], {
+    const { stdout, stderr } = await run(process.execPath, ['examples/terminal-and-browser/resume-after-restart.mjs', 'resume'], {
       cwd: packageRoot, env, timeout: 180_000,
     });
     return { ok: true, output: stdout + stderr };

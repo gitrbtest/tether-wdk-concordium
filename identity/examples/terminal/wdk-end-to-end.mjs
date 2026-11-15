@@ -31,7 +31,7 @@ import { ConcordiumGRPCNodeClient, credentials } from '@concordium/web-sdk/nodej
 // ---- Settings ---------------------------------------------------------------------------------------------
 
 // The funding account's settings, from ../.env.testnet when not given (Node.js 20.12+ reads .env files itself).
-const envFile = new URL('../../.env.testnet', import.meta.url);
+const envFile = new URL('../../../.env.testnet', import.meta.url);
 if (!process.env.FUNDING_SEED && !process.env.TESTNET_SEED && existsSync(envFile) && process.loadEnvFile) {
   process.loadEnvFile(envFile);
 }

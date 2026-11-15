@@ -18,7 +18,7 @@ identity-request.json
 .vscode
 .zprofile
 .zshrc
-# Identity demo runs (examples/verify-identity.mjs) save identities here: plain text with personal details, never commit
+# Identity demo runs (examples/terminal-and-browser/verify-identity.mjs) save identities here: plain text with personal details, never commit
 demo-identities/
-# The recovery example (examples/recover-identity.mjs) saves recovered identities here
+# The recovery example (examples/terminal/recover-identity.mjs) saves recovered identities here
 recovered-identities/

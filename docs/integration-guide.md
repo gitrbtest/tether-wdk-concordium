@@ -296,7 +296,7 @@ storage, never log it or send it to analytics or crash reports, and delete it on
 
 Samples (in `identity/`): `npm run example:verify-identity` (a desktop wallet, with the listener), and
 `npm run example:resume-after-restart`, then `npm run example:resume-after-restart -- resume`
-([`examples/resume-after-restart.mjs`](../identity/examples/resume-after-restart.mjs): verify, save the reply and
+([`examples/terminal-and-browser/resume-after-restart.mjs`](../identity/examples/terminal-and-browser/resume-after-restart.mjs): verify, save the reply and
 stop; a fresh start collects the identity). The identity walkthrough
 (`npm run identity-walkthrough` in `identity/`) shows the whole flow step by step in a browser.
 
@@ -334,7 +334,7 @@ texts and imports each one; `importIdentity` needs only the text.
   one call to the node (the network's parameters) and takes about a second.
 - **A server with many users** keeps each user's text in that user's own record, protected like the seed phrases;
   another user's seed phrase cannot use it, and deleting a user's record (and seed phrase) erases their identity. Sample: `npm run example:server-keeps-identities` in `identity/`
-([`examples/server-keeps-identities.mjs`](../identity/examples/server-keeps-identities.mjs)).
+([`examples/terminal/server-keeps-identities.mjs`](../identity/examples/terminal/server-keeps-identities.mjs)).
 
 The exact format, with a worked example: [`identity/docs/storage-format.md`](../identity/docs/storage-format.md).
 
@@ -642,7 +642,7 @@ try {
 
 A sample that makes each error of both packages happen and turns it into a message for the user, with one function
 a wallet can copy: `npm run example:handle-errors` in `identity/`
-([`examples/handle-errors.mjs`](../identity/examples/handle-errors.mjs)).
+([`examples/terminal/handle-errors.mjs`](../identity/examples/terminal/handle-errors.mjs)).
 
 ## 11. Going to mainnet
 

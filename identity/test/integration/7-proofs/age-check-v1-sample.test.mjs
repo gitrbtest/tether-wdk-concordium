@@ -1,5 +1,5 @@
 /**
- * Live (testnet), WRITE=1 only: runs the version 1 age-check sample (examples/age-check-v1.mjs) as a person would,
+ * Live (testnet), WRITE=1 only: runs the version 1 age-check sample (examples/terminal/age-check-v1.mjs) as a person would,
  * and reads what it prints. It tells us if the whole story stops working. Each run records a question on chain
  * (one anchor fee, about EUR 0.013, paid by the sponsor, account 11 of the public test phrase's identity 334563111;
  * keep it funded), so it runs only when asked:
@@ -38,7 +38,7 @@ const packageRoot = fileURLToPath(new URL('../../../', import.meta.url));
 test('the V1 age-check sample: a sponsored question, answered from the identity once, then the copy refused', { skip: !WRITE && 'set WRITE=1 to record a question on testnet' }, async () => {
   const env = { ...process.env };
   for (const name of ['SEED_PHRASE', 'SHOP_ADDRESS', 'SHOP_SIGNING_KEY', 'SPONSOR_ADDRESS', 'SPONSOR_SIGNING_KEY']) delete env[name];
-  const { stdout } = await promisify(execFile)(process.execPath, ['examples/age-check-v1.mjs'], {
+  const { stdout } = await promisify(execFile)(process.execPath, ['examples/terminal/age-check-v1.mjs'], {
     cwd: packageRoot, env, timeout: 240_000,
   });
   assert.match(stdout, /fee: [\d.]+ CCD, paid by the sponsor 4kJZHvmL…; the shop paid nothing/, 'the sponsor paid');

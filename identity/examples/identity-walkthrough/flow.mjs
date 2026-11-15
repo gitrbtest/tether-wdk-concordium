@@ -16,7 +16,7 @@ import {
 } from '@concordium/wdk-identity-concordium';
 import { IdentityStorageError } from '@concordium/wdk-identity-concordium';
 import { readFileSync } from 'node:fs';
-import { keepIdentity, keptIdentity } from '../kept-identities.mjs';
+import { keepIdentity, keptIdentity } from '../terminal/kept-identities.mjs';
 import { randomBytes, randomInt } from 'node:crypto';
 import { checkProvider } from '../../scripts/lib/provider-check.mjs';
 import WalletManagerConcordium, { CONCORDIUM_TESTNET_CONFIG } from '@concordium/wdk-wallet-concordium';

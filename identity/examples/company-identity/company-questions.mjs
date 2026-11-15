@@ -7,7 +7,7 @@
  *
  * Only an identity from a Business ID provider holds a company's details (LEI, legal name, country of registration,
  * business number, registration authority). A company answering needs a real Business ID (Global FinReg has no test
- * mode), so the answer itself is not shown here; it is made exactly as a person's answer is (see ../age-check.mjs).
+ * mode), so the answer itself is not shown here; it is made exactly as a person's answer is (see ../terminal/age-check.mjs).
  *
  * Settings (optional): SEED_PHRASE, the person wallet's seed phrase (default: a public demonstration phrase; its
  * identity 1, with provider 0, is a person's).

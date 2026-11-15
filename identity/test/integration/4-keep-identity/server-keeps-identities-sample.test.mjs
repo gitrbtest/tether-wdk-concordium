@@ -1,5 +1,5 @@
 /**
- * Live (testnet), read-only: runs the server-keeps-identities sample (examples/server-keeps-identities.mjs) as a
+ * Live (testnet), read-only: runs the server-keeps-identities sample (examples/terminal/server-keeps-identities.mjs) as a
  * server operator would, and reads what it prints. It gets one identity back from the testnet provider; nothing is
  * sent to the chain and nothing is spent, so it runs with the other live tests:
  *
@@ -33,7 +33,7 @@ const packageRoot = fileURLToPath(new URL('../../../', import.meta.url));
 test("the server-keeps-identities sample: one record per user, usable only with that user's seed phrase", async () => {
   let output;
   try {
-    const { stdout, stderr } = await promisify(execFile)(process.execPath, ['examples/server-keeps-identities.mjs'], {
+    const { stdout, stderr } = await promisify(execFile)(process.execPath, ['examples/terminal/server-keeps-identities.mjs'], {
       cwd: packageRoot, timeout: 180_000,
     });
     output = stdout + stderr;

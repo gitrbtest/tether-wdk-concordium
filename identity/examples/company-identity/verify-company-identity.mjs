@@ -4,7 +4,7 @@
  *
  *   npm run example:company-verify
  *
- * A company identity is made exactly like a person's (the same package calls; see ../verify-identity.mjs for the
+ * A company identity is made exactly like a person's (the same package calls; see ../terminal-and-browser/verify-identity.mjs for the
  * person's version): only the provider differs. At the provider's page the company verifies with its Legal Entity
  * Identifier (LEI), its company documents, and the ID of the person signing for it. Global FinReg has no test mode, so
  * finishing needs a real company; without one, this sample shows everything up to that page. Global FinReg's page asks
@@ -23,7 +23,7 @@ import {
 } from '@concordium/wdk-identity-concordium';
 import { listenForIdentityCallback } from '@concordium/wdk-identity-concordium/node';
 import { ConcordiumGRPCNodeClient, credentials } from '@concordium/web-sdk/nodejs';
-import { keepIdentity } from '../kept-identities.mjs';
+import { keepIdentity } from '../terminal/kept-identities.mjs';
 
 // Public demonstration phrase only. Never use it for anything of value.
 const DEMO_PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';

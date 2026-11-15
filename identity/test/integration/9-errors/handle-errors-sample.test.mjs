@@ -1,5 +1,5 @@
 /**
- * Live (testnet), read-only: runs the handle-errors sample (examples/handle-errors.mjs) and reads what it prints.
+ * Live (testnet), read-only: runs the handle-errors sample (examples/terminal/handle-errors.mjs) and reads what it prints.
  * It tells us if an error stops having the name and reason a wallet acts on (the tables in chapter 10 of the
  * integration guide), or stops being refused before anything is sent. Every call in the sample is refused before
  * sending, so it runs with the other live tests:
@@ -51,7 +51,7 @@ const EXPECTED = [
 test('the handle-errors sample: every error has its name and reason, and a message for the user', async () => {
   let output;
   try {
-    const { stdout, stderr } = await promisify(execFile)(process.execPath, ['examples/handle-errors.mjs'], {
+    const { stdout, stderr } = await promisify(execFile)(process.execPath, ['examples/terminal/handle-errors.mjs'], {
       cwd: packageRoot, timeout: 180_000,
     });
     output = stdout + stderr;

@@ -1,5 +1,5 @@
 /**
- * Talking to the testnet node through the wallet package, carefully (as in examples/wdk-end-to-end.mjs): the node
+ * Talking to the testnet node through the wallet package, carefully (as in examples/terminal/wdk-end-to-end.mjs): the node
  * can be briefly unavailable, so reads are retried; a transfer is never sent twice; each fee is checked against the
  * sender's CCD before sending.
  */

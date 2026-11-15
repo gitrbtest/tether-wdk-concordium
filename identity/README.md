@@ -34,6 +34,7 @@ chooses an identity provider, verifies once on the provider's page, and comes ba
 and a new Concordium account, inside the same wallet. No second app, no fee for the account; and a sponsor
 can pay their first transaction fees, so they can move tokens before owning any CCD.
 Try it: `npm run identity-walkthrough` (a step-by-step page in your browser; see [the identity walkthrough](examples/identity-walkthrough/)).
+All the examples, grouped by how you run them (terminal, terminal and browser, web page, phone app): [examples/README.md](examples/README.md).
 
 **A new phone, and nothing lost.** A user drops their phone in the sea. On the new one, they type their seed
 phrase, and the wallet asks the identity providers for their identities and the chain for their accounts:
@@ -352,12 +353,12 @@ const account = await wallet.getAccountByPath(path);
 - **No fee:** creating an account is free on Concordium; the new account starts with a balance of 0.
 
 A runnable example on testnet, using an identity exported by `npm run example:verify-identity`:
-`npm run example:create-account` (`examples/create-account.mjs`; `IDENTITY_INDEX` and `CRED_NUMBER` choose the
+`npm run example:create-account` (`examples/terminal/create-account.mjs`; `IDENTITY_INDEX` and `CRED_NUMBER` choose the
 identity and the account). It prints the address, the `path`, and a link to the account on CCDScan,
 Concordium's testnet explorer.
 
 The whole story with the wallet package, on testnet: `npm run example:wdk-end-to-end`
-(`examples/wdk-end-to-end.mjs`). It creates an account from the exported identity, hands it to
+(`examples/terminal/wdk-end-to-end.mjs`). It creates an account from the exported identity, hands it to
 `@concordium/wdk-wallet-concordium` with `getAccountByPath(path)`, receives CCD, a protocol-level token (TN) and a
 CIS-2 token from a funding account, sends some of each back with the fee quoted first, and has a second new
 account, holding no CCD, send a token to the first, its fee paid by a sponsor (three roles: sender,
@@ -492,7 +493,7 @@ would otherwise silently reduce some of them to another identity's or account's 
 
 ### Try it
 
-`npm run example:recover-identity` (`examples/recover-identity.mjs`), read-only on testnet: a "new phone"
+`npm run example:recover-identity` (`examples/terminal/recover-identity.mjs`), read-only on testnet: a "new phone"
 with only the public test phrase recovers its identities with `recoverAll`, saves them, finds their
 accounts and reads their balances through the wallet package. Because that phrase is public and shared,
 it may also find identities other people made with it (one is shown as expired).
@@ -637,7 +638,7 @@ Reasons `checkPresentation` returns for a refused answer (in `result.reasons`, e
 
 ### Try it
 
-`npm run example:age-check` (`examples/age-check.mjs`), read-only on testnet: both sides in one run. A
+`npm run example:age-check` (`examples/terminal/age-check.mjs`), read-only on testnet: both sides in one run. A
 shop asks "over 18?"; a "new phone" with only the public test phrase recovers its identities, skips an
 expired one, and answers with an account that can; the shop checks the answer against the chain, then
 refuses the same answer sent a second time.
@@ -760,7 +761,7 @@ comparison, so an answer to another question with the same statements is accepte
 
 #### Try it (version 1)
 
-`npm run example:age-check-v1` (`examples/age-check-v1.mjs`) on testnet: both sides in one run. A shop whose
+`npm run example:age-check-v1` (`examples/terminal/age-check-v1.mjs`) on testnet: both sides in one run. A shop whose
 account has never held CCD asks "over 18?", and its sponsor pays the fee (**each run spends one anchor fee**, about
 5 testnet CCD, from the sample's sponsor account); a "new phone" with only the public test phrase recovers its
 identities, skips the expired one, and answers from the other identity, with no account; the shop checks the
@@ -937,7 +938,7 @@ read the request shows an error page and never sends the browser back, so give
 the user a way to cancel.
 
 A runnable example of the whole flow on testnet, saving the identity in `./demo-identities` (a plain file, for its
-test identities only: a real wallet keeps it in secure storage): `npm run example:verify-identity` (`examples/verify-identity.mjs`; set
+test identities only: a real wallet keeps it in secure storage): `npm run example:verify-identity` (`examples/terminal-and-browser/verify-identity.mjs`; set
 `OPEN_BROWSER=1` to open the verification page for you). Load it again in a new program with
 `npm run example:load-identity`.
 
