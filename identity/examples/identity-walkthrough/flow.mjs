@@ -1,5 +1,5 @@
 /**
- * The demo wallet's story, step by step, using the two packages exactly as the samples do. Each step updates the
+ * The identity walkthrough's story, step by step, using the two packages exactly as the samples do. Each step updates the
  * shared `state` (what the page draws: never a seed or a key); long steps run in the background and report their
  * progress there, so the page only has to redraw.
  *

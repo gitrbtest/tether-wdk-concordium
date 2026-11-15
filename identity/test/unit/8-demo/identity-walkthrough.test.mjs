@@ -1,5 +1,5 @@
 /**
- * The demo wallet's local server (examples/demo-wallet): it serves the page with its token, answers the API only
+ * The identity walkthrough's local server (examples/identity-walkthrough): it serves the page with its token, answers the API only
  * with that token, only on its own address, and never puts a seed in what it sends. On a real socket on 127.0.0.1;
  * skipped when no local socket can be opened (CI's network-off run). No external services.
  */
@@ -7,8 +7,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, request as httpRequest } from 'node:http';
 import { join } from 'node:path';
-import { startDemoServer } from '../../../examples/demo-wallet/server.mjs';
-import { readSettings, DEMO_PHRASE } from '../../../examples/demo-wallet/settings.mjs';
+import { startDemoServer } from '../../../examples/identity-walkthrough/server.mjs';
+import { readSettings, DEMO_PHRASE } from '../../../examples/identity-walkthrough/settings.mjs';
 
 /** Whether a socket can be opened on 127.0.0.1 here, and reached. */
 const canListen = await new Promise((resolve) => {
@@ -118,7 +118,7 @@ async function withRecordedDemo(changes, run) {
   const issued = () => JSON.parse(readFileSync(new URL('../../fixtures/identity-done.testnet.json', import.meta.url), 'utf8'));
   const { fetch: recorded } = walletProxyFetch('testnet');
   const fetch = async (url, options) => (url === CODE_URI ? { ok: true, status: 200, json: async () => issued() } : recorded(url, options));
-  const storeFolder = mkdtempSync(join(tmpdir(), 'demo-wallet-test-'));
+  const storeFolder = mkdtempSync(join(tmpdir(), 'identity-walkthrough-test-'));
   const settings = { ...readSettings({}), identityIndex: RECORDED_IDENTITY, identityFolder: storeFolder, ...changes };
   const { recordedNode } = await import('../../helpers.mjs');
   const demo = await startDemoServer({ settings, port: 0, fetch, node: recordedNode('testnet'), checkProviders: false });
@@ -247,7 +247,7 @@ async function withIdentityReady(env, run) {
     if (url === CODE_URI) return json(issued());
     return recorded(url, options); // the provider list; the account is checked and created through the pretend node
   };
-  const storeFolder = mkdtempSync(join(tmpdir(), 'demo-wallet-test-'));
+  const storeFolder = mkdtempSync(join(tmpdir(), 'identity-walkthrough-test-'));
   const wallet = fakeWalletPackage();
   // A fresh identity (verified below), whatever the env says about reusing one.
   const settings = { ...readSettings(env), identityIndex: RECORDED_IDENTITY, reuseIdentity: false, identityFolder: storeFolder };
@@ -402,7 +402,7 @@ test('step 6b: the sponsored send can be run again; account 1 is reused, the box
 // ---- Piece 5: the story (approved wording), "Show the code", Start again ----------------------------------------
 
 test('the story: an opening card, a caption for every step, a closing card', async () => {
-  const { openingCard, closingCard, captionFor, codeFor, STEPS_WITH_CAPTIONS } = await import('../../../examples/demo-wallet/public/story.js');
+  const { openingCard, closingCard, captionFor, codeFor, STEPS_WITH_CAPTIONS } = await import('../../../examples/identity-walkthrough/public/story.js');
   const opening = openingCard({ reuseIdentity: false, identityIndex: 5 });
   for (const words of ['Phase 1 brought Concordium', 'The gap:', 'Phase 2 closes that gap', 'data-action="start"']) assert.ok(opening.includes(words), words);
   const closing = closingCard();
@@ -438,7 +438,7 @@ test('Start again: back to the beginning with a fresh identity; a reused identit
 }));
 
 test('Show the code, step 6: what happened is marked done, with its values; what has not is marked not used yet', async () => {
-  const { codeFor } = await import('../../../examples/demo-wallet/public/story.js');
+  const { codeFor } = await import('../../../examples/identity-walkthrough/public/story.js');
   const base = { step: 'funded', identityIndex: 1, balances: { text: { ccd: '40.000000 CCD', plt: '5.000000 TN', cis2: '500 units' } } };
   const fresh = codeFor(base);
   assert.match(fresh, /Under the hood · Steps 6 and 6b/);
@@ -489,7 +489,7 @@ test("step 3b: a restart imports it back; another wallet's seed phrase is refuse
 }));
 
 test('step 3b: its caption and its "Show the code" panel, with this run\'s values', async () => {
-  const { captionFor, codeFor } = await import('../../../examples/demo-wallet/public/story.js');
+  const { captionFor, codeFor } = await import('../../../examples/identity-walkthrough/public/story.js');
   const run = {
     step: 'identity', identityIndex: 42, identity: { providerIndex: 0 },
     storage: { kept: { characters: 18600 }, result: { outcome: 'imported', validTo: '202709' } },

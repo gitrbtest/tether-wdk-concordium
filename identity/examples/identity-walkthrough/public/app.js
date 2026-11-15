@@ -1,4 +1,4 @@
-// The demo wallet page: draws the server's state and sends the clicks. It never sees a seed or a key.
+// The identity walkthrough page: draws the server's state and sends the clicks. It never sees a seed or a key.
 
 import { openingCard, closingCard, captionFor, codeFor } from './story.js';
 
@@ -7,7 +7,7 @@ const token = document.querySelector('meta[name="demo-token"]').content;
 // The header switches: story mode (captions; on by default) and "Show the code" (off by default), remembered in this
 // browser when it allows it.
 const prefs = { story: true, code: false };
-try { Object.assign(prefs, JSON.parse(localStorage.getItem('demo-wallet-prefs') ?? '{}')); } catch { /* not stored: defaults */ }
+try { Object.assign(prefs, JSON.parse(localStorage.getItem('identity-walkthrough-prefs') ?? '{}')); } catch { /* not stored: defaults */ }
 let closing = false; // the closing card, shown by [Finish]
 const app = document.getElementById('app');
 
@@ -378,7 +378,7 @@ app.addEventListener('click', async (event) => {
       // Building the identity request takes a few seconds: say so in the new tab rather than leave it blank.
       tab?.document.write('<!doctype html><title>Opening the identity provider…</title>'
         + '<h1>Preparing your identity request…</h1>'
-        + '<p>The identity provider\'s page opens here in a few seconds. Fill in its form, then go back to the demo wallet tab.</p>');
+        + '<p>The identity provider\'s page opens here in a few seconds. Fill in its form, then go back to the identity walkthrough tab.</p>');
       tab?.document.close();
       const { issuanceUrl } = await api('/api/verify', { method: 'POST', body: { providerIndex: Number(button.dataset.provider) } });
       verifyLink = issuanceUrl;
@@ -397,7 +397,7 @@ for (const [id, key] of [['story-mode', 'story'], ['show-code', 'code']]) {
   box.checked = prefs[key];
   box.addEventListener('change', () => {
     prefs[key] = box.checked;
-    try { localStorage.setItem('demo-wallet-prefs', JSON.stringify(prefs)); } catch { /* fine: this session only */ }
+    try { localStorage.setItem('identity-walkthrough-prefs', JSON.stringify(prefs)); } catch { /* fine: this session only */ }
     lastDrawn = '';
     refresh();
   });

@@ -12,7 +12,7 @@
  *
  * How the identities are found: a wallet numbers its identities with each provider 0, 1, 2 …, so recoverAll
  * counts 0, 1, 2 … with every provider (stopping after a few numbers in a row with none). Identities given
- * other numbers, such as the demo wallet's random ones, are not found by counting; recoverIdentity gets one
+ * other numbers, such as the identity walkthrough's random ones, are not found by counting; recoverIdentity gets one
  * of those back by its number.
  *
  * The default phrase is public and shared, so identities found with it may have been made by other people.

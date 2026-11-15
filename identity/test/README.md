@@ -48,7 +48,7 @@ the chain by a pretend node (`helpers.mjs`).
 | | `website-checks-account-proof` | the website checks a version 0 answer |
 | | `website-asks-and-checks-v1` | the website asks a version 1 question (anchored, optionally sponsored) and checks the answer |
 | | `compatibility-with-concordium-apps` | Concordium's own example shops' questions, answered and accepted |
-| `8-demo` | `demo-wallet` | the demo wallet's local server and its steps |
+| `8-demo` | `identity-walkthrough` | the identity walkthrough's local server and its steps |
 
 ## Live tests (`integration/`): on testnet
 

@@ -353,7 +353,7 @@ export default class ConcordiumIdentity {
    * If one provider cannot be asked (it is down, or refuses), that is noted in `problems` and the others
    * are still asked, so nothing found is lost. Cancelling (`signal`) stops everything.
    *
-   * Identities made with unusual identity numbers (far apart, or random as in the demo wallet) cannot be
+   * Identities made with unusual identity numbers (far apart, or random as in the identity walkthrough) cannot be
    * found by counting 0, 1, 2 …; recover those with recoverIdentity and their number.
    *
    * @param {object} [options]

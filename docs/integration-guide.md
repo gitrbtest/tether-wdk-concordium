@@ -297,8 +297,8 @@ storage, never log it or send it to analytics or crash reports, and delete it on
 Samples (in `identity/`): `npm run example:verify-identity` (a desktop wallet, with the listener), and
 `npm run example:resume-after-restart`, then `npm run example:resume-after-restart -- resume`
 ([`examples/resume-after-restart.mjs`](../identity/examples/resume-after-restart.mjs): verify, save the reply and
-stop; a fresh start collects the identity). The demo wallet
-(`npm run demo-wallet` in `identity/`) shows the whole flow step by step in a browser.
+stop; a fresh start collects the identity). The identity walkthrough
+(`npm run identity-walkthrough` in `identity/`) shows the whole flow step by step in a browser.
 
 ## 4. Keep it
 

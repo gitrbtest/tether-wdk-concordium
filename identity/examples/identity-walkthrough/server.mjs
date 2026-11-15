@@ -1,8 +1,8 @@
 /**
- * The demo wallet: a small local web server that tells the whole story in the browser, one click per step.
+ * The identity walkthrough: a small local web server that tells the whole story in the browser, one click per step.
  * The page (public/) is only the screen; this server does the work with the two packages, as the samples do.
  *
- *   npm run demo-wallet          (from the identity folder; opens the page in the default browser)
+ *   npm run identity-walkthrough          (from the identity folder; opens the page in the default browser)
  *
  * Safety: it listens on 127.0.0.1 only and checks the Host header, so other machines (and DNS tricks) cannot
  * reach it; every /api call needs a random token that only the real page has, sent as a custom header, which
@@ -166,13 +166,13 @@ function openBrowser(url) {
   } catch { /* the printed address is enough */ }
 }
 
-// ---- Run directly: npm run demo-wallet ----------------------------------------------------------------------
+// ---- Run directly: npm run identity-walkthrough ----------------------------------------------------------------------
 
 if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
   const settings = readSettings();
   try {
     const demo = await startDemoServer({ settings });
-    console.log('Concordium demo wallet (testnet, public test seed)');
+    console.log('Concordium identity walkthrough (testnet, public test seed)');
     console.log(`  open: ${demo.url}`);
     console.log(`  funding: ${settings.funding ? 'a funding account is configured' : 'none (receive and send steps will ask for testnet CCD)'}`);
     console.log('  stop: Ctrl+C');
@@ -181,7 +181,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     if (e.code === 'EADDRINUSE') {
       console.error(`Port ${settings.port} is already in use. Choose another, e.g. PORT=4322 (macOS / Linux) or $env:PORT=4322 (PowerShell).`);
     } else {
-      console.error(`Could not start the demo wallet: ${e.message}`);
+      console.error(`Could not start the identity walkthrough: ${e.message}`);
     }
     process.exitCode = 1;
   }

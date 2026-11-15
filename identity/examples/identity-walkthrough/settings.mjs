@@ -1,5 +1,5 @@
 /**
- * The demo wallet's settings, from environment variables (all optional):
+ * The identity walkthrough's settings, from environment variables (all optional):
  *   PORT            the local port (default 4321; the provider sends the browser back to it)
  *   IDENTITY_INDEX  reuse an identity kept earlier instead of verifying a fresh one (default: a new random index)
  *   PROVIDER_INDEX  the provider of that kept identity (default 0, the Concordium testnet identity provider)

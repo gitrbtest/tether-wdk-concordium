@@ -33,7 +33,7 @@ WDK already holds stablecoins on several chains. With this package, a new user w
 chooses an identity provider, verifies once on the provider's page, and comes back to a verified identity
 and a new Concordium account, inside the same wallet. No second app, no fee for the account; and a sponsor
 can pay their first transaction fees, so they can move tokens before owning any CCD.
-Try it: `npm run demo-wallet` (a step-by-step page in your browser; see [the demo wallet](examples/demo-wallet/)).
+Try it: `npm run identity-walkthrough` (a step-by-step page in your browser; see [the identity walkthrough](examples/identity-walkthrough/)).
 
 **A new phone, and nothing lost.** A user drops their phone in the sea. On the new one, they type their seed
 phrase, and the wallet asks the identity providers for their identities and the chain for their accounts:
@@ -466,7 +466,7 @@ found by asking its recovery address as `recoverAll` does) and `nextCredNumber({
 
 Recovery finds identities by counting, so give each provider's identities the numbers 0, 1, 2 … in order,
 and accounts 0, 1, 2 … under each identity (the two helpers do exactly that). A wallet that does so gets everything back with `recoverAll`
-alone. An identity given a number far from the others (for example a random one, as the demo wallet does
+alone. An identity given a number far from the others (for example a random one, as the identity walkthrough does
 on its shared test phrase) is not found by counting; `recoverIdentity` with its number still gets it back.
 If your app leaves bigger gaps (an identity started but never finished, accounts skipped), raise
 `identityGap` or `accountGap`. Keep your own list of the numbers you use.

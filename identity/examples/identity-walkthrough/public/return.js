@@ -12,12 +12,12 @@ try {
   });
   const reply = await response.json();
   if (!response.ok) throw new Error(reply.error ?? `HTTP ${response.status}`);
-  message.textContent = 'Done. The demo wallet is collecting your identity; this tab will close.';
+  message.textContent = 'Done. The identity walkthrough is collecting your identity; this tab will close.';
   setTimeout(() => window.close(), 1500); // works for the tab the demo page opened
   // A tab the page did not open (e.g. from the "open the provider's page" link) cannot close itself.
   setTimeout(() => {
-    message.textContent = 'Done. You can close this tab and go back to the demo wallet tab.';
+    message.textContent = 'Done. You can close this tab and go back to the identity walkthrough tab.';
   }, 3000);
 } catch (e) {
-  message.textContent = `The demo wallet could not take the reply: ${e.message}`;
+  message.textContent = `The identity walkthrough could not take the reply: ${e.message}`;
 }
