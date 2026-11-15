@@ -59,14 +59,14 @@ try {
     //    is allowed, and asks the chain whether this account already exists (then it just returns it, sending
     //    nothing). Otherwise it builds the account's "credential" from the identity: the new account's public key
     //    plus mathematical proofs that a provider verified this person. The identity itself and the person's
-    //    details are NOT sent. It sends that through the wallet-proxy and waits until the chain has accepted it
-    //    for good ("final"). Creating an account is free.
+    //    details are NOT sent. It sends that to a Concordium node (the wallet's own node connection) and waits until
+    //    the chain has accepted it for good ("final"). Creating an account is free.
     // Which account: the one given, or the next new one (nextCredNumber asks the chain which accounts this
     // identity already has, so a new account never lands on an existing one).
     const credNumber = process.env.CRED_NUMBER !== undefined
       ? Number(process.env.CRED_NUMBER)
       : await identity.nextCredNumber({ providerIndex, identityIndex });
-    console.log(`2. Create account ${credNumber} on testnet (sent through the wallet-proxy; usually a few seconds)`);
+    console.log(`2. Create account ${credNumber} on testnet (sent to the node; usually a few seconds)`);
     const started = Date.now();
     const account = await identity.createAccount({ providerIndex, identityIndex, credNumber });
     const seconds = ((Date.now() - started) / 1000).toFixed(1);
