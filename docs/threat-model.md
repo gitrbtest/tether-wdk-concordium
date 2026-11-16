@@ -53,13 +53,13 @@ takes keys as text, which cannot be wiped. Zeroing reduces how long secrets are 
 | Threat | Defence | Left to the wallet / website |
 | --- | --- | --- |
 | the wallet answers something untrue | the wallet refuses, before building anything, if the identity has expired, its provider is not accepted, or its details do not satisfy the question (`cannot-prove`, `provider-not-accepted`, `identity-expired`) | — |
-| the website learns more than agreed | only what the question asks is proven or shown; a version 1 answer does not even name the account | show `describeProofRequest` (and, for version 1, `describeProofContext`) and get the user's agreement first |
-| a copied answer is reused, at the same or another website | each answer is tied to its question: a fresh random challenge (version 0), or the question's anchor on chain and its nonce (version 1); the website's check refuses an answer to another question | the website accepts **one answer per question** and uses a fresh question every time |
+| the website learns more than agreed | only what the question asks is proven or shown; an answer from the identity does not even name an account | show `describeProofRequest` and `describeProofContext` and get the user's agreement first |
+| a copied answer is reused, at the same or another website | each answer is tied to its question: the question's anchor on chain and its fresh random nonce; the website's check refuses an answer to another question | the website accepts **one answer per question** and uses a fresh question every time |
 | an answer to an easier question is passed off ("over 5" for "over 18") | the website's check compares exactly the statements asked | — |
 | an expired or revoked identity still answers | the website's check refuses an identity that is no longer Active on chain | a website checking answers another way must check the status itself |
-| a version 1 question is changed after it was recorded | the wallet checks the anchor on chain records exactly this question (`anchor-mismatch`) | do not answer |
-| a website pretends to be another one (version 1) | the website's name in the question is the website's own claim, fixed by the anchor but not verified | compare it with the site the wallet is actually connected to |
-| Concordium's SDK accepts an answer it should not | `checkPresentationV1` does its own context check: in SDK 12.0.2, `VerificationAuditRecordV1.createChecked` does not wait for its context comparison and accepts an answer to another question with the same statements; the package does not use it | websites using `createChecked` directly should not rely on it until it is fixed |
+| a question is changed after it was recorded | the wallet checks the anchor on chain records exactly this question (`anchor-mismatch`) | do not answer |
+| a website pretends to be another one | the website's name in the question is the website's own claim, fixed by the anchor but not verified | compare it with the site the wallet is actually connected to |
+| Concordium's SDK accepts an answer it should not | `checkPresentation` does its own context check: in SDK 12.0.2, `VerificationAuditRecordV1.createChecked` does not wait for its context comparison and accepts an answer to another question with the same statements; the package does not use it | websites using `createChecked` directly should not rely on it until it is fixed |
 
 ### The return from the provider
 

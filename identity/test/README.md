@@ -42,12 +42,10 @@ the chain by a pretend node (`helpers.mjs`).
 | | `sending-to-the-chain` | sending it to the node, and every way that can end |
 | | `account-creation` | creating an account from the identity: the checks first, "already exists", the result |
 | `6-recovery` | `recovery` | a new phone: the identities back from the providers, their accounts from the chain |
-| `7-proofs` | `questions` | a website's question: building it, reading it, the consent wording (both versions) |
-| | `wallet-proves-from-account` | the wallet answers from an account (version 0) |
-| | `wallet-proves-from-identity` | the wallet answers from the identity itself, after checking the anchor (version 1) |
-| | `website-checks-account-proof` | the website checks a version 0 answer |
-| | `website-asks-and-checks-v1` | the website asks a version 1 question (anchored, optionally sponsored) and checks the answer |
-| | `compatibility-with-concordium-apps` | Concordium's own example shops' questions, answered and accepted |
+| `7-proofs` | `questions` | a website's question: building it, reading it, the consent wording |
+| | `wallet-proves-from-account` | the wallet answers from one of the identity's accounts, after checking the anchor |
+| | `wallet-proves-from-identity` | the wallet answers from the identity itself, after checking the anchor |
+| | `website-asks-and-checks` | the website asks a question (anchored, optionally sponsored) and checks the answer, from the identity or an account |
 | `8-demo` | `identity-walkthrough` | the identity walkthrough's local server and its steps |
 
 ## Live tests (`integration/`): on testnet
@@ -61,9 +59,6 @@ the chain by a pretend node (`helpers.mjs`).
 | `3-verify-identity` | `resume-after-restart-sample` | the resume sample, part 2: a fresh start collects the identity from the saved reply |
 | `4-keep-identity` | `server-keeps-identities-sample` | the server sample: one record per user, readable only with that user's seed phrase |
 | `6-recovery` | `recover-identity` | the recorded identity comes back from the testnet provider |
-| `7-proofs` | `website-checks-account-proof` | a version 0 answer checked against the chain |
-| | `compatibility-with-concordium-apps` | Concordium's reward shop's question, answered and accepted on chain |
-| | `v1-round-trip` | a version 1 question recorded on chain once, answered and checked (**WRITE=1**: a fresh one) |
-| | `age-check-sample` | the age-check sample, run as a person would |
-| | `age-check-v1-sample` | **WRITE=1**: the version 1 age-check sample |
+| `7-proofs` | `round-trip` | a question recorded on chain once, answered from the identity and checked (**WRITE=1**: a fresh one, and one answered from an account) |
+| | `age-check-sample` | **WRITE=1**: the age-check sample, run as a person would |
 | `9-errors` | `handle-errors-sample` | the errors sample: every error with its name and reason, refused before anything is sent |

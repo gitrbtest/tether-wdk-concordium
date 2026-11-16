@@ -164,7 +164,7 @@ const identity = new ConcordiumIdentity(seedPhrase, config, { cryptography: nati
 
 | Step | Runs in |
 | --- | --- |
-| keys from the seed phrase, the identity and recovery requests, the account's credential, version 0 and version 1 proofs | Concordium's Android library |
+| keys from the seed phrase, the identity and recovery requests, the account's credential, proofs (from the identity or an account) | Concordium's Android library |
 | signing the credential, its bytes for the node, its transaction hash | JavaScript (quick anywhere) |
 | checking the provider's signature on the identity | **not on the phone**: the Android library has no way to check it yet (`SIGNATURE_CHECK_UNAVAILABLE`). The chain checks it when an account is created, and so does a website when it checks a proof. The check that the identity was issued to this wallet's key still runs. |
 

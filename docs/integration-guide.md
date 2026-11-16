@@ -423,17 +423,15 @@ asks a question ─────────────────────�
 checks the answer against the chain ◄─────── answers with a proof
 ```
 
-There are two versions of questions, both Concordium's own formats. **Concordium recommends version 1 for new
-integrations**: the answer comes from the identity itself, and the question is recorded on chain (its "anchor").
-Version 0 is the earlier format, which existing websites still use; the package answers and checks both.
+The questions and answers are in Concordium's own format (its version 1 proofs). The website first records its
+question on chain (its "anchor", a small fee, about EUR 0.013, which a sponsor can pay for it). The question says
+where the answer may come from:
 
-| | Version 1 (recommended) | Version 0 (earlier) |
-| --- | --- | --- |
-| The answer comes from | the identity itself | one of the user's accounts |
-| The user needs an account | no | yes |
-| The website learns which account | no | yes |
-| The website pays | about EUR 0.013 per question, to record it on chain (or a sponsor pays) | nothing |
-| Supported by | Concordium's browser wallet and SDK | WalletConnect's Concordium request, Concordium's example apps, Concordium's browser wallet |
+| The answer comes from | The user needs an account | The website learns which account | Used for, for example |
+| --- | --- | --- | --- |
+| the identity itself | no | no (only the identity provider) | "over 18?" at a shop |
+| one of the user's accounts | yes, on chain | yes | an exchange checking that the account a withdrawal goes to is the user's |
+| either | no | only if the wallet answers from an account | the wallet chooses |
 
 ### The wallet's side
 
@@ -447,20 +445,21 @@ import { describeProofRequest, describeProofContext } from '@concordium/wdk-iden
 
 // 1. The consent screen: what will be proven or shown, in plain English.
 describeProofRequest(question);
-// → [{ providers: [0, 1, 2], asks: [{ text: 'prove you were born before 9 Nov 2008 (at least 18 years old), without showing your date of birth' }] }]
-// For a version 1 question, also: who is asking. Compare `website` with the site the wallet is connected to.
+// → [{ providers: [0, 1, 2], network: 'testnet', answerFrom: 'identity',
+//      asks: [{ text: 'prove you were born before 9 Nov 2008 (at least 18 years old), without showing your date of birth' }] }]
+// And who is asking. Compare `website` with the site the wallet is connected to.
 describeProofContext(question);   // → { website: 'shop.example', purpose: 'age check', … }
 
-// 2a. Version 1 (recommended): answer from the identity itself. The package first checks the question's anchor on
-//     chain records exactly this question.
-const answer = await identity.proveIdentity({ providerIndex, identityIndex, request: question });
-// send back: JSON.stringify(answer)
+// 2. Answer. The package first checks that the question's anchor on chain records exactly this question.
+//    answerFrom 'identity' (or 'identity or account'): from the identity itself, no account named.
+const answer = await identity.prove({ providerIndex, identityIndex, request: question });
 
-// 2b. Version 0 (earlier format): find an account that can truly answer, and answer from it.
-const accounts = await identity.accountsThatCanAnswer({ providerIndex, identityIndex, ...question });
+//    answerFrom 'account' (or 'identity or account'): find an account that can truly answer, and answer from it.
+const accounts = await identity.accountsThatCanAnswer({ providerIndex, identityIndex, request: question });
 if (accounts.length === 0) { /* this identity cannot answer truthfully: tell the user, and decline */ }
-const answerV0 = await identity.prove({ providerIndex, identityIndex, credNumber: accounts[0].credNumber, ...question });
-// send back: answerV0.toString() (WalletConnect: { verifiablePresentationJson: answerV0.toString() })
+const fromAccount = await identity.prove({ providerIndex, identityIndex, request: question, credNumber: accounts[0].credNumber });
+
+// send back: JSON.stringify(answer)
 ```
 
 The wallet **never makes a false answer**: it refuses before building anything if the identity has expired, the
@@ -471,11 +470,11 @@ website does not accept its provider, or its details do not satisfy the question
 The website (the shop, the bank, …) asks the question and checks the answer, on its own server. It does not use WDK,
 a seed phrase or an identity: it uses a separate entry point of the identity package made for websites,
 `@concordium/wdk-identity-concordium/verify` (install the identity package as in chapter 2), and its own connection
-to a Concordium node. For version 1, the website also needs a Concordium account to record its questions from, and
-optionally a sponsor account that pays the fee for it:
+to a Concordium node. It also needs a Concordium account to record its questions from, and optionally a sponsor
+account that pays the fee for it:
 
 ```js
-import { requestForV1, checkPresentationV1, connectToNode } from '@concordium/wdk-identity-concordium/verify';
+import { requestFor, checkPresentation, connectToNode } from '@concordium/wdk-identity-concordium/verify';
 import { buildBasicAccountSigner } from '@concordium/web-sdk';
 
 const node = connectToNode('testnet');   // Concordium's public testnet node (or the address of your own node)
@@ -484,50 +483,38 @@ const sponsor = { address: SPONSOR_ADDRESS, signer: buildBasicAccountSigner(SPON
 
 // 1. Build the question and record it on chain (it waits until the record is final, a few seconds). Keep it on your
 //    server, and send it to the wallet (as in "The wallet's side" above).
-const question = await requestForV1(
+const question = await requestFor(
   { network: 'testnet', website: 'shop.example', purpose: 'age check', providers: [0, 1, 2], adult: true },
+  // answerFrom: 'account' (or 'either') to accept answers from an account; the default is 'identity'
   { node, sender: shop.address, signer: shop.signer, sponsor },
 );
 
 // 2. When the wallet's answer arrives: accept only one answer per question, then check it against the chain.
 if (await myDatabase.wasAnswered(question.transactionRef)) throw new Error('This question was already answered.');
-const result = await checkPresentationV1(answer, question, { node, network: 'testnet' });
+const result = await checkPresentation(answer, question, { node, network: 'testnet' });
 await myDatabase.markAnswered(question.transactionRef, result.auditRecord);   // myDatabase: your server's own storage
 
 if (result.ok) {
-  // accepted: result.revealed holds any details the question asked to see; keep result.auditRecord (the question
-  // and the answer) as your record of the check
+  // accepted: result.revealed holds any details the question asked to see; result.credentials[0].account the
+  // account that answered, if one did; keep result.auditRecord (the question and the answer) as your record
 } else {
   // refused: result.reasons says why (for example an answer to another question, or an expired identity)
 }
 ```
 
-`checkPresentationV1` checks that the answer is for this exact question (tied to its record on chain), from a
+`checkPresentation` checks that the answer is for this exact question (tied to its record on chain), from a
 provider you trust, on the right network, from an identity still valid on chain, and that the proof's maths holds. A
 refused answer is not an error: `ok` is `false`, with the reasons. What it cannot do for you:
 
 - **accept one answer per question**: remember the questions answered (by `question.transactionRef`, the reference of
   its record on chain) where all your servers can see them, so a copied answer cannot be used twice;
-- **ask a fresh question each time**: call `requestForV1` for every check; each question it builds is unique;
+- **ask a fresh question each time**: call `requestFor` for every check; each question it builds is unique;
 - **keep only what you need** from the result, and keep your account's signing key as a secret.
-
-**Version 0** (the earlier format) works the same way with `requestFor` and `checkPresentation`, and costs nothing: the
-question is not recorded on chain, so no account is needed. Use it for wallets that only answer version 0 questions:
-
-```js
-import { requestFor, checkPresentation } from '@concordium/wdk-identity-concordium/verify';
-
-const question = requestFor({ providers: [0, 1, 2], adult: true });   // no network call
-// … send it, receive the answer; accept one answer per question, by question.challenge …
-const result = await checkPresentation(answer, question, { node, network: 'testnet' });
-// result.ok; result.account is the account that answered; result.revealed; result.reasons
-```
 
 The website can also check answers without this package, with Concordium's own SDK or Concordium's verifier service;
 these helpers do it in a few lines, with plain reasons.
 
-Samples: `npm run example:age-check-v1` (version 1: a shop with no CCD whose partner pays the fee) and
-`npm run example:age-check` (version 0), in `identity/`. More: [proving facts](../identity/README.md#proving-facts-proofs).
+Sample: `npm run example:age-check` (a shop with no CCD whose partner pays the fee), in `identity/`. More: [proving facts](../identity/README.md#proving-facts-proofs).
 
 ## 8. Regulated tokens
 
@@ -622,8 +609,9 @@ try {
 | `ProofError` | `invalid-request`, `unknown-attribute` | the website's question is broken: decline |
 | | `not-held` | this identity is not loaded: import it (chapter 4) or recover it (chapter 6) first |
 | | `identity-expired` | the identity has expired: verify again |
-| | `provider-not-accepted`, `cannot-prove`, `account-only` | this identity cannot truthfully answer: tell the user, and decline |
-| | `anchor-not-found` | a version 1 question not recorded on chain yet: try again in a few seconds |
+| | `provider-not-accepted`, `cannot-prove` | this identity cannot truthfully answer: tell the user, and decline |
+| | `account-only`, `identity-only` | answer from an account (`credNumber`), or from the identity (without it), as the question allows |
+| | `anchor-not-found` | a question not recorded on chain yet: try again in a few seconds |
 | | `anchor-mismatch` | the question was changed after it was recorded: do not answer |
 | | `node`, `anchor-failed` | the node could not be asked, or (on the website) recording the question failed: try again |
 

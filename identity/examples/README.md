@@ -16,8 +16,7 @@ public test seed phrase: it is shared with everyone, so never use it for anythin
 | `npm run example:recover-identity` | a "new phone": every identity and account back from the seed phrase alone | reads only |
 | `npm run example:server-keeps-identities` | a server keeping each user's identity in that user's own record | reads only |
 | `npm run example:handle-errors` | turning every error of both packages into a message for the user | reads only |
-| `npm run example:age-check` | "are you over 18?" with a version 0 proof: both the website and the wallet, in one run | reads only |
-| `npm run example:age-check-v1` | the same with a version 1 proof: the question recorded on chain, its fee paid by a partner | records the question (a small fee) |
+| `npm run example:age-check` | "are you over 18?": both the website and the wallet, in one run; the question recorded on chain, its fee paid by a partner, answered from the identity | records the question (a small fee) |
 
 `terminal/kept-identities.mjs` is not run on its own: it is how these samples keep identities in a folder (as plain
 files, for test identities only; a real wallet keeps them in its secure storage).
