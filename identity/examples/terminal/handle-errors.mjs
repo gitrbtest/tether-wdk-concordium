@@ -27,11 +27,22 @@ import {
   ProofError,
   CONCORDIUM_TESTNET_IDENTITY_CONFIG,
 } from '@concordium/wdk-identity-concordium';
-import { requestFor } from '@concordium/wdk-identity-concordium/verify';
+import { randomBytes } from 'node:crypto';
+import * as sdk from '@concordium/web-sdk';
 import WalletManagerConcordium, {
   CONCORDIUM_TESTNET_CONFIG, AccountNotCreatedError, ConcordiumTransferError, TransactionRejectedError,
 } from '@concordium/wdk-wallet-concordium';
 import { ConcordiumGRPCNodeClient, credentials } from '@concordium/web-sdk/nodejs';
+
+/**
+ * A website's question, built as requestFor builds it, but NOT recorded on chain (recording costs a small fee). The
+ * refusals below happen before the wallet looks at a question's anchor, so they show the same without it.
+ */
+function unrecordedQuestion(build) {
+  const context = sdk.VerificationRequestV1.createSimpleContext(randomBytes(32), 'sample', 'shop.example', 'handle-errors sample');
+  const claims = sdk.VerificationRequestV1.claimsBuilder().addIdentityClaims([new sdk.IdentityProviderDID('Testnet', 0)], build).getClaims();
+  return sdk.VerificationRequestV1.create(context, claims, sdk.TransactionHash.fromHexString('00'.repeat(32))).toJSON();
+}
 
 /**
  * What to tell the user, and what the wallet does next, for an error from either package.
@@ -65,7 +76,7 @@ function whatToTellTheUser(e) {
     return 'Your identity provider could not be reached. Please try again later.';
   }
   if (e instanceof ProofError) {
-    if (['provider-not-accepted', 'cannot-prove', 'account-only'].includes(e.reason)) {
+    if (['provider-not-accepted', 'cannot-prove', 'account-only', 'identity-only'].includes(e.reason)) {
       return 'Your identity cannot answer this question, so nothing was shared.'; // decline the website's question
     }
     if (e.reason === 'identity-expired') return 'Your identity has expired. Please verify again.';
@@ -154,15 +165,12 @@ try {
   await scene('An account from an expired identity', () => identity.createAccount({ ...EXPIRED, credNumber: 0 }));
 
   // Answering a website's question (chapter 7)
-  await scene('An identity that is not loaded', () => identity.prove({
-    providerIndex: 0, identityIndex: 777, credNumber: 0, ...requestFor({ providers: [0], adult: true }),
-  }));
+  const over18 = unrecordedQuestion((b) => b.addMinimumAge(18));
+  await scene('An identity that is not loaded', () => identity.prove({ providerIndex: 0, identityIndex: 777, request: over18 }));
   await scene('A question the identity cannot truthfully answer ("do you live in Sweden?")', () => identity.prove({
-    ...VALID, credNumber: 0, ...requestFor({ providers: [0], residentIn: ['SE'] }),
+    ...VALID, request: unrecordedQuestion((b) => b.addMembership('countryOfResidence', ['SE'])),
   }));
-  await scene('A question to an expired identity', () => identity.prove({
-    ...EXPIRED, credNumber: 0, ...requestFor({ providers: [0], adult: true }),
-  }));
+  await scene('A question to an expired identity', () => identity.prove({ ...EXPIRED, request: over18 }));
 
   // Accounts and transfers, in the wallet package (chapter 8): each refused before anything is sent
   await scene('An account that has not been created', () => wallet.getAccountByPath('0/334563111/199'));

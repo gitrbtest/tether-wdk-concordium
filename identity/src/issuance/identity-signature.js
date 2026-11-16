@@ -3,7 +3,7 @@
  *
  * An identity carries its provider's signature over the person's details, the identity's validity and the public key
  * it was issued to. Concordium's SDK has no function to check that signature on its own, so the package checks it
- * the way a website would: it builds a tiny proof from the identity, locally and for no one (a version 1 proof that
+ * the way a website would: it builds a tiny proof from the identity, locally and for no one (a proof that
  * states nothing, with a random nonce), and checks it with Concordium's own verifier against the provider's public
  * keys. The proof only holds if the provider's signature fits the identity: a forged identity, or one with any
  * detail changed (a name, a date, the number of accounts), fails. Nothing is sent anywhere.
@@ -22,7 +22,7 @@ import { bytesToHex, randomBytes } from '@noble/hashes/utils';
 import { asHex, sdkCryptography, canCheckSignatures } from '../shared/cryptography.js';
 
 /**
- * What a version 1 proof is built from: the identity, its provider, and its secrets worked out from the seed (the
+ * What a proof from the identity is built from: the identity, its provider, and its secrets worked out from the seed (the
  * same as the SDK's createIdentityCommitmentInputWithHdWallet, with the keys from whichever key derivation is in use).
  * @param {{ identity: object, ipInfo: object, arsInfos: object, identityIndex: number, hdWallet: object }} options
  *   identity: the identity's content (identityContent)

@@ -24,10 +24,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { buildBasicAccountSigner } from '@concordium/web-sdk';
 import { ConcordiumIdentity, SIGNATURE_CHECK_UNAVAILABLE } from '@concordium/wdk-identity-concordium';
 import { requestFor, checkPresentation } from '@concordium/wdk-identity-concordium/verify';
 import { CRYPTOGRAPHY_STEPS, sdkCryptography } from '../../../src/shared/cryptography.js';
-import { testnetConfig, recordedNode, walletProxyFetch, pretendNode } from '../../helpers.mjs';
+import { testnetConfig, recordedNode, walletProxyFetch, pretendChain } from '../../helpers.mjs';
 
 const PHRASE = 'abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about';
 const RECORDED = { providerIndex: 0, identityIndex: 334563111 };
@@ -62,13 +63,13 @@ function nativeLikeCryptography() {
   return { plugIn, used };
 }
 
-/** A wallet with this plug-in, answering the network from recordings; accounts in `onChain` exist. */
-function wallet(cryptography, { onChain = [] } = {}) {
+/** A wallet with this plug-in, answering the network from recordings; accounts in `onChain` exist (or `node` instead). */
+function wallet(cryptography, { onChain = [], node: given } = {}) {
   const recorded = walletProxyFetch('testnet');
   const fetch = async (url, options) => (url === CODE_URI
     ? { ok: true, status: 200, json: async () => issued() }
     : recorded.fetch(url, options));
-  const node = recordedNode('testnet', { accountExists: (address) => onChain.includes(address) });
+  const node = given ?? recordedNode('testnet', { accountExists: (address) => onChain.includes(address) });
   return new ConcordiumIdentity(PHRASE, testnetConfig({ node }), { fetch, cryptography });
 }
 
@@ -95,7 +96,8 @@ test('a whole journey goes through the plug-in, every step, and gives the same a
   // Collect (ownership + genuine), export, import (ownership + genuine again).
   await viaPlugIn.waitForIdentity(CODE_URI, { ...RECORDED, intervalMs: 1 });
   const kept = await viaPlugIn.exportIdentity(RECORDED);
-  const restarted = wallet(plugIn, { onChain: [ACCOUNT_0] });
+  const chain = pretendChain(); // holds the website's anchors, and account 0's record
+  const restarted = wallet(plugIn, { node: chain });
   assert.equal((await restarted.importIdentity(kept)).validTo, '202709');
 
   // An account: its credential built, signed and serialized through the plug-in.
@@ -103,10 +105,12 @@ test('a whole journey goes through the plug-in, every step, and gives the same a
   assert.equal(account.address, ACCOUNT_0, 'the same address as the real testnet account');
   assert.equal(account.created, true);
 
-  // A version 0 answer, from that account: accepted by a website's check against the account's record on chain.
-  const question = requestFor({ providers: [0], adult: true });
-  const answer = await restarted.prove({ ...RECORDED, credNumber: 0, ...question });
-  const result = await checkPresentation(answer, question, { node: await pretendNode(), network: 'testnet' });
+  // An answer from that account: accepted by a website's check against the anchor and the account's record on chain.
+  const SHOP = { sender: '4rEgzrWemrBjxUvkcEkDt9AfB2F7JdS8jkW3M9UWWK1TYaWSX1', signer: buildBasicAccountSigner('11'.repeat(32)) };
+  const question = await requestFor({ network: 'testnet', website: 'shop.example', providers: [0], adult: true, answerFrom: 'account' },
+    { node: chain, ...SHOP });
+  const answer = await restarted.prove({ ...RECORDED, credNumber: 0, request: question });
+  const result = await checkPresentation(answer, question, { node: chain, network: 'testnet' });
   assert.equal(result.ok, true, JSON.stringify(result.reasons));
 
   assert.deepEqual([...used].toSorted(), CRYPTOGRAPHY_STEPS.toSorted(), 'every heavy step went through the plug-in');

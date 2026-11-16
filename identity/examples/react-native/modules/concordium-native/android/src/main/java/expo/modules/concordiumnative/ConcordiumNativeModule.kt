@@ -68,7 +68,6 @@ class ConcordiumNativeModule : Module() {
     AsyncFunction("createIdentityRequestV1") { input: String -> loaded; unwrap(CryptoJniNative.createIdentityRequestV1(input)) }
     AsyncFunction("createIdentityRecoveryRequest") { input: String -> loaded; unwrap(CryptoJniNative.createIdentityRecoveryRequest(input)) }
     AsyncFunction("createUnsignedCredentialV1") { input: String -> loaded; unwrap(CryptoJniNative.createUnsignedCredentialV1(input)) }
-    AsyncFunction("createWeb3IdProof") { input: String -> loaded; unwrap(CryptoJniNative.createWeb3IdProof(input)) }
     AsyncFunction("createPresentationV1") { input: String -> loaded; unwrap(CryptoJniNative.createPresentation(input)) }
   }
 }

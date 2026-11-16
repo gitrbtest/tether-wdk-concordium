@@ -1,31 +1,23 @@
 /**
- * A website's proof request, as a wallet receives it (scope part E): read it, check it, and describe it in plain
- * English for the person's consent screen. No network, no secrets: safe to call before asking the person anything.
+ * A website's question, as a wallet receives it (scope part E): read it, check it, and describe it in plain English
+ * for the person's consent screen. No network, no secrets: safe to call before asking the person anything.
  *
- * The request is Concordium's own format (version 0, account-based), exactly as it arrives in a WalletConnect
- * `request_verifiable_presentation` call or a browser wallet's `requestVerifiablePresentation`:
- *
- *   { challenge: '<hex chosen by the website>',
- *     credentialStatements: [
- *       { idQualifier: { type: 'cred', issuers: [0, 1] },          ← identities from these providers are accepted
- *         statement: [ { type: 'AttributeInRange', attributeTag: 'dob', lower: '18000101', upper: '20081104' },
- *                      { type: 'RevealAttribute', attributeTag: 'nationality' } ] } ] }
- *
- * WalletConnect wraps it as { paramsJson: '<that object as JSON text>' }; both forms are accepted.
- *
- * Version 1 (identity-based) questions are read here too (readProofRequestV1). The website first records the
- * question on chain (the "anchor": a hash of it in a registerData transaction), then sends it as Concordium's
- * VerificationRequestV1, as JSON:
+ * The website first records the question on chain (the "anchor": a hash of it in a registerData transaction), then
+ * sends it as Concordium's VerificationRequestV1, as JSON:
  *
  *   { type: 'ConcordiumVerificationRequestV1',
  *     context: { type: 'ConcordiumUnfilledContextInformationV1',
  *                given: [ { label: 'Nonce', context: '<hex>' }, { label: 'ResourceID', context: 'shop.example' }, … ],
  *                requested: [ 'BlockHash' ] },                     ← filled in by the wallet when it answers
  *     subjectClaims: [
- *       { type: 'identity', source: ['identityCredential'],       ← answer from the identity itself (no account)
+ *       { type: 'identity', source: ['identityCredential'],       ← answer from the identity itself; or
+ *                                                                    'accountCredential': from an account; or both
  *         issuers: ['did:ccd:testnet:idp:0', 'did:ccd:testnet:idp:1'],
  *         statements: [ { type: 'AttributeInRange', attributeTag: 'dob', lower: '18000101', upper: '20081107' } ] } ],
  *     transactionRef: '<hex>' }                                    ← the anchor transaction
+ *
+ * WalletConnect wraps it as { paramsJson: '<that object as JSON text>' }; that form, JSON text and the SDK's
+ * VerificationRequestV1 object are accepted too.
  */
 import * as sdk from '@concordium/web-sdk';
 import { ProofError } from '../shared/errors.js';
@@ -78,53 +70,7 @@ function plainRequest(input) {
   return input;
 }
 
-/** Whether a request is a version 1 question (Concordium's VerificationRequestV1, as JSON or as the SDK's object). */
-export function isProofRequestV1(input) {
-  try {
-    return plainRequest(input)?.type === 'ConcordiumVerificationRequestV1';
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Read and check a website's proof request. Accepts the request itself, or WalletConnect's
- * `{ paramsJson }` wrapper. Returns `{ challenge, credentialStatements }`.
- *
- * @throws {ProofError} reason 'invalid-request' (with what is wrong) or 'unknown-attribute'
- */
-export function readProofRequest(input) {
-  const request = plainRequest(input);
-  if (request?.type === 'ConcordiumVerificationRequestV1') {
-    throw invalid('This is a version 1 question (identity-based, anchored on chain): it is not answered from an '
-      + 'account with a challenge (version 0).');
-  }
-  const { challenge, credentialStatements } = request ?? {};
-  if (typeof challenge !== 'string' || !/^([0-9a-fA-F]{2})+$/.test(challenge)) {
-    throw invalid('The request needs a challenge: hex text chosen by the website (e.g. 32 random bytes).');
-  }
-  if (!Array.isArray(credentialStatements) || credentialStatements.length === 0) {
-    throw invalid('The request asks for nothing: credentialStatements must be a non-empty list.');
-  }
-  credentialStatements.forEach(checkCredentialStatement);
-  return { challenge, credentialStatements };
-}
-
-function checkCredentialStatement(credentialStatement, n) {
-  const where = `credentialStatements[${n}]`;
-  const qualifier = credentialStatement?.idQualifier;
-  if (qualifier?.type === 'sci') {
-    throw invalid(`${where} asks about a Web3 ID credential issued by a smart contract; this package proves facts `
-      + 'about Concordium identities only.');
-  }
-  if (qualifier?.type !== 'cred' || !Array.isArray(qualifier.issuers) || qualifier.issuers.length === 0
-    || !qualifier.issuers.every((i) => Number.isSafeInteger(i) && i >= 0)) {
-    throw invalid(`${where}.idQualifier must be { type: 'cred', issuers: [provider numbers] }.`);
-  }
-  checkStatements(credentialStatement.statement, `${where}.statement`);
-}
-
-/** The statements of one group (the same kinds in both versions): known type and attribute, each attribute once. */
+/** The statements of one part: known type and attribute, each attribute once. */
 function checkStatements(statements, where) {
   if (!Array.isArray(statements) || statements.length === 0) throw invalid(`${where} must be a non-empty list.`);
   const seen = new Set();
@@ -148,28 +94,29 @@ function checkStatements(statements, where) {
   });
 }
 
-// ---- Version 1 -------------------------------------------------------------------------------------------------
-
 /** The context labels Concordium defines: given by the website, or requested from the wallet. */
 const CONTEXT_LABELS = ['Nonce', 'ConnectionID', 'ResourceID', 'ContextString', 'BlockHash', 'PaymentHash'];
 /** Where an answer may come from: the identity itself, or an account made from it. */
 const SOURCES = { identityCredential: 'identity', accountCredential: 'account' };
 
 /**
- * Read and check a website's version 1 question (identity-based, anchored on chain). Accepts its JSON (as an object
+ * Read and check a website's question (anchored on chain). Accepts its JSON (as an object
  * or as text), the SDK's VerificationRequestV1 object, or WalletConnect's `{ paramsJson }` wrapper. No network: the
  * anchor itself is checked when answering.
  *
- * @returns {{ version: 1, network: 'Testnet' | 'Mainnet', request: object, given: Record<string, string>,
+ * @returns {{ network: 'Testnet' | 'Mainnet', request: object, given: Record<string, string>,
  *   requested: string[], claims: Array<{ providers: number[], source: string[], statements: object[] }>,
  *   anchor: string }}  `request`: the SDK's VerificationRequestV1, ready for answering; `given`: the context the
  *   website gave, by label; `requested`: what the wallet fills in; `anchor`: the anchor transaction's hash
  * @throws {ProofError} reason 'invalid-request' (with what is wrong) or 'unknown-attribute'
  */
-export function readProofRequestV1(input) {
+export function readProofRequest(input) {
   const request = plainRequest(input);
   if (request?.type !== 'ConcordiumVerificationRequestV1') {
-    throw invalid('Not a version 1 question: its type must be \'ConcordiumVerificationRequestV1\'.');
+    throw invalid(request?.challenge !== undefined && request?.credentialStatements !== undefined
+      ? 'This is a version 0 request (a challenge and credentialStatements): only version 1 questions '
+        + '(ConcordiumVerificationRequestV1) are answered. Ask the website for a version 1 question.'
+      : 'Not a Concordium question: its type must be \'ConcordiumVerificationRequestV1\'.');
   }
   const { context, subjectClaims, transactionRef } = request;
   if (context?.type !== 'ConcordiumUnfilledContextInformationV1' || !Array.isArray(context.given) || !Array.isArray(context.requested)) {
@@ -222,7 +169,7 @@ export function readProofRequestV1(input) {
     throw invalid(`The question could not be read: ${e.message}`);
   }
   return {
-    version: 1, network: [...networks][0], request: sdkRequest, given, requested: [...context.requested], claims,
+    network: [...networks][0], request: sdkRequest, given, requested: [...context.requested], claims,
     anchor: transactionRef.toLowerCase(),
   };
 }
@@ -280,54 +227,42 @@ function describeStatement(s, now) {
 }
 
 /**
- * Describe a website's request in plain English, for the person's consent screen: what will be proven or shown,
- * and which identity providers' identities the website accepts. Checks the request first (readProofRequest, or
- * readProofRequestV1 for a version 1 question).
+ * Describe a website's question in plain English, for the person's consent screen: what will be proven or shown,
+ * which identity providers' identities the website accepts, which network, and where the answer may come from
+ * (`answerFrom`: 'identity', 'account' or 'identity or account'). Checks the question first (readProofRequest).
+ * describeProofContext tells who is asking.
  *
- * A version 1 question's parts also say which network they are about, and where the answer may come from
- * (`answerFrom`: 'identity', 'account' or 'identity or account'). describeProofContext tells who is asking.
- *
- * @param {object} request  `{ challenge, credentialStatements }`, WalletConnect's `{ paramsJson }`, or a version 1
- *   question (Concordium's VerificationRequestV1, as JSON or the SDK's object)
+ * @param {object} request  the question (Concordium's VerificationRequestV1, as JSON, JSON text or the SDK's object,
+ *   or WalletConnect's `{ paramsJson }`)
  * @param {{ now?: Date }} [options]  today's date, for "at least N years old" (default: now)
- * @returns {Array<{ providers: number[], network?: 'testnet' | 'mainnet', answerFrom?: string,
+ * @returns {Array<{ providers: number[], network: 'testnet' | 'mainnet', answerFrom: string,
  *   asks: Array<{ kind: 'reveal' | 'range' | 'in-set' | 'not-in-set', attribute: string, text: string }> }>}
- *   one entry per group of questions (usually one); `network` and `answerFrom` for version 1 only
+ *   one entry per part of the question (usually one)
  * @throws {ProofError} reason 'invalid-request' or 'unknown-attribute'
  */
 export function describeProofRequest(request, { now = new Date() } = {}) {
-  if (isProofRequestV1(request)) {
-    const { network, claims } = readProofRequestV1(request);
-    return claims.map((claim) => ({
-      providers: claim.providers,
-      network: network.toLowerCase(),
-      answerFrom: ['identity', 'account'].filter((x) => claim.source.some((y) => SOURCES[y] === x)).join(' or '),
-      asks: claim.statements.map((s) => describeStatement(s, now)),
-    }));
-  }
-  const { credentialStatements } = readProofRequest(request);
-  return credentialStatements.map((cs) => ({
-    providers: [...cs.idQualifier.issuers],
-    asks: cs.statement.map((s) => describeStatement(s, now)),
+  const { network, claims } = readProofRequest(request);
+  return claims.map((claim) => ({
+    providers: claim.providers,
+    network: network.toLowerCase(),
+    answerFrom: ['identity', 'account'].filter((x) => claim.source.some((y) => SOURCES[y] === x)).join(' or '),
+    asks: claim.statements.map((s) => describeStatement(s, now)),
   }));
 }
 
 /**
- * Who is asking a version 1 question, for the consent screen: what the website wrote into the question. It is
+ * Who is asking a question, for the consent screen: what the website wrote into the question. It is
  * recorded on chain with the anchor, so it cannot be changed afterwards, but the website chose it: compare `website`
  * with the site the wallet is actually connected to before showing it as fact.
  *
- * @param {object} request  a version 1 question (as describeProofRequest takes it)
+ * @param {object} request  the question (as describeProofRequest takes it)
  * @returns {{ network: 'testnet' | 'mainnet', website?: string, purpose?: string, connection?: string,
  *   anchor: string }}  `website`: its ResourceID; `purpose`: its ContextString; `connection`: its ConnectionID;
  *   `anchor`: the anchor transaction's hash (e.g. to show it on a block explorer)
- * @throws {ProofError} reason 'invalid-request' (also for a version 0 request, which carries none of this)
+ * @throws {ProofError} reason 'invalid-request'
  */
 export function describeProofContext(request) {
-  if (!isProofRequestV1(request)) {
-    throw invalid('Only a version 1 question says who is asking; a version 0 request has a challenge only.');
-  }
-  const { network, given, anchor } = readProofRequestV1(request);
+  const { network, given, anchor } = readProofRequest(request);
   return {
     network: network.toLowerCase(),
     ...(given.ResourceID !== undefined ? { website: given.ResourceID } : {}),

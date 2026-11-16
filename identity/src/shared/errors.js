@@ -69,23 +69,25 @@ export class IdentityRecoveryError extends Error {
  * - provider-not-accepted: the request does not accept identities from this account's provider
  * - cannot-prove: the identity's details do not satisfy the request (e.g. under the age asked for); nothing is
  *   built, so a wallet never produces a false proof
- * - node: the Concordium node could not be asked (`detail` has what it said): checking an answer (checkPresentation),
- *   or answering a version 1 question (its anchor and the network's parameters are read from the node). A refused
- *   answer is not an error: checkPresentation returns ok: false with the reasons
- * - account-only (version 1): the question accepts answers from an account only, not from the identity itself; ask
- *   the website for a version 0 question, or one that accepts the identity
- * - anchor-not-found (version 1): the question's anchor is not on chain, or not final yet (`detail`: 'absent',
+ * - node: the Concordium node could not be asked (`detail` has what it said): recording a question (requestFor),
+ *   checking an answer (checkPresentation), or answering a question (its anchor and the network's parameters are
+ *   read from the node). A refused answer is not an error: checkPresentation returns ok: false with the reasons
+ * - account-only: the question accepts answers from an account only, not from the identity itself; answer from one
+ *   of the identity's accounts (prove's credNumber)
+ * - identity-only: the question accepts answers from the identity itself only, not from an account; answer without
+ *   a credNumber
+ * - anchor-not-found: the question's anchor is not on chain, or not final yet (`detail`: 'absent',
  *   'received' or 'committed'); just after the website sent it, try again in a few seconds
- * - anchor-mismatch (version 1): the anchor is on chain but does not record this question (it was changed after
+ * - anchor-mismatch: the anchor is on chain but does not record this question (it was changed after
  *   the website recorded it, or the anchor is another transaction); do not answer
- * - anchor-failed (version 1, the website's side): recording the question on chain failed: the node refused the
+ * - anchor-failed (the website's side): recording the question on chain failed: the node refused the
  *   anchor, or it was rejected on chain (e.g. not enough CCD for the fee; `detail` says)
  */
 export class ProofError extends Error {
   /**
    * @param {string} message
    * @param {{ reason: 'invalid-request' | 'unknown-attribute' | 'not-held' | 'identity-expired' | 'provider-not-accepted'
-   *   | 'cannot-prove' | 'node' | 'account-only' | 'anchor-not-found' | 'anchor-mismatch' | 'anchor-failed',
+   *   | 'cannot-prove' | 'node' | 'account-only' | 'identity-only' | 'anchor-not-found' | 'anchor-mismatch' | 'anchor-failed',
    *   detail?: string }} info
    */
   constructor(message, { reason, detail } = {}) {

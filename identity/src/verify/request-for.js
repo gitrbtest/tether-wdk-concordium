@@ -1,17 +1,28 @@
 /**
- * The website's side of a proof (scope part E): build the question to send to a wallet. Part of the
- * `@concordium/wdk-identity-concordium/verify` entry point, meant for servers (Node.js): the website makes the
- * request on its server, keeps it (to check the answer against later), and sends it to the wallet.
+ * The website's side of a proof, first half: build the question and record it on chain.
+ * Part of the `@concordium/wdk-identity-concordium/verify` entry point (servers, Node.js).
  *
- * Built with Concordium's own Web3StatementBuilder, so the request is exactly what Concordium's wallets and apps
- * use (version 0, account-based), and what WalletConnect's `request_verifiable_presentation` carries.
+ *   requestFor ─► what to ask, and where the answer may come from (the identity itself, an account made from it,
+ *                 or either) ─► the context (a fresh random nonce, the website, the purpose) ─► Concordium's
+ *                 claims builder ─► the anchor: a hash of the question, sent on chain in a registerData transaction
+ *                 (fee paid by the website, or by a sponsor) ─► wait until it is final ─► the question, ready to send
+ *                 to the wallet (and to keep, to check the answer)
+ *
+ * Built from Concordium's own pieces (VerificationRequestV1, Transaction), so the question is exactly what
+ * Concordium's wallets read. The anchor costs a small fee (about EUR 0.013); with `sponsor`, another account pays
+ * it, so the website's own account can hold no CCD at all.
  */
-import { randomBytes } from 'node:crypto';
+import { randomBytes, randomUUID } from 'node:crypto';
 import * as sdk from '@concordium/web-sdk';
 import { ProofError } from '../shared/errors.js';
 import { readProofRequest, ATTRIBUTE_NAMES } from '../proofs/proof-request.js';
 
 const invalid = (message) => new ProofError(message, { reason: 'invalid-request' });
+/** The node's answers that mean "refused" (it will not take this transaction), not "could not be asked". */
+const REFUSED = new Set(['INVALID_ARGUMENT', 'FAILED_PRECONDITION', 'ALREADY_EXISTS', 3, 9, 6]);
+/** Where the answer may come from, as the option says it, and the builder method that asks for it. */
+const ANSWER_FROM = { identity: 'addIdentityClaims', account: 'addAccountClaims', either: 'addAccountOrIdentityClaims' };
+const NODE_METHODS = ['getNextAccountNonce', 'sendTransaction', 'waitForTransactionFinalization'];
 
 /** Today (or a given day) as YYYYMMDD, the date format attributes use. */
 function yyyymmdd(date) {
@@ -25,13 +36,27 @@ function countries(list, option) {
   return list;
 }
 
+function address(value, what) {
+  try {
+    return sdk.AccountAddress.fromBase58(value);
+  } catch {
+    throw new Error(`${what} must be an account address (base58).`);
+  }
+}
+
+function requireSigner(signer, what) {
+  if (!signer || typeof signer.sign !== 'function' || typeof signer.getSignatureCount !== 'function') {
+    throw new Error(`${what} must be an account signer, e.g. buildBasicAccountSigner(signingKey) from @concordium/web-sdk.`);
+  }
+  return signer;
+}
+
 /**
- * Build a proof request: a fresh random challenge plus the statements, ready to send to a wallet.
+ * Build a question and record it on chain (its anchor), waiting until the anchor is final. Returns the
+ * question as Concordium's VerificationRequestV1 JSON: send it to the wallet, and keep it on your server
+ * (checkPresentation compares the answer with it).
  *
- * Keep the returned request on your server: checkPresentation compares the wallet's answer with it, and the
- * challenge makes each answer usable once (remember which challenges were answered, and refuse a second answer).
- *
- * @param {object} options
+ * @param {object} options  what to ask, and who asks:
  * @param {number[]} options.providers  the identity providers whose identities you accept (their numbers on the
  *   network); required: choosing whom to trust is the website's decision
  * @param {boolean} [options.adult]  prove at least 18 years old (same as minAge: 18)
@@ -46,27 +71,97 @@ function countries(list, option) {
  * @param {string[]} [options.notRegisteredIn]  for a company: prove its country of registration is none of these
  * @param {string[]} [options.reveal]  attributes to be shown, e.g. ['firstName', 'lastName', 'nationality'], or for a
  *   company ['lei', 'legalName', 'legalCountry', 'businessNumber', 'registrationAuth']
- * @returns {{ challenge: string, credentialStatements: object[] }}
- * @throws {ProofError} reason 'invalid-request' (e.g. no providers, or an attribute used twice) or 'unknown-attribute'
+ * @param {'testnet' | 'mainnet'} options.network  the network the identities and the anchor are on
+ * @param {string} options.website  who is asking, e.g. 'shop.example': wallets show it, and should compare it with
+ *   the site they are connected to (the question's ResourceID)
+ * @param {string} [options.purpose]  why, in a few words, e.g. 'age check' (its ContextString)
+ * @param {string} [options.connection]  your id for this conversation with the wallet (its ConnectionID; default:
+ *   a random one)
+ * @param {'identity' | 'account' | 'either'} [options.answerFrom='identity']  where the answer may come from:
+ *   the identity itself (no account named), an account, or either
+ * @param {object} anchoring  who records the question on chain
+ * @param {object} anchoring.node  a node connection (connectToNode)
+ * @param {string} anchoring.sender  the website's account address: it sends the anchor
+ * @param {object} anchoring.signer  the website account's signer (buildBasicAccountSigner(key))
+ * @param {{ address: string, signer: object }} [anchoring.sponsor]  an account that pays the fee instead (both
+ *   accounts sign); the website's account then needs no CCD
+ * @param {number} [anchoring.timeoutMs=120000]  how long to wait for the anchor to be final
+ * @returns {Promise<object>}  the question (VerificationRequestV1 JSON)
+ * @throws {ProofError} reason 'invalid-request' or 'unknown-attribute' (nothing sent); 'anchor-failed' (the node
+ *   refused the anchor, or it was rejected on chain, e.g. not enough CCD for the fee: `detail` says); 'node' (the
+ *   node could not be asked, or the anchor was not final in time)
  */
-export function requestFor(options = {}) {
-  const { providers, ask } = readAsks(options);
-  const credentialStatements = new sdk.Web3StatementBuilder().addForIdentityCredentials(providers, ask).getStatements();
-  // 32 fresh random bytes: a challenge no one can guess or reuse from another request.
-  return readProofRequest({ challenge: randomBytes(32).toString('hex'), credentialStatements });
+export async function requestFor(options = {}, { node, sender, signer, sponsor, timeoutMs = 120_000 } = {}) {
+  const { network, website, purpose, connection = randomUUID(), answerFrom = 'identity', ...asked } = options ?? {};
+  const unknown = Object.keys(asked).filter((k) => !ASK_OPTIONS.includes(k));
+  if (unknown.length) throw invalid(`Unknown option: ${unknown.join(', ')}.`);
+  const net = String(network).toLowerCase();
+  if (net !== 'testnet' && net !== 'mainnet') throw invalid("network is required: 'testnet' or 'mainnet'.");
+  if (typeof website !== 'string' || website.trim() === '') {
+    throw invalid("website is required: who is asking, e.g. 'shop.example' (wallets show it and compare it with where they are connected).");
+  }
+  if (purpose !== undefined && typeof purpose !== 'string') throw invalid('purpose must be text, e.g. \'age check\'.');
+  if (typeof connection !== 'string' || connection === '') throw invalid('connection must be text.');
+  if (!(answerFrom in ANSWER_FROM)) throw invalid("answerFrom must be 'identity', 'account' or 'either'.");
+  const { providers, ask } = readAsks(asked);
+
+  if (!node || NODE_METHODS.some((m) => typeof node[m] !== 'function')) {
+    throw new Error("requestFor needs a node connection to record the question: { node: connectToNode('testnet'), sender, signer }.");
+  }
+  const senderAddress = address(sender, 'sender');
+  requireSigner(signer, 'signer');
+  const sponsorAddress = sponsor === undefined ? undefined : address(sponsor?.address, 'sponsor.address');
+  if (sponsor !== undefined) requireSigner(sponsor.signer, 'sponsor.signer');
+
+  // The question: a fresh random nonce makes each one unique, so an answer to it cannot be reused for another.
+  const Network = net === 'testnet' ? 'Testnet' : 'Mainnet';
+  const context = sdk.VerificationRequestV1.createSimpleContext(randomBytes(32), connection, website, purpose);
+  const claims = sdk.VerificationRequestV1.claimsBuilder()[ANSWER_FROM[answerFrom]](
+    providers.map((index) => new sdk.IdentityProviderDID(Network, index)), ask).getClaims();
+
+  // The anchor: a registerData transaction holding the question's hash, sent by the website (and paid by the sponsor).
+  let hash;
+  try {
+    const { nonce } = await node.getNextAccountNonce(senderAddress);
+    let transaction = sdk.Transaction.registerData({ data: new sdk.DataBlob(sdk.VerificationRequestV1.createAnchor(context, claims)) })
+      .addMetadata({ sender: senderAddress, nonce, expiry: sdk.TransactionExpiry.futureMinutes(10) });
+    if (sponsorAddress) transaction = transaction.addSponsor(sponsorAddress);
+    let signed = await sdk.Transaction.sign(transaction.build(), signer);
+    if (sponsorAddress) signed = await sdk.Transaction.sponsor(signed, sponsor.signer);
+    hash = await node.sendTransaction(sdk.Transaction.finalize(signed));
+  } catch (e) {
+    if (REFUSED.has(e?.code)) {
+      throw new ProofError(`The node refused the anchor: ${e.message}`, { reason: 'anchor-failed', detail: e.message });
+    }
+    throw new ProofError(`The node could not be asked to record the question: ${e?.message ?? e}`, { reason: 'node', detail: e?.message ?? String(e) });
+  }
+
+  // Wait until it is final: a wallet refuses a question whose anchor is not final yet.
+  let outcome;
+  try {
+    outcome = await node.waitForTransactionFinalization(hash, timeoutMs);
+  } catch (e) {
+    throw new ProofError(`The anchor (${sdk.TransactionHash.toHexString(hash)}) was not seen final: ${e?.message ?? e}. It may still `
+      + 'become final; the question cannot be answered until it does.', { reason: 'node', detail: e?.message ?? String(e) });
+  }
+  const summary = outcome?.summary;
+  if (summary?.type !== 'accountTransaction' || summary.transactionType !== 'registerData') {
+    const why = summary?.rejectReason?.tag ?? summary?.transactionType ?? 'unknown';
+    throw new ProofError(`The anchor was rejected on chain (${why}).`, { reason: 'anchor-failed', detail: String(why) });
+  }
+  return readProofRequest(sdk.VerificationRequestV1.create(context, claims, hash)).request.toJSON();
 }
 
-/** The options a question can ask (see requestFor), shared by both versions. */
-export const ASK_OPTIONS = ['providers', 'adult', 'minAge', 'residentIn', 'notResidentIn', 'nationalityIn', 'nationalityNotIn',
+/** The options a question can ask (see requestFor). */
+const ASK_OPTIONS = ['providers', 'adult', 'minAge', 'residentIn', 'notResidentIn', 'nationalityIn', 'nationalityNotIn',
   'documentValid', 'registeredIn', 'notRegisteredIn', 'reveal'];
 
 /**
- * Check what a website wants to ask (requestFor's options) and turn it into Concordium's statements. Used by both
- * versions: returns the accepted providers and `ask`, which adds the statements to one of Concordium's statement
- * builders (the same methods in both versions).
+ * Check what a website wants to ask (requestFor's options) and turn it into Concordium's statements: returns the
+ * accepted providers and `ask`, which adds the statements to Concordium's claims builder.
  * @throws {ProofError} reason 'invalid-request' or 'unknown-attribute'
  */
-export function readAsks({
+function readAsks({
   providers, adult, minAge, residentIn, notResidentIn, nationalityIn, nationalityNotIn, documentValid,
   registeredIn, notRegisteredIn, reveal = [],
 } = {}) {

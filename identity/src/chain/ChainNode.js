@@ -1,7 +1,7 @@
 /**
  * The Concordium node, through the connection the wallet passes in (`config.node`). Internal: ConcordiumIdentity's
  * helpers use it for everything they need from the chain: the network's cryptographic parameters, whether an account
- * exists, sending a new account's credential and following it, finding a version 1 question's anchor, and the
+ * exists, sending a new account's credential and following it, finding a question's anchor, and the
  * official record of the identity providers and anonymity revokers (to check the wallet's provider list against). The package never opens a connection itself, so
  * it runs wherever the wallet's own client does: a gRPC client in Node.js (ConcordiumGRPCNodeClient), gRPC-web in
  * browsers and phones (ConcordiumGRPCWebClient), or the client a WDK wallet already has.
@@ -135,7 +135,7 @@ export default class ChainNode {
   }
 
   /**
-   * Where a version 1 question's anchor is: the transaction the website sent to record the question on chain.
+   * Where a question's anchor is: the transaction the website sent to record the question on chain.
    *   { status: 'absent' }      the node does not know it (not sent, or sent on another network)
    *   { status: 'received' }    sent, waiting to be put in a block
    *   { status: 'committed' }   in a block, not yet final

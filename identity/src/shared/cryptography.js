@@ -27,8 +27,7 @@
  *   createIdentityRecoveryRequestWithKeys(input)  the recovery request (also how ownership is checked)
  *   createCredentialPayloadNoSeed(input, expiry)  an account's credential, unsigned
  *   serializeCredentialDeploymentPayload(signatures, unsigned)   the credential as the bytes sent to the node
- *   getVerifiablePresentation(input)              a version 0 proof (from an account)
- *   createPresentationV1(request, inputs, globalContext)        a version 1 proof (VerifiablePresentationV1.create)
+ *   createPresentationV1(request, inputs, globalContext)        a proof (VerifiablePresentationV1.create)
  *   verifyPresentationV1(presentation, globalContext, material) checking one (VerifiablePresentationV1.verify)
  *
  * Checking a proof has no native version: Concordium's Android library builds proofs but cannot check one, and the
@@ -46,7 +45,7 @@ export const UNAVAILABLE = 'unavailable';
 /** The steps a plug-in may provide. */
 export const CRYPTOGRAPHY_STEPS = [
   'deriveKeys', 'createIdentityRequestWithKeys', 'createIdentityRecoveryRequestWithKeys', 'createCredentialPayloadNoSeed',
-  'serializeCredentialDeploymentPayload', 'getVerifiablePresentation', 'createPresentationV1',
+  'serializeCredentialDeploymentPayload', 'createPresentationV1',
   'verifyPresentationV1',
 ];
 
@@ -57,7 +56,6 @@ export const sdkCryptography = Object.freeze({
   createIdentityRecoveryRequestWithKeys: (input) => sdk.createIdentityRecoveryRequestWithKeys(input),
   createCredentialPayloadNoSeed: (input, expiry) => sdk.createCredentialPayloadNoSeed(input, expiry),
   serializeCredentialDeploymentPayload: (signatures, unsigned) => sdk.serializeCredentialDeploymentPayload(signatures, unsigned),
-  getVerifiablePresentation: (input) => sdk.getVerifiablePresentation(input),
   createPresentationV1: (request, inputs, globalContext) => sdk.VerifiablePresentationV1.create(request, inputs, globalContext),
   verifyPresentationV1: (presentation, globalContext, material) => sdk.VerifiablePresentationV1.verify(presentation, globalContext, material),
 });

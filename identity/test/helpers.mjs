@@ -4,6 +4,7 @@
  * contact a service.
  */
 import { readFileSync } from 'node:fs';
+import { randomBytes } from 'node:crypto';
 import * as sdk from '@concordium/web-sdk';
 
 const readFixture = (file) => JSON.parse(readFileSync(new URL(`./fixtures/${file}`, import.meta.url), 'utf8'));
@@ -60,7 +61,7 @@ export function walletProxyFetch(network, overrides = {}) {
   return { fetch, requests };
 }
 
-// ─── Proofs: a wallet holding the recorded identity, and a pretend node with its account 0 ────────────────────
+// ─── Proofs: a wallet holding the recorded identity ─────────────────────────────────────────────────────────────
 
 /** The recorded identity: the public "abandon" test phrase, provider 0, identity 334563111 (testnet, Phase 1). */
 export const RECORDED_IDENTITY = { providerIndex: 0, identityIndex: 334563111 };
@@ -99,33 +100,58 @@ export async function walletWithRecordedIdentity({ details, node } = {}) {
   return wallet;
 }
 
+// ─── Proofs: a pretend chain that takes the website's anchors and answers the wallet and the website ──────────
+
+/** The block every anchor on the pretend chain is final in. */
+export const ANCHOR_BLOCK = 'b7'.repeat(32);
+
 /**
- * A pretend Concordium node with the recorded account 0's record on it, as recorded from testnet. `validTo` /
- * `createdAt` (YYYYMM) set the identity's validity as the chain holds it; `commitments` replaces the sealed details;
- * `fail` makes every question to the node fail with that gRPC code. Counts the questions asked (`asked`).
+ * A pretend chain: the node for the website and for the wallet. Every registerData sent is kept as an anchor (final
+ * in block ANCHOR_BLOCK, unless `reject` names a reject reason); `anchorStatus` can replace what it says about any
+ * anchor. The providers' keys are the recorded testnet ones; account 0 of the recorded identity is on it.
  */
-export async function pretendNode({ validTo = '202709', createdAt = '202609', commitments, fail, now = new Date('2026-11-03T12:00:00Z') } = {}) {
-  const sdk = await import('@concordium/web-sdk');
-  const account = recordedAccount0();
-  const node = {
-    asked: 0,
+export function pretendChain({ reject, refuse, anchorStatus, now = new Date('2026-11-07T12:00:00Z') } = {}) {
+  const providers = ipInfoFixture('testnet');
+  const account0 = recordedAccount0();
+  const chain = {
+    sent: [], anchors: new Map(),
+    async getNextAccountNonce() { return { nonce: sdk.SequenceNumber.create(7) }; },
+    async sendTransaction(transaction) {
+      if (refuse) throw refuse;
+      chain.sent.push(transaction);
+      const hash = randomBytes(32).toString('hex');
+      chain.anchors.set(hash, Buffer.from(transaction.payload.data.data).toString('hex'));
+      return sdk.TransactionHash.fromHexString(hash);
+    },
+    async waitForTransactionFinalization(hash) { return chain.outcome(sdk.TransactionHash.toHexString(hash)); },
+    outcome(hash) {
+      const summary = reject
+        ? { type: 'accountTransaction', transactionType: 'failed', rejectReason: { tag: reject } }
+        : { type: 'accountTransaction', transactionType: 'registerData', dataRegistered: { data: chain.anchors.get(hash) } };
+      return { blockHash: sdk.BlockHash.fromHexString(ANCHOR_BLOCK), summary };
+    },
+    async getBlockItemStatus(hash) {
+      const hex = sdk.TransactionHash.toHexString(hash);
+      if (anchorStatus) return anchorStatus(hex, chain);
+      if (!chain.anchors.has(hex)) throw notFoundError();
+      return { status: 'finalized', outcome: chain.outcome(hex) };
+    },
+    async getCryptographicParameters() { return globalFixture('testnet').value; },
+    async* getIdentityProviders() { for (const p of providers) yield p.ipInfo; },
+    async* getAnonymityRevokers() { for (const ar of Object.values(providers[0].arsInfos)) yield ar; },
+    async getBlockInfo() { return { blockSlotTime: now }; },
     async getAccountInfo(credId) {
-      node.asked++;
-      if (fail) throw Object.assign(new Error('the node is unreachable'), { name: 'RpcError', code: fail });
-      if (credId.credId !== account.credId) {
-        throw Object.assign(new Error('account or block not found.'), { name: 'RpcError', code: 'NOT_FOUND' });
-      }
+      if (credId?.credId !== account0.credId) throw notFoundError();
       return {
-        accountAddress: sdk.AccountAddress.fromBase58(account.address),
+        accountAddress: sdk.AccountAddress.fromBase58(account0.address),
         accountCredentials: { 0: { v: 0, value: { type: 'normal', contents: {
-          credId: account.credId, ipIdentity: account.issuer, policy: { createdAt, validTo, revealedAttributes: {} },
-          commitments: { cmmAttributes: commitments ?? account.commitments } } } } },
+          credId: account0.credId, ipIdentity: account0.issuer, policy: { createdAt: '202609', validTo: '202709', revealedAttributes: {} },
+          commitments: { cmmAttributes: account0.commitments } } } } },
       };
     },
-    async getBlockInfo() { return { blockSlotTime: now }; },
-    async getCryptographicParameters() { return globalFixture('testnet').value; },
+    async sendCredentialDeploymentTransaction() { throw new Error('not used here'); },
   };
-  return node;
+  return chain;
 }
 
 // ---- The identity configuration, with the recorded provider list (the package does not fetch it) -----------

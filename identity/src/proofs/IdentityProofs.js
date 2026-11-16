@@ -1,18 +1,12 @@
 /**
  * Making a proof (scope part E). Internal: ConcordiumIdentity is the public face.
  *
- * Version 0, account-based:
- *   prove ─► check the website's question ─► identity held? ─► its provider accepted? ─► can it TRULY answer?
- *         ─► which account answers (its id, from the seed) ─► the secret ingredients (each detail and the random
- *            number used to seal it when the account was created, from the seed) ─► Concordium's
- *            getVerifiablePresentation ─► the proof
- *
- * Version 1, identity-based (no account):
- *   proveIdentity ─► check the question ─► same network? ─► what the wallet must fill in ─► identity held? ─► not
- *         expired? ─► answers from the identity accepted? ─► its provider accepted? ─► can it TRULY answer?
- *         ─► the secret ingredients (the identity and its secrets, from the seed) ─► node: is the anchor on chain,
- *            final, and really this question? ─► Concordium's VerifiablePresentationV1.create, tied to the anchor's
- *            block ─► the proof
+ *   prove ─► check the question ─► same network? ─► what the wallet must fill in ─► identity held? ─► not expired?
+ *         ─► answered from where the question allows (the identity itself, or an account: credNumber)? ─► its
+ *            provider accepted? ─► can it TRULY answer? ─► the secret ingredients (from the identity: the identity and
+ *            its secrets; from an account: the account's id and the random numbers that sealed its details; all
+ *            worked out from the seed) ─► node: is the anchor on chain, final, and really this question?
+ *         ─► Concordium's VerifiablePresentationV1.create, tied to the anchor's block ─► the proof
  *
  * The identity never leaves the wallet: only the proof does (plus any detail the question asks to show).
  */
@@ -22,7 +16,7 @@ import { identityCommitmentInput } from '../issuance/identity-signature.js';
 import { ProofError } from '../shared/errors.js';
 import { requireIndex, IDENTITY_INDEX_HINT, MAX_CRED_NUMBER } from '../shared/inputs.js';
 import { identityContent, hasExpired } from '../issuance/identity-object.js';
-import { readProofRequest, readProofRequestV1, attributeLabel } from './proof-request.js';
+import { readProofRequest, attributeLabel } from './proof-request.js';
 
 /** Context labels a question may ask the wallet to fill in with text it knows (e.g. the site it is connected to). */
 const TEXT_CONTEXT = ['ResourceID', 'ContextString', 'ConnectionID'];
@@ -53,55 +47,17 @@ export default class IdentityProofs {
     this.#cryptography = cryptography;
   }
 
-  /** See ConcordiumIdentity.prove. */
-  async prove({ providerIndex, identityIndex, credNumber, ...request } = {}) {
-    requireIndex(providerIndex, 'providerIndex');
-    requireIndex(identityIndex, 'identityIndex', IDENTITY_INDEX_HINT);
-    requireIndex(credNumber, 'credNumber', 'say which account answers (accountsThatCanAnswer lists the ones that can).', MAX_CRED_NUMBER);
-    const { challenge, credentialStatements } = readProofRequest(request);
-    const attributeList = this.#attributesOf(providerIndex, identityIndex);
-    // An expired identity's proof still adds up mathematically, but Concordium reports its account's credential as
-    // "Expired" and a careful website refuses it: say so now, so the person can verify again.
-    if (hasExpired({ attributeList })) {
-      throw new ProofError(`The identity expired at the end of ${attributeList.validTo.slice(0, 4)}-${attributeList.validTo.slice(4)}: `
-        + 'verify again for a new identity before answering.', { reason: 'identity-expired' });
-    }
-    this.#checkCanAnswer(credentialStatements, providerIndex, attributeList.chosenAttributes);
-
-    // Which account answers: its credential id (worked out from the seed) names it, as a "DID".
-    const globalContext = await this.#node.globalContext();
-    const hdWallet = await this.#hdWallet();
-    const credId = asHex(await hdWallet.getCredentialId(providerIndex, identityIndex, credNumber, globalContext));
-    const did = sdk.createAccountDID(this.#network, credId);
-
-    // The secret ingredients, per question group: the details asked about, and the random numbers that sealed them
-    // when the account was created (worked out from the seed again). They are handed to the SDK as text, which
-    // JavaScript cannot wipe: they live only as long as this call.
-    const commitmentInputs = [];
-    for (const cs of credentialStatements) {
-      const randomness = {};
-      for (const statement of cs.statement) {
-        randomness[statement.attributeTag] = asHex(await hdWallet.getAttributeCommitmentRandomness(
-          providerIndex, identityIndex, credNumber, sdk.AttributesKeys[statement.attributeTag]));
-      }
-      commitmentInputs.push(sdk.createAccountCommitmentInput(cs.statement, providerIndex, attributeList, randomness));
-    }
-    return this.#cryptography.getVerifiablePresentation({
-      request: { challenge, credentialStatements: credentialStatements.map((cs) => ({ id: did, statement: cs.statement })) },
-      globalContext,
-      commitmentInputs,
-    });
-  }
-
   /** See ConcordiumIdentity.accountsThatCanAnswer. */
-  async accountsThatCanAnswer({ providerIndex, identityIndex, gap, signal, ...request } = {}) {
+  async accountsThatCanAnswer({ providerIndex, identityIndex, request, gap, signal } = {}) {
     requireIndex(providerIndex, 'providerIndex');
     requireIndex(identityIndex, 'identityIndex', IDENTITY_INDEX_HINT);
-    const { credentialStatements } = readProofRequest(request);
-    const attributeList = this.#attributesOf(providerIndex, identityIndex);
+    const question = readProofRequest(request);
+    const { attributeList } = this.#identityOf(providerIndex, identityIndex);
+    if (question.network !== this.#network) return []; // about another network's identities
+    if (!question.claims.every((c) => c.source.includes('accountCredential'))) return []; // not answered from an account
     if (hasExpired({ attributeList })) return []; // an expired identity's accounts cannot answer acceptably
     try {
-      this.#checkCanAnswer(credentialStatements, providerIndex, attributeList.chosenAttributes);
+      this.#checkCanAnswer(question.claims, providerIndex, attributeList.chosenAttributes);
     } catch (e) {
       if (e instanceof ProofError && (e.reason === 'provider-not-accepted' || e.reason === 'cannot-prove')) return [];
       throw e;
@@ -110,11 +66,13 @@ export default class IdentityProofs {
     return this.#findAccounts({ providerIndex, identityIndex, gap, signal });
   }
 
-  /** See ConcordiumIdentity.proveIdentity. */
-  async proveIdentity({ providerIndex, identityIndex, request, context = {} } = {}) {
+  /** See ConcordiumIdentity.prove. */
+  async prove({ providerIndex, identityIndex, request, context = {}, credNumber } = {}) {
     requireIndex(providerIndex, 'providerIndex');
     requireIndex(identityIndex, 'identityIndex', IDENTITY_INDEX_HINT);
-    const question = readProofRequestV1(request);
+    const fromAccount = credNumber !== undefined; // answer from account credNumber, or from the identity itself
+    if (fromAccount) requireIndex(credNumber, 'credNumber', 'say which account answers.', MAX_CRED_NUMBER);
+    const question = readProofRequest(request);
     if (question.network !== this.#network) {
       throw new ProofError(`The question is about ${question.network} identities; this wallet's are on ${this.#network}.`,
         { reason: 'invalid-request' });
@@ -128,21 +86,46 @@ export default class IdentityProofs {
         + 'verify again for a new identity before answering.', { reason: 'identity-expired' });
     }
     question.claims.forEach((claim, n) => {
-      if (!claim.source.includes('identityCredential')) {
+      if (!fromAccount && !claim.source.includes('identityCredential')) {
         throw new ProofError(`Part ${n + 1} of the question accepts answers from an account only, not from the identity `
-          + 'itself: ask the website for a question that accepts the identity, or a version 0 question.', { reason: 'account-only' });
+          + 'itself: answer from one of the identity\'s accounts (pass its credNumber).', { reason: 'account-only' });
+      }
+      if (fromAccount && !claim.source.includes('accountCredential')) {
+        throw new ProofError(`Part ${n + 1} of the question accepts answers from the identity only, not from an account: `
+          + 'answer without a credNumber.', { reason: 'identity-only' });
       }
     });
-    this.#checkCanAnswer(question.claims.map((c) => ({ idQualifier: { issuers: c.providers }, statement: c.statements })),
-      providerIndex, attributeList.chosenAttributes);
+    this.#checkCanAnswer(question.claims, providerIndex, attributeList.chosenAttributes);
 
-    // The secret ingredients: the identity, with its secrets worked out from the seed again (Concordium's SDK helper),
-    // and the provider's keys. Handed to the SDK as text, which JavaScript cannot wipe: they live only for this call.
-    const { ipInfo, arsInfos } = await this.#providers.get(providerIndex);
-    const input = await identityCommitmentInput({ identity, ipInfo, arsInfos, identityIndex, hdWallet: await this.#hdWallet() });
     // What is proven, per part: the statements as asked, with any detail to show filled in from the identity.
-    const subjectClaims = question.claims.map((claim) => sdk.VerifiablePresentationV1.createIdentityClaims(
-      this.#network, providerIndex, sdk.VerifiablePresentationV1.revealRequestedStatements(claim.statements, attributeList.chosenAttributes)));
+    const statementsOf = (claim) => sdk.VerifiablePresentationV1.revealRequestedStatements(claim.statements, attributeList.chosenAttributes);
+    let subjectClaims;
+    let inputs;
+    if (fromAccount) {
+      // From an account: the account is named by its credential id (worked out from the seed), and each part is proven
+      // with the random numbers that sealed the account's details when it was created (worked out from the seed
+      // again). Handed to the SDK as text, which JavaScript cannot wipe: they live only for this call.
+      const hdWallet = await this.#hdWallet();
+      const credId = asHex(await hdWallet.getCredentialId(providerIndex, identityIndex, credNumber, await this.#globalContextOrFail()));
+      subjectClaims = question.claims.map((claim) => sdk.VerifiablePresentationV1.createAccountClaims(
+        this.#network, sdk.CredentialRegistrationId.fromHexString(credId), providerIndex, statementsOf(claim)));
+      inputs = [];
+      for (const claim of subjectClaims) {
+        const randomness = {};
+        for (const statement of claim.statement) {
+          randomness[statement.attributeTag] = asHex(await hdWallet.getAttributeCommitmentRandomness(
+            providerIndex, identityIndex, credNumber, sdk.AttributesKeys[statement.attributeTag]));
+        }
+        inputs.push(sdk.createAccountCommitmentInput(claim.statement, providerIndex, attributeList, randomness));
+      }
+    } else {
+      // From the identity: the identity, with its secrets worked out from the seed again (Concordium's SDK helper), and
+      // the provider's keys. Handed to the SDK as text, which JavaScript cannot wipe: they live only for this call.
+      const { ipInfo, arsInfos } = await this.#providers.get(providerIndex);
+      const input = await identityCommitmentInput({ identity, ipInfo, arsInfos, identityIndex, hdWallet: await this.#hdWallet() });
+      subjectClaims = question.claims.map((claim) => sdk.VerifiablePresentationV1.createIdentityClaims(this.#network, providerIndex, statementsOf(claim)));
+      inputs = subjectClaims.map(() => input);
+    }
 
     // The anchor: the question must be on chain, final, and really this question; the proof is tied to its block.
     let anchor;
@@ -157,7 +140,16 @@ export default class IdentityProofs {
     const filled = [...filledByWallet];
     if (question.requested.includes('BlockHash')) filled.push({ label: 'BlockHash', context: anchor.blockHash });
     const proofContext = sdk.VerifiablePresentationV1.createContext(question.request.context, filled);
-    return this.#cryptography.createPresentationV1({ context: proofContext, subjectClaims }, subjectClaims.map(() => input), globalContext);
+    return this.#cryptography.createPresentationV1({ context: proofContext, subjectClaims }, inputs, globalContext);
+  }
+
+  /** The network's cryptographic parameters, from the node; a node problem becomes a ProofError ('node'). */
+  async #globalContextOrFail() {
+    try {
+      return await this.#node.globalContext();
+    } catch (e) {
+      throw nodeFailed(e);
+    }
   }
 
   /**
@@ -209,22 +201,17 @@ export default class IdentityProofs {
     return identityContent(this.#held.require(providerIndex, identityIndex), 'The identity held is in an unexpected format.');
   }
 
-  /** The held identity's attribute list (its details and dates); ProofError 'not-held' if none is held. */
-  #attributesOf(providerIndex, identityIndex) {
-    return this.#identityOf(providerIndex, identityIndex).attributeList;
-  }
-
   /**
    * Refuse BEFORE building anything if the answer would not be true: the provider must be accepted, and every
    * detail asked about must satisfy its statement. So a wallet never sends a proof that cannot be right.
    */
-  #checkCanAnswer(credentialStatements, providerIndex, attributes) {
-    for (const cs of credentialStatements) {
-      if (!cs.idQualifier.issuers.includes(providerIndex)) {
-        throw new ProofError(`The website accepts identities from providers ${cs.idQualifier.issuers.join(', ')}, `
+  #checkCanAnswer(claims, providerIndex, attributes) {
+    for (const claim of claims) {
+      if (!claim.providers.includes(providerIndex)) {
+        throw new ProofError(`The website accepts identities from providers ${claim.providers.join(', ')}, `
           + `not from provider ${providerIndex}.`, { reason: 'provider-not-accepted' });
       }
-      for (const statement of cs.statement) {
+      for (const statement of claim.statements) {
         if (!(statement.attributeTag in attributes)) {
           throw new ProofError(`The identity has no ${attributeLabel(statement.attributeTag)}, which the website asks about.`,
             { reason: 'cannot-prove', detail: statement.attributeTag });

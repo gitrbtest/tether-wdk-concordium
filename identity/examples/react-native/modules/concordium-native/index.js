@@ -20,9 +20,8 @@ import { SIGNATURE_CHECK_UNAVAILABLE } from '@concordium/wdk-identity-concordium
 
 const native = requireNativeModule('ConcordiumNative');
 
-// As the JavaScript SDK: json-bigint's default for version 0 proofs, and big numbers kept exact for version 1.
-const JSONBigV0 = JSONbig();
-const JSONBigV1 = JSONbig({ alwaysParseAsBig: true, useNativeBigInt: true });
+// As the JavaScript SDK: big numbers kept exact in proofs.
+const JSONBig = JSONbig({ alwaysParseAsBig: true, useNativeBigInt: true });
 
 const hexOf = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
 
@@ -79,16 +78,11 @@ export const nativeConcordiumCryptography = {
     return { expiry, ...info };
   },
 
-  // getVerifiablePresentation (version 0)
-  async getVerifiablePresentation(input) {
-    return sdk.VerifiablePresentation.fromString(await native.createWeb3IdProof(JSONBigV0.stringify(input)));
-  },
-
-  // VerifiablePresentationV1.create (version 1)
+  // VerifiablePresentationV1.create
   async createPresentationV1({ context, subjectClaims }, inputs, globalContext) {
     const request = { type: 'ConcordiumVerifiablePresentationRequestV1', context: proofContextToJSON(context), subjectClaims };
-    const answer = await native.createPresentationV1(JSONBigV1.stringify({ request, global: globalContext, inputs }));
-    return sdk.VerifiablePresentationV1.fromJSON(JSONBigV1.parse(answer));
+    const answer = await native.createPresentationV1(JSONBig.stringify({ request, global: globalContext, inputs }));
+    return sdk.VerifiablePresentationV1.fromJSON(JSONBig.parse(answer));
   },
 
   // No native version: see the note at the top.
