@@ -675,7 +675,7 @@ cannot be done:
 | `identity-only` | wallet: the question accepts answers from the identity only, not from an account | answer without a `credNumber` |
 | `anchor-not-found` | wallet: the question's anchor is not on chain, or not final yet (`detail`: `absent`, `received`, `committed`) | just after the website sent it: try again in a few seconds; `absent`: decline |
 | `anchor-mismatch` | wallet: the anchor does not record this question (it was changed after it was recorded) | do not answer |
-| `node` | the Concordium node could not be asked (`detail`): asking, answering, or checking | try again |
+| `node` | the Concordium node could not be asked (`detail`): asking, answering, or checking. For `requestFor`, also: the anchor was sent but not seen final within `timeoutMs` (if the node's wait drops out, `requestFor` keeps asking for the anchor's status until then); its fee may be paid | try again |
 | `anchor-failed` | website: recording the question failed: the node refused the anchor, or it was rejected on chain (e.g. not enough CCD for the fee; `detail`) | fund the account that pays, or fix the keys; ask again |
 
 Reasons `checkPresentation` returns for a refused answer (in `result.reasons`, each with a plain `message`):

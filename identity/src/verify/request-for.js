@@ -5,7 +5,8 @@
  *   requestFor ─► what to ask, and where the answer may come from (the identity itself, an account made from it,
  *                 or either) ─► the context (a fresh random nonce, the website, the purpose) ─► Concordium's
  *                 claims builder ─► the anchor: a hash of the question, sent on chain in a registerData transaction
- *                 (fee paid by the website, or by a sponsor) ─► wait until it is final ─► the question, ready to send
+ *                 (fee paid by the website, or by a sponsor) ─► wait until it is final (asking for its status, if the node's
+ *                 wait drops out) ─► the question, ready to send
  *                 to the wallet (and to keep, to check the answer)
  *
  * Built from Concordium's own pieces (VerificationRequestV1, Transaction), so the question is exactly what
@@ -85,7 +86,8 @@ function requireSigner(signer, what) {
  * @param {object} anchoring.signer  the website account's signer (buildBasicAccountSigner(key))
  * @param {{ address: string, signer: object }} [anchoring.sponsor]  an account that pays the fee instead (both
  *   accounts sign); the website's account then needs no CCD
- * @param {number} [anchoring.timeoutMs=120000]  how long to wait for the anchor to be final
+ * @param {number} [anchoring.timeoutMs=120000]  how long to wait for the anchor to be final (if the node's wait
+ *   drops out, e.g. an HTTP 502, requestFor asks for the anchor's status instead, within the same time)
  * @returns {Promise<object>}  the question (VerificationRequestV1 JSON)
  * @throws {ProofError} reason 'invalid-request' or 'unknown-attribute' (nothing sent); 'anchor-failed' (the node
  *   refused the anchor, or it was rejected on chain, e.g. not enough CCD for the fee: `detail` says); 'node' (the
@@ -139,7 +141,7 @@ export async function requestFor(options = {}, { node, sender, signer, sponsor, 
   // Wait until it is final: a wallet refuses a question whose anchor is not final yet.
   let outcome;
   try {
-    outcome = await node.waitForTransactionFinalization(hash, timeoutMs);
+    outcome = await waitUntilFinal(node, hash, timeoutMs);
   } catch (e) {
     throw new ProofError(`The anchor (${sdk.TransactionHash.toHexString(hash)}) was not seen final: ${e?.message ?? e}. It may still `
       + 'become final; the question cannot be answered until it does.', { reason: 'node', detail: e?.message ?? String(e) });
@@ -150,6 +152,38 @@ export async function requestFor(options = {}, { node, sender, signer, sponsor, 
     throw new ProofError(`The anchor was rejected on chain (${why}).`, { reason: 'anchor-failed', detail: String(why) });
   }
   return readProofRequest(sdk.VerificationRequestV1.create(context, claims, hash)).request.toJSON();
+}
+
+/** How often to ask the node for the anchor's status, when its wait has dropped out. */
+const STATUS_EVERY_MS = 2_000;
+
+/**
+ * Wait until the anchor is final, within timeoutMs. The node's wait follows the chain's new blocks; that can drop out
+ * (e.g. an HTTP 502 from a proxy in front of the node) while the anchor still becomes final. Then ask the node for
+ * the anchor's status every few seconds instead, until it is final or the time is up.
+ * @returns {Promise<object>} the anchor's outcome ({ blockHash, summary })
+ * @throws the node's error (or 'not final in time'), when the anchor was not seen final within timeoutMs
+ */
+async function waitUntilFinal(node, hash, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  let error;
+  try {
+    return await node.waitForTransactionFinalization(hash, timeoutMs);
+  } catch (e) {
+    error = e;
+  }
+  if (typeof node.getBlockItemStatus !== 'function') throw error;
+  for (;;) {
+    try {
+      const status = await node.getBlockItemStatus(hash);
+      if (status?.status === 'finalized') return status.outcome;
+    } catch (e) {
+      error = e;
+    }
+    const left = deadline - Date.now();
+    if (left <= 0) throw error ?? new Error('not final in time');
+    await new Promise((resolve) => setTimeout(resolve, Math.min(STATUS_EVERY_MS, left)));
+  }
 }
 
 /** The options a question can ask (see requestFor). */

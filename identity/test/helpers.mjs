@@ -108,9 +108,10 @@ export const ANCHOR_BLOCK = 'b7'.repeat(32);
 /**
  * A pretend chain: the node for the website and for the wallet. Every registerData sent is kept as an anchor (final
  * in block ANCHOR_BLOCK, unless `reject` names a reject reason); `anchorStatus` can replace what it says about any
- * anchor. The providers' keys are the recorded testnet ones; account 0 of the recorded identity is on it.
+ * anchor; `waitDrops` (an error) makes the wait for an anchor to be final fail, as when the node's stream drops out.
+ * The providers' keys are the recorded testnet ones; account 0 of the recorded identity is on it.
  */
-export function pretendChain({ reject, refuse, anchorStatus, now = new Date('2026-11-07T12:00:00Z') } = {}) {
+export function pretendChain({ reject, refuse, anchorStatus, waitDrops, now = new Date('2026-11-07T12:00:00Z') } = {}) {
   const providers = ipInfoFixture('testnet');
   const account0 = recordedAccount0();
   const chain = {
@@ -123,7 +124,10 @@ export function pretendChain({ reject, refuse, anchorStatus, now = new Date('202
       chain.anchors.set(hash, Buffer.from(transaction.payload.data.data).toString('hex'));
       return sdk.TransactionHash.fromHexString(hash);
     },
-    async waitForTransactionFinalization(hash) { return chain.outcome(sdk.TransactionHash.toHexString(hash)); },
+    async waitForTransactionFinalization(hash) {
+      if (waitDrops) throw waitDrops;
+      return chain.outcome(sdk.TransactionHash.toHexString(hash));
+    },
     outcome(hash) {
       const summary = reject
         ? { type: 'accountTransaction', transactionType: 'failed', rejectReason: { tag: reject } }

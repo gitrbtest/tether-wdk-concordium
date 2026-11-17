@@ -52,7 +52,7 @@ export interface AnchoringOptions {
   signer: object;
   /** An account that pays the fee instead (both accounts sign); the website's account then needs no CCD. */
   sponsor?: { address: string; signer: object };
-  /** How long to wait for the anchor to be final (default 120000 ms). */
+  /** How long to wait for the anchor to be final (default 120000 ms). If the node's wait drops out (e.g. an HTTP 502), the anchor's status is asked for instead, within the same time. */
   timeoutMs?: number;
 }
 

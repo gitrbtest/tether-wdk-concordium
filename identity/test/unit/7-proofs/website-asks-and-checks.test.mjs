@@ -127,6 +127,22 @@ test('requestFor: an anchor the node refuses or the chain rejects is anchor-fail
   await rejectsWith(requestFor(AGE_CHECK, { node: pretendChain({ refuse: down }), ...SHOP }), 'node', /connection refused/);
 });
 
+// Step 3: the node's wait drops out (e.g. an HTTP 502) while the anchor becomes final anyway.
+test("requestFor: when the node's wait drops out, it asks for the anchor's status and still returns the question", async () => {
+  const dropped = Object.assign(new Error('Received HTTP status code 502'), { name: 'RpcError', code: 'UNKNOWN' });
+  const chain = pretendChain({ waitDrops: dropped });
+  const question = await requestFor(AGE_CHECK, { node: chain, ...SHOP });
+  assert.equal(chain.sent.length, 1, 'one anchor sent, not two');
+  assert.equal(question.transactionRef, [...chain.anchors.keys()][0], 'the question names the anchor sent');
+
+  // Never final within the time: node, saying the anchor may still become final.
+  const pending = pretendChain({ waitDrops: dropped, anchorStatus: () => ({ status: 'committed', outcomes: {} }) });
+  await rejectsWith(requestFor(AGE_CHECK, { node: pending, ...SHOP, timeoutMs: 50 }), 'node', /502.*may still become final/s);
+  // Final but rejected on chain: anchor-failed, as with the node's own wait.
+  await rejectsWith(requestFor(AGE_CHECK, { node: pretendChain({ waitDrops: dropped, reject: 'OutOfEnergy' }), ...SHOP }),
+    'anchor-failed', /rejected on chain \(OutOfEnergy\)/);
+});
+
 // ---- checkPresentation ----------------------------------------------------------------------------------------
 
 // Steps 1-8: the whole story, accepted.
