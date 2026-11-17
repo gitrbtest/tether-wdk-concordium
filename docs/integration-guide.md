@@ -87,7 +87,7 @@ too (so far it is tested on Node.js). Its optional desktop helper (chapter 3) co
 
 On a phone with React Native, plug in Concordium's native cryptography (`{ cryptography }`): the SDK's own is far too
 slow there. See [Phones: plugging in faster cryptography](../identity/README.md#phones-plugging-in-faster-cryptography);
-the React Native example shows it working.
+the [React Native example](../identity/examples/react-native/README.md) shows it working.
 
 ### Create the two objects
 

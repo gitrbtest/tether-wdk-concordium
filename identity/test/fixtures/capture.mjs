@@ -53,7 +53,7 @@ await capture(ISSUED_TESTNET_IDENTITY.codeUri, 'identity-done.testnet.json');
 console.log('identity-done.testnet.json: issued identity collected from its code_uri');
 
 // The sealed details ("commitments") of that identity's account 0, as stored on chain when the account was created:
-// what a website checks a V0 proof against. Read from a testnet node (the wallet-proxy does not serve them).
+// what a website checks an answer from that account against. Read from a testnet node (the wallet-proxy does not serve them).
 // Lets the proof tests check presentations offline.
 const { ConcordiumGRPCNodeClient } = await import('@concordium/web-sdk/nodejs');
 const { credentials } = await import('@grpc/grpc-js');

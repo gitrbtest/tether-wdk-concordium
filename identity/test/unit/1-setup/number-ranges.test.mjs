@@ -35,7 +35,7 @@ test('an identity request for a number the SDK would reduce is refused, not buil
 test('an account or a proof for an account number above 255 is refused before anything is built or sent', async () => {
   const wallet = await walletWithRecordedIdentity();
   await assert.rejects(() => wallet.createAccount({ ...RECORDED_IDENTITY, credNumber: 256 }), /credNumber must be at most 255/);
-  await assert.rejects(() => wallet.prove({ ...RECORDED_IDENTITY, credNumber: 271, challenge: 'ab'.repeat(32), credentialStatements: [] }),
+  await assert.rejects(() => wallet.prove({ ...RECORDED_IDENTITY, credNumber: 271, request: {} }),
     /credNumber must be at most 255/);
   wallet.dispose();
 });
