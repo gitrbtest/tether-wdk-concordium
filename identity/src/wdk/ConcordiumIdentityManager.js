@@ -7,41 +7,47 @@
  *     │  WDK passes its seed
  *     ▼
  *   ConcordiumIdentityManager ── each method ──► ConcordiumIdentity (this package, unchanged)
- *     getProviders           IdentityProviders, checked against the chain
+ *     getProviders           IdentityProviders, checked against the chain; each provider's published description
  *     startVerification      nextIdentityIndex, then createIdentityRequest
  *     completeVerification   retrieveIdentity
- *     recover                recoverAll
+ *     recover                recoverAll (refused if a provider could not be asked part way)
  *     createAccount          nextCredNumber, then createAccount
  *     exportIdentity / importIdentity, prove (from the identity itself)
  *
  * An identity is referred to as `{ providerIndex, identityIndex }`. The package's errors become WDK's `IdentityError`
- * (the package's own error is its `cause`).
+ * (the package's own error is its `cause`); a disposed manager throws WDK's `DisposalError`, and invalid options
+ * `ValueError`, as the base class documents.
  */
+import { DisposalError, ValueError } from '@tetherto/wdk-wallet';
 import IdentityManager, { IdentityError, IdentityErrorReason } from '@tetherto/wdk-wallet/identity';
 import ConcordiumIdentity from '../ConcordiumIdentity.js';
 import IdentityProviders from '../providers/IdentityProviders.js';
 import ChainNode from '../chain/ChainNode.js';
 
+const R = IdentityErrorReason;
+
 /** Which `IdentityError` reason each of the package's error reasons becomes (by error name, then reason). */
 const REASONS = {
-  IdentityProviderError: { '*': IdentityErrorReason.PROVIDER_ERROR },
-  IdentityIssuanceError: { rejected: IdentityErrorReason.VERIFICATION_REJECTED, '*': IdentityErrorReason.PROVIDER_ERROR },
-  IdentityRecoveryError: { 'not-yours': IdentityErrorReason.IDENTITY_NOT_FOUND, '*': IdentityErrorReason.PROVIDER_ERROR },
-  IdentityStorageError: { '*': IdentityErrorReason.IDENTITY_NOT_FOUND },
+  IdentityProviderError: { '*': R.PROVIDER_ERROR },
+  // rejected: the provider refused; not-genuine: what came back is not a genuine identity for this seed.
+  IdentityIssuanceError: { rejected: R.VERIFICATION_REJECTED, 'not-genuine': R.VERIFICATION_REJECTED, '*': R.PROVIDER_ERROR },
+  IdentityRecoveryError: { 'not-yours': R.IDENTITY_NOT_FOUND, node: R.CHAIN_ERROR, '*': R.PROVIDER_ERROR },
+  IdentityStorageError: { '*': R.IDENTITY_NOT_FOUND },
   AccountCreationError: {
-    'identity-expired': IdentityErrorReason.IDENTITY_EXPIRED, 'max-accounts': IdentityErrorReason.ACCOUNT_LIMIT_REACHED,
-    'unknown-attribute': IdentityErrorReason.INVALID_REQUEST, '*': IdentityErrorReason.PROVIDER_ERROR,
+    'identity-expired': R.IDENTITY_EXPIRED, 'max-accounts': R.ACCOUNT_LIMIT_REACHED, 'unknown-attribute': R.INVALID_REQUEST,
+    '*': R.CHAIN_ERROR, // rejected, expired, timeout, node: the chain refused, did not confirm, or could not be reached
   },
   ProofError: {
-    'invalid-request': IdentityErrorReason.INVALID_REQUEST, 'unknown-attribute': IdentityErrorReason.INVALID_REQUEST,
-    'not-held': IdentityErrorReason.IDENTITY_NOT_FOUND, 'identity-expired': IdentityErrorReason.IDENTITY_EXPIRED,
-    '*': IdentityErrorReason.CANNOT_PROVE,
+    'invalid-request': R.INVALID_REQUEST, 'unknown-attribute': R.INVALID_REQUEST,
+    'anchor-not-found': R.INVALID_REQUEST, 'anchor-mismatch': R.INVALID_REQUEST, 'anchor-failed': R.INVALID_REQUEST,
+    'not-held': R.IDENTITY_NOT_FOUND, 'identity-expired': R.IDENTITY_EXPIRED, node: R.CHAIN_ERROR,
+    '*': R.CANNOT_PROVE, // cannot-prove, provider-not-accepted, account-only, identity-only
   },
 };
 
 /**
  * Runs `work`; a package error comes out as WDK's `IdentityError` (the package's error as its `cause`), anything else
- * (e.g. `ValueError`, `DisposalError`) as it is.
+ * (e.g. `ValueError`) as it is.
  */
 export async function asIdentityError(work) {
   try {
@@ -49,7 +55,7 @@ export async function asIdentityError(work) {
   } catch (error) {
     // The package says "no identity held" with a plain Error (HeldIdentities.require): for WDK, IDENTITY_NOT_FOUND.
     if (error?.name === 'Error' && /^No identity is held/.test(error.message)) {
-      throw new IdentityError(error.message, { reason: IdentityErrorReason.IDENTITY_NOT_FOUND, cause: error });
+      throw new IdentityError(error.message, { reason: R.IDENTITY_NOT_FOUND, cause: error });
     }
     const reasons = REASONS[error?.name];
     if (!reasons) throw error;
@@ -61,8 +67,7 @@ export async function asIdentityError(work) {
 function readIdentity(identity) {
   const { providerIndex, identityIndex } = identity ?? {};
   if (!Number.isSafeInteger(providerIndex) || !Number.isSafeInteger(identityIndex)) {
-    throw new IdentityError('An identity is referred to as { providerIndex, identityIndex }.',
-      { reason: IdentityErrorReason.IDENTITY_NOT_FOUND });
+    throw new IdentityError('An identity is referred to as { providerIndex, identityIndex }.', { reason: R.IDENTITY_NOT_FOUND });
   }
   return { providerIndex, identityIndex };
 }
@@ -105,21 +110,36 @@ export default class ConcordiumIdentityManager extends IdentityManager {
     // The same provider list and node as ConcordiumIdentity (which has checked them), for getProviders.
     /** @private */
     this._providers = new IdentityProviders(identityConfig.identityProviders, { node: new ChainNode(identityConfig.node) });
+    /** @private Each provider's description and website as it publishes them, by its number. */
+    this._published = new Map(identityConfig.identityProviders.map((entry) => [entry.ipInfo?.ipIdentity, entry.ipInfo?.ipDescription ?? {}]));
+  }
+
+  /** @private A disposed manager throws DisposalError, as the base class documents. */
+  _requireNotDisposed() {
+    if (this.disposed) throw new DisposalError('The identity manager has been disposed.');
   }
 
   /** The identity providers, checked against the chain's record (those not matching are left out). */
   async getProviders() {
-    return asIdentityError(async () => (await this._providers.list()).map((p) => ({
-      id: String(p.index), name: p.display ?? p.name, description: p.kind === 'company' ? 'Company identities (Business ID)' : 'Identities of people',
-      ...(p.issuanceStart ? { url: new URL(p.issuanceStart).origin } : {}),
-    })));
+    this._requireNotDisposed();
+    return asIdentityError(async () => (await this._providers.list()).map((p) => {
+      const { description, url } = this._published.get(p.index) ?? {};
+      return { id: String(p.index), name: p.display ?? p.name, ...(description ? { description } : {}), ...(url ? { url } : {}) };
+    }));
   }
 
   /**
-   * @param {{ provider: string, returnUrl: string, identityIndex?: number }} options  `identityIndex`: Concordium's
-   *   identity number to use (default: the next free one with this provider, found by asking it)
+   * @param {{ provider: string, returnUrl: string, identityIndex?: number }} options  `provider`: one of getProviders()'
+   *   ids; `identityIndex`: Concordium's identity number to use (default: the next free one with this provider)
    */
   async startVerification({ provider, returnUrl, identityIndex } = {}) {
+    this._requireNotDisposed();
+    if (!/^\d+$/.test(String(provider ?? ''))) {
+      throw new ValueError(`The provider must be one of getProviders()' ids, e.g. '0' (got ${JSON.stringify(provider)}).`);
+    }
+    if (typeof returnUrl !== 'string' || !returnUrl) {
+      throw new ValueError('A returnUrl is required: where the provider sends the user back to.');
+    }
     return asIdentityError(async () => {
       const providerIndex = Number(provider);
       const index = identityIndex ?? await this._concordium.nextIdentityIndex({ providerIndex });
@@ -130,18 +150,35 @@ export default class ConcordiumIdentityManager extends IdentityManager {
 
   /** @param {string} reply  the address the provider sent the user back to (with its reply after #) */
   async completeVerification(identity, reply) {
+    this._requireNotDisposed();
     return asIdentityError(async () => summaryOf(await this._concordium.retrieveIdentity(reply, readIdentity(identity))));
   }
 
+  /**
+   * Every identity of the seed, with its accounts. If a provider could not be asked part way (e.g. it was down), the
+   * list would be incomplete without saying so: that is refused instead (PROVIDER_ERROR, worth trying again). A
+   * provider that publishes no recovery address is skipped; an identity that is not genuine is never kept; an identity
+   * whose accounts could not be looked up comes back without `accounts`.
+   */
   async recover() {
+    this._requireNotDisposed();
     return asIdentityError(async () => {
-      const { identities } = await this._concordium.recoverAll();
+      const { identities, problems } = await this._concordium.recoverAll();
+      const found = new Set(identities.map((x) => `${x.providerIndex}/${x.identityIndex}`));
+      const notAsked = problems.filter((p) => p.identityIndex !== null && p.error?.reason !== 'not-genuine'
+        && !found.has(`${p.providerIndex}/${p.identityIndex}`));
+      if (notAsked.length) {
+        const which = notAsked.map((p) => `provider ${p.providerIndex} (${p.error?.message ?? p.error})`).join('; ');
+        throw new IdentityError(`Not every identity could be looked for: ${which}. Try again.`,
+          { reason: R.PROVIDER_ERROR, cause: notAsked[0].error });
+      }
       return identities.map(({ summary, accounts }) => summaryOf(summary, accounts ?? undefined));
     });
   }
 
   /** @param {{ index?: number }} [options]  `index`: the account number (default: the next free one) */
   async createAccount(identity, { index } = {}) {
+    this._requireNotDisposed();
     return asIdentityError(async () => {
       const ref = readIdentity(identity);
       const credNumber = index ?? await this._concordium.nextCredNumber(ref);
@@ -151,15 +188,18 @@ export default class ConcordiumIdentityManager extends IdentityManager {
   }
 
   async exportIdentity(identity) {
+    this._requireNotDisposed();
     return asIdentityError(() => this._concordium.exportIdentity(readIdentity(identity)));
   }
 
   async importIdentity(exported) {
+    this._requireNotDisposed();
     return asIdentityError(async () => summaryOf(await this._concordium.importIdentity(exported)));
   }
 
   /** Proves from the identity itself, naming no account (Concordium's version 1 questions allow it). */
   async prove(identity, request) {
+    this._requireNotDisposed();
     return asIdentityError(() => this._concordium.prove({ ...readIdentity(identity), request }));
   }
 
@@ -170,6 +210,7 @@ export default class ConcordiumIdentityManager extends IdentityManager {
    * @param {number} credNumber  the account's number under the identity
    */
   async proveFromAccount(identity, request, credNumber) {
+    this._requireNotDisposed();
     return asIdentityError(() => this._concordium.prove({ ...readIdentity(identity), request, credNumber }));
   }
 

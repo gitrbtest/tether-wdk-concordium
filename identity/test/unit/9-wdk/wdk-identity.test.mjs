@@ -103,6 +103,20 @@ test('step 1: the providers, from the recorded list checked against the recorded
   assert.ok(first, 'provider 0 is listed');
   assert.equal(typeof first.name, 'string');
   assert.ok(providers.every((p) => typeof p.id === 'string' && typeof p.name === 'string'));
+  // Each provider's own published description and website (provider 0 publishes no website).
+  const dts = providers.find((p) => p.id === '3');
+  assert.equal(dts.description, 'Identity verified by Digital Trust Solutions on behalf of Concordium');
+  assert.equal(dts.url, 'https://www.digitaltrustsolutions.nl');
+  assert.equal(first.url, undefined, 'no website published, none given');
+});
+
+test('step 1: startVerification refuses a provider that is not one of the ids, or no return address (ValueError)', async () => {
+  const manager = new WDK(PHRASE).registerIdentity('concordium', ConcordiumIdentityManager, identityConfig()).getIdentity('concordium');
+  for (const provider of ['', ' ', 'zero', '0x1', undefined, -1]) {
+    await assert.rejects(manager.startVerification({ provider, returnUrl: RETURN_URL, identityIndex: 7 }),
+      (e) => e.name === 'ValueError' && /getProviders/.test(e.message), `provider ${JSON.stringify(provider)}`);
+  }
+  await assert.rejects(manager.startVerification({ provider: '0', identityIndex: 7 }), (e) => e.name === 'ValueError' && /returnUrl/.test(e.message));
 });
 
 test('step 1: startVerification gives the provider\'s page and the reference of the identity being issued', async () => {
@@ -219,9 +233,10 @@ const addressOf = (providerIndex, identityIndex, credNumber) => sdk.getAccountAd
  * The identity configuration for a scripted "new phone": provider 0 has identities 0 and 1 for this seed, with the
  * accounts `world` lists ({ identityIndex: [credNumber, …] }); the other providers have none. The identities are the
  * recorded one with this seed's key put in, so the provider's signature check is skipped (the package's own test
- * option). `accountsDown`: the node cannot be asked about accounts.
+ * option). `accountsDown`: the node cannot be asked about accounts. `downFrom`: provider 0's recovery address fails
+ * (HTTP 500) from this identity number on.
  */
-function newPhoneConfig(world, { accountsDown = false } = {}) {
+function newPhoneConfig(world, { accountsDown = false, downFrom } = {}) {
   const recorded = walletProxyFetch('testnet');
   const keys = {};
   for (let i = 0; i < 10; i++) keys[keyOf(0, i)] = i;
@@ -233,6 +248,7 @@ function newPhoneConfig(world, { accountsDown = false } = {}) {
     const [, p] = recoveryStarts.find(([start]) => start && text.startsWith(`${start}?`)) ?? [];
     if (p === undefined) return recorded.fetch(url, options);
     const i = keys[JSON.parse(new URL(text).searchParams.get('state')).idRecoveryRequest.value.idCredPub];
+    if (p === 0 && downFrom !== undefined && i >= downFrom) return json(500, { message: 'down' });
     if (p !== 0 || !world[i]) return json(404, { message: 'not found' });
     const identity = fixture('identity-done.testnet.json').token.identityObject;
     identity.value.preIdentityObject.idCredPub = keyOf(0, i);
@@ -281,10 +297,49 @@ test('recover: a seed with no identities gets an empty list', async () => {
   assert.deepEqual(await manager.recover(), []);
 });
 
-test('dispose: WDK disposes the identity manager; the identity is no longer held', async () => {
+test('recover: a provider that cannot be asked part way is refused (PROVIDER_ERROR), not a silently shorter list', async () => {
+  // Identities 0 and 1 exist, but the provider fails from identity 1 on: the list would miss identity 1.
+  const manager = new WDK(PHRASE)
+    .registerIdentity('concordium', ConcordiumIdentityManager, newPhoneConfig({ 0: [0], 1: [0] }, { downFrom: 1 }))
+    .getIdentity('concordium');
+  await assert.rejects(manager.recover(), (e) => {
+    assert.ok(e instanceof IdentityError);
+    assert.equal(e.reason, IdentityErrorReason.PROVIDER_ERROR);
+    assert.match(e.message, /provider 0 .*Try again/);
+    return true;
+  });
+});
+
+test('errors: each of the package\'s errors becomes the IdentityError reason that says what happened', async () => {
+  const { asIdentityError } = await import('../../../src/wdk/ConcordiumIdentityManager.js');
+  const reasonFor = async (name, reason) => {
+    try {
+      await asIdentityError(async () => { throw Object.assign(new Error('x'), { name, reason }); });
+    } catch (e) {
+      return e instanceof IdentityError ? e.reason : `not mapped: ${e.name}`;
+    }
+  };
+  const R = IdentityErrorReason;
+  const expected = [
+    ['IdentityIssuanceError', 'rejected', R.VERIFICATION_REJECTED], ['IdentityIssuanceError', 'not-genuine', R.VERIFICATION_REJECTED],
+    ['IdentityIssuanceError', 'provider-error', R.PROVIDER_ERROR], ['IdentityRecoveryError', 'not-yours', R.IDENTITY_NOT_FOUND],
+    ['IdentityRecoveryError', 'node', R.CHAIN_ERROR], ['IdentityRecoveryError', 'network', R.PROVIDER_ERROR],
+    ['AccountCreationError', 'identity-expired', R.IDENTITY_EXPIRED], ['AccountCreationError', 'max-accounts', R.ACCOUNT_LIMIT_REACHED],
+    ['AccountCreationError', 'rejected', R.CHAIN_ERROR], ['AccountCreationError', 'timeout', R.CHAIN_ERROR],
+    ['ProofError', 'invalid-request', R.INVALID_REQUEST], ['ProofError', 'anchor-not-found', R.INVALID_REQUEST],
+    ['ProofError', 'not-held', R.IDENTITY_NOT_FOUND], ['ProofError', 'node', R.CHAIN_ERROR], ['ProofError', 'cannot-prove', R.CANNOT_PROVE],
+    ['IdentityStorageError', 'unreadable', R.IDENTITY_NOT_FOUND], ['IdentityProviderError', undefined, R.PROVIDER_ERROR],
+  ];
+  for (const [name, reason, want] of expected) assert.equal(await reasonFor(name, reason), want, `${name} ${reason}`);
+  assert.equal(await reasonFor('TypeError', undefined), 'not mapped: TypeError', 'anything else passes through as it is');
+});
+
+test('dispose: WDK disposes the identity manager; it then throws DisposalError, as WDK\'s wallets do', async () => {
   const wdk = await wdkWithIdentity();
   const manager = wdk.getIdentity('concordium');
   wdk.dispose();
   assert.equal(manager.disposed, true);
-  await assert.rejects(manager.exportIdentity(RECORDED_IDENTITY));
+  for (const call of [() => manager.exportIdentity(RECORDED_IDENTITY), () => manager.getProviders(), () => manager.recover()]) {
+    await assert.rejects(call(), (e) => e.name === 'DisposalError');
+  }
 });
