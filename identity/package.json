@@ -18,12 +18,17 @@
     "./verify": {
       "types": "./types/verify.d.ts",
       "default": "./verify.js"
+    },
+    "./wdk": {
+      "types": "./types/wdk.d.ts",
+      "default": "./wdk.js"
     }
   },
   "files": [
     "index.js",
     "node-extras.js",
     "verify.js",
+    "wdk.js",
     "docs",
     "src",
     "types",
@@ -69,11 +74,21 @@
   },
   "devDependencies": {
     "@concordium/wdk-wallet-concordium": "file:..",
+    "@tetherto/wdk": "github:gitrbtest/wdk#feature/identity",
+    "@tetherto/wdk-wallet": "github:gitrbtest/wdk-wallet#feature/identity",
     "typescript": "5.9.3"
   },
   "dependencies": {
     "@concordium/rust-bindings": "4.0.1",
     "@concordium/web-sdk": "12.0.2",
     "@noble/hashes": "1.8.0"
+  },
+  "peerDependencies": {
+    "@tetherto/wdk-wallet": "*"
+  },
+  "peerDependenciesMeta": {
+    "@tetherto/wdk-wallet": {
+      "optional": true
+    }
   }
 }

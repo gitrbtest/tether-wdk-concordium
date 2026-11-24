@@ -47,6 +47,7 @@ the chain by a pretend node (`helpers.mjs`).
 | | `wallet-proves-from-identity` | the wallet answers from the identity itself, after checking the anchor |
 | | `website-asks-and-checks` | the website asks a question (anchored, optionally sponsored) and checks the answer, from the identity or an account |
 | `8-demo` | `identity-walkthrough` | the identity walkthrough's local server and its steps |
+| `9-wdk` | `wdk-identity` | the package inside WDK (the proposal): registerIdentity, the identity protocol on an account, WDK's errors |
 
 ## Live tests (`integration/`): on testnet
 

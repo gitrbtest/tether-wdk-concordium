@@ -36,7 +36,7 @@ wallet.
 [Recovery](#getting-the-identity-back-recovery) · [Proofs](#proving-facts-proofs) ·
 [Company identities](#company-identities-business-id) · [Phones](#phones-plugging-in-faster-cryptography) ·
 [Errors](#handling-errors) · [Callback listener](#optional-built-in-callback-listener-nodejs-desktop-apps) ·
-[Development](#development)
+[Inside WDK](#inside-wdk-a-proposal) · [Development](#development)
 
 ## What you can build
 
@@ -880,6 +880,38 @@ A runnable example of the whole flow on testnet, saving the identity in `./demo-
 test identities only: a real wallet keeps it in secure storage): `npm run example:verify-identity` (`examples/terminal-and-browser/verify-identity.mjs`; set
 `OPEN_BROWSER=1` to open the verification page for you). Load it again in a new program with
 `npm run example:load-identity`.
+
+## Inside WDK (a proposal)
+
+WDK has no place for identity yet: its protocols act on an existing account, and on Concordium the identity comes
+first. A proposal adds one: `wdk.registerIdentity` (next to `registerWallet`, given WDK's seed) and
+`wdk.registerIdentityProtocol` (proving from an account), with the base classes in `@tetherto/wdk-wallet`. It is
+built on forks of Tether's packages ([wdk](https://github.com/gitrbtest/wdk/tree/feature/identity),
+[wdk-wallet](https://github.com/gitrbtest/wdk-wallet/tree/feature/identity)) and is not part of WDK until Tether
+accepts it. This package's entry `@concordium/wdk-identity-concordium/wdk` fits it:
+
+```js
+import WDK from '@tetherto/wdk';
+import { ConcordiumIdentityManager, ConcordiumIdentityProtocol } from '@concordium/wdk-identity-concordium/wdk';
+
+const wdk = new WDK(seedPhrase)
+  .registerWallet('concordium', WalletManagerConcordium, { ...CONCORDIUM_TESTNET_CONFIG })
+  .registerIdentity('concordium', ConcordiumIdentityManager, { ...CONCORDIUM_TESTNET_IDENTITY_CONFIG, identityProviders, node })
+  .registerIdentityProtocol('concordium', 'concordium-id', ConcordiumIdentityProtocol);
+
+const identities = wdk.getIdentity('concordium');
+const { url, identity } = await identities.startVerification({ provider: '0', returnUrl });
+// … the user verifies on the provider's page; the app catches the return address …
+await identities.completeVerification(identity, returnedUrl);
+const { path } = await identities.createAccount(identity);
+
+const account = await wdk.getAccountByPath('concordium', path);
+const proof = await account.getIdentityProtocol('concordium-id').prove(question);
+```
+
+An identity is referred to as `{ providerIndex, identityIndex }`. Errors are WDK's `IdentityError` (`reason`:
+`PROVIDER_ERROR`, `VERIFICATION_REJECTED`, `IDENTITY_NOT_FOUND`, `IDENTITY_EXPIRED`, `ACCOUNT_LIMIT_REACHED`,
+`INVALID_REQUEST`, `CANNOT_PROVE`), with this package's own error as its `cause`.
 
 ## Development
 
