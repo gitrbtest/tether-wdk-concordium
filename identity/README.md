@@ -909,6 +909,8 @@ const account = await wdk.getAccountByPath('concordium', path);
 const proof = await account.getIdentityProtocol('concordium-id').prove(question);
 ```
 
+Try it: `npm run example:wdk-identity` (the whole journey on testnet, through WDK).
+
 An identity is referred to as `{ providerIndex, identityIndex }`. Errors are WDK's `IdentityError` (`reason`:
 `PROVIDER_ERROR`, `VERIFICATION_REJECTED`, `IDENTITY_NOT_FOUND`, `IDENTITY_EXPIRED`, `ACCOUNT_LIMIT_REACHED`,
 `INVALID_REQUEST`, `CANNOT_PROVE`), with this package's own error as its `cause`.

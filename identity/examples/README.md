@@ -26,6 +26,7 @@ files, for test identities only; a real wallet keeps them in its secure storage)
 | Command (in `identity`) | What it shows | The browser step |
 |---|---|---|
 | `npm run example:verify-identity` | verifying an identity end to end, as a desktop wallet does: the request, the provider's page, the identity collected, checked and kept | the sample prints the provider's link (or opens it with `OPEN_BROWSER=1`); fill in the test form, and the sample carries on |
+| `npm run example:wdk-identity` | identity inside WDK (a proposal): one seed given to WDK, which builds the Concordium wallet and identity manager; verify, create an account, get it through WDK, prove "over 18" from it to a shop | writes to testnet: an identity and an account (free), the shop's question (about 5 testnet CCD, paid by a sponsor); fill in the test form, and the sample carries on |
 | `npm run example:resume-after-restart` (then `… -- resume`) | verification that survives the app being closed: the provider's reply is saved, and a fresh start collects the identity | open the printed link and verify; part 2 runs later, in the terminal only |
 
 ## `company-identity/`: company identities (Business ID)
