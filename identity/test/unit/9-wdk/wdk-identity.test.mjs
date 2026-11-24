@@ -199,6 +199,88 @@ test('step 5: an account whose path is not a Concordium path, or no identity man
   await rejectsWith(account.getIdentityProtocol('concordium-id').prove(question().toJSON()), IdentityErrorReason.IDENTITY_NOT_FOUND);
 });
 
+// ---- A new phone: recover() through WDK ------------------------------------------------------------------------
+//
+//   APP: wdk.getIdentity('concordium').recover()
+//     └─► ConcordiumIdentity.recoverAll: each provider's recovery address, identity 0, 1, 2 … (a scripted provider
+//         here: identities 0 and 1 of provider 0 exist), then each identity's accounts on the (recorded) node
+//   ◄── WDK's IdentitySummary for each: the reference, the provider, the dates, the accounts' paths and addresses
+
+const HD = sdk.ConcordiumHdWallet.fromSeedPhrase(PHRASE, 'Testnet');
+const providerEntry = (index) => testnetConfig().identityProviders.find((entry) => entry.ipInfo.ipIdentity === index);
+const keyOf = (providerIndex, identityIndex) => sdk.createIdentityRecoveryRequestWithKeys({
+  ipInfo: providerEntry(providerIndex).ipInfo, globalContext: globalFixture('testnet').value, timestamp: 0,
+  idCredSec: HD.getIdCredSec(providerIndex, identityIndex).toString('hex'),
+}).value.idCredPub;
+const addressOf = (providerIndex, identityIndex, credNumber) => sdk.getAccountAddress(
+  HD.getCredentialId(providerIndex, identityIndex, credNumber, globalFixture('testnet').value).toString('hex')).toString();
+
+/**
+ * The identity configuration for a scripted "new phone": provider 0 has identities 0 and 1 for this seed, with the
+ * accounts `world` lists ({ identityIndex: [credNumber, …] }); the other providers have none. The identities are the
+ * recorded one with this seed's key put in, so the provider's signature check is skipped (the package's own test
+ * option). `accountsDown`: the node cannot be asked about accounts.
+ */
+function newPhoneConfig(world, { accountsDown = false } = {}) {
+  const recorded = walletProxyFetch('testnet');
+  const keys = {};
+  for (let i = 0; i < 10; i++) keys[keyOf(0, i)] = i;
+  const recoveryStarts = testnetConfig().identityProviders.map((entry) => [entry.metadata?.recoveryStart, entry.ipInfo.ipIdentity]);
+  const addresses = new Set(Object.entries(world).flatMap(([i, accounts]) => accounts.map((n) => addressOf(0, Number(i), n))));
+  const json = (status, body) => ({ ok: status === 200, status, json: async () => body });
+  const fetch = async (url, options) => {
+    const text = String(url);
+    const [, p] = recoveryStarts.find(([start]) => start && text.startsWith(`${start}?`)) ?? [];
+    if (p === undefined) return recorded.fetch(url, options);
+    const i = keys[JSON.parse(new URL(text).searchParams.get('state')).idRecoveryRequest.value.idCredPub];
+    if (p !== 0 || !world[i]) return json(404, { message: 'not found' });
+    const identity = fixture('identity-done.testnet.json').token.identityObject;
+    identity.value.preIdentityObject.idCredPub = keyOf(0, i);
+    return json(200, identity);
+  };
+  const node = recordedNode('testnet', {
+    accountExists: (address) => (accountsDown
+      ? Object.assign(new Error('the node is unreachable'), { name: 'RpcError', code: 'UNAVAILABLE' })
+      : addresses.has(address)),
+  });
+  return { ...testnetConfig({ node }), fetch, _signatureCheck: () => true };
+}
+
+test('recover: a new phone gets every identity back through WDK, each with its accounts, in WDK\'s shape', async () => {
+  const wdk = new WDK(PHRASE).registerWallet('concordium', StandInWallet, {})
+    .registerIdentity('concordium', ConcordiumIdentityManager, newPhoneConfig({ 0: [0], 1: [0, 1] }))
+    .registerIdentityProtocol('concordium', 'concordium-id', ConcordiumIdentityProtocol);
+  const recovered = await wdk.getIdentity('concordium').recover();
+
+  assert.deepEqual(recovered.map((r) => r.identity), [{ providerIndex: 0, identityIndex: 0 }, { providerIndex: 0, identityIndex: 1 }]);
+  assert.deepEqual(recovered.map((r) => r.accounts.map((a) => a.path)), [['0/0/0'], ['0/1/0', '0/1/1']]);
+  assert.equal(recovered[1].accounts[1].address, addressOf(0, 1, 1), 'each account with its address');
+  assert.ok(recovered.every((r) => r.provider === '0' && r.validTo instanceof Date && r.createdAt instanceof Date));
+  assert.equal(recovered[0].validTo.toISOString(), '2027-09-30T23:59:59.999Z', 'valid to the end of its last month (202709)');
+  assert.doesNotMatch(JSON.stringify(recovered), /John|Doe|19700101/, 'no personal data');
+
+  // The recovered identities are held: they can be exported, and their accounts used through WDK.
+  for (const { identity } of recovered) {
+    assert.equal(typeof await wdk.getIdentity('concordium').exportIdentity(identity), 'string');
+  }
+  const account = await wdk.getAccountByPath('concordium', recovered[1].accounts[1].path);
+  assert.ok(account.getIdentityProtocol('concordium-id') instanceof ConcordiumIdentityProtocol);
+});
+
+test('recover: an identity whose accounts cannot be looked up comes back without accounts', async () => {
+  const manager = new WDK(PHRASE)
+    .registerIdentity('concordium', ConcordiumIdentityManager, newPhoneConfig({ 0: [0] }, { accountsDown: true }))
+    .getIdentity('concordium');
+  const recovered = await manager.recover();
+  assert.deepEqual(recovered.map((r) => r.identity), [{ providerIndex: 0, identityIndex: 0 }]);
+  assert.equal(recovered[0].accounts, undefined, 'no accounts list, rather than an empty one that would read "none"');
+});
+
+test('recover: a seed with no identities gets an empty list', async () => {
+  const manager = new WDK(PHRASE).registerIdentity('concordium', ConcordiumIdentityManager, newPhoneConfig({})).getIdentity('concordium');
+  assert.deepEqual(await manager.recover(), []);
+});
+
 test('dispose: WDK disposes the identity manager; the identity is no longer held', async () => {
   const wdk = await wdkWithIdentity();
   const manager = wdk.getIdentity('concordium');

@@ -96,10 +96,11 @@ export default class ConcordiumIdentityManager extends IdentityManager {
    */
   constructor(seed, config = {}) {
     super(seed, config);
-    const { fetch, cryptography, ...identityConfig } = config;
+    // `_signatureCheck` is ConcordiumIdentity's internal option for the package's own tests (never pass it).
+    const { fetch, cryptography, _signatureCheck, ...identityConfig } = config;
     /** @private */
     this._concordium = new ConcordiumIdentity(this._seed, identityConfig, {
-      ...(fetch ? { fetch } : {}), ...(cryptography ? { cryptography } : {}),
+      ...(fetch ? { fetch } : {}), ...(cryptography ? { cryptography } : {}), ...(_signatureCheck ? { _signatureCheck } : {}),
     });
     // The same provider list and node as ConcordiumIdentity (which has checked them), for getProviders.
     /** @private */
