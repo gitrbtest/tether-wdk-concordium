@@ -82,6 +82,22 @@ A disposed manager throws `DisposalError`, and invalid options `ValueError`, as 
 - `npm run example:wdk-identity`: the whole journey live on testnet (verify with the test provider, create an account,
   get it through WDK, prove "over 18" from it); the shop's check accepted it.
 
+## Try it
+
+```bash
+git clone https://github.com/gitrbtest/tether-wdk-concordium.git
+cd tether-wdk-concordium
+git checkout p2/21-wdk-identity
+npm install                      # the repository root: the Concordium wallet module, which the demo uses too
+cd identity
+npm install                      # this package, with the WDK forks
+npm run example:wdk-identity     # OPEN_BROWSER=1 opens the provider's page for you
+```
+
+Concordium's test provider shows a form with made-up details: keep them and press Submit. The demo writes to testnet:
+an identity and an account (free), and the shop's question (about 5 testnet CCD, paid by a sponsor account). Tests:
+`npm test` in `identity/` (offline).
+
 ## Status
 
 A proposal: it depends on the WDK forks
