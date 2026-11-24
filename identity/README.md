@@ -913,7 +913,10 @@ Try it: `npm run example:wdk-identity` (the whole journey on testnet, through WD
 
 An identity is referred to as `{ providerIndex, identityIndex }`. Errors are WDK's `IdentityError` (`reason`:
 `PROVIDER_ERROR`, `VERIFICATION_REJECTED`, `IDENTITY_NOT_FOUND`, `IDENTITY_EXPIRED`, `ACCOUNT_LIMIT_REACHED`,
-`INVALID_REQUEST`, `CANNOT_PROVE`), with this package's own error as its `cause`.
+`INVALID_REQUEST`, `CANNOT_PROVE`, `CHAIN_ERROR`), with this package's own error as its `cause`; a disposed manager
+throws WDK's `DisposalError`, and invalid options `ValueError`. `recover()` refuses (`PROVIDER_ERROR`, try again) rather
+than return a shorter list when a provider could not be asked part way. Explained for reviewers in
+[docs/wdk-identity.md](docs/wdk-identity.md).
 
 ## Development
 
